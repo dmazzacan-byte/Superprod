@@ -199,6 +199,23 @@
                             <i class="bi bi-plus-lg"></i> Agregar Material
                         </button>
                     </div>
+                    
+                    <div class="card mt-4">
+                        <div class="card-body">
+                            <h5 class="card-title">Cargar Materiales desde Archivo</h5>
+                            <div class="alert alert-info" role="alert">
+                                Por favor, asegúrese de que su archivo Excel (.xlsx) tenga las siguientes columnas en este orden: **Código**, **Descripción**, **Costo** y **Existencia**.
+                            </div>
+                            <form id="uploadMaterialForm">
+                                <div class="mb-3">
+                                    <label for="materialFile" class="form-label">Seleccionar archivo (.xlsx)</label>
+                                    <input class="form-control" type="file" id="materialFile" accept=".xlsx" required>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Cargar Archivo</button>
+                            </form>
+                        </div>
+                    </div>
+
                     <table class="table table-striped">
                         <thead>
                             <tr>
