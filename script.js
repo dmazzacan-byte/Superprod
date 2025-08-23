@@ -89,7 +89,8 @@ document.getElementById('uploadMaterialForm').addEventListener('submit', functio
 
                     // Aquí está la corrección: recorremos los nuevos materiales y los actualizamos o añadimos
                     newMaterials.forEach(newMat => {
-                        const existingMaterialIndex = materials.findIndex(mat => mat.code === newMat.code);
+                        // Asegura que la comparación se haga sobre el mismo tipo de dato
+                        const existingMaterialIndex = materials.findIndex(mat => String(mat.code) === String(newMat.code));
                         if (existingMaterialIndex > -1) {
                             // Si el material existe, actualiza sus propiedades
                             materials[existingMaterialIndex].description = newMat.description;
@@ -342,8 +343,7 @@ function updateCostChart() {
                     beginAtZero: true
                 }
             }
-        }
-    });
+        });
 }
 
 // Lógica para manejar formularios
