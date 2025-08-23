@@ -50,6 +50,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const initialPage = window.location.hash ? window.location.hash.substring(1) : 'dashboard';
     showPage(initialPage);
 
+    // Llamadas iniciales
+    loadProducts();
+    loadMaterials();
+    loadInventory();
+    loadProductionOrders();
+    populateProductSelects();
+    updateDashboard();
 });
 
 // *** Las siguientes funciones se mantuvieron intactas ***
@@ -254,11 +261,3 @@ document.getElementById('costo-form').addEventListener('submit', (e) => {
 
 // Lógica de Modals y Eventos de Tabla
 // (Omitido para brevedad, ya que se asume que esta parte del código es funcional)
-
-// Llamadas iniciales
-loadProducts();
-loadMaterials();
-loadInventory();
-loadProductionOrders();
-populateProductSelects();
-updateDashboard();
