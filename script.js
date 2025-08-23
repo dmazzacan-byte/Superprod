@@ -102,6 +102,58 @@ document.getElementById('uploadMaterialForm').addEventListener('submit', functio
     }
 });
 
+// *** Lógica para los botones de editar y eliminar materiales ***
+document.getElementById('materialsTableBody').addEventListener('click', (e) => {
+    if (e.target.classList.contains('delete-material-btn')) {
+        const materialCode = e.target.dataset.code;
+        deleteMaterial(materialCode);
+    } else if (e.target.classList.contains('edit-material-btn')) {
+        const materialCode = e.target.dataset.code;
+        editMaterial(materialCode);
+    }
+});
+
+function deleteMaterial(code) {
+    if (confirm('¿Está seguro de que desea eliminar este material?')) {
+        materials = materials.filter(material => material.code !== code);
+        saveToLocalStorage();
+        loadMaterials();
+        loadInventory();
+        alert('Material eliminado con éxito.');
+    }
+}
+
+function editMaterial(code) {
+    const material = materials.find(m => m.code === code);
+    if (material) {
+        document.getElementById('editMaterialCode').value = material.code;
+        document.getElementById('editMaterialDescription').value = material.description;
+        document.getElementById('editMaterialCost').value = material.cost;
+        document.getElementById('editMaterialUnit').value = material.unit;
+        document.getElementById('editMaterialExistence').value = material.existence;
+        
+        const editModal = new bootstrap.Modal(document.getElementById('editMaterialModal'));
+        editModal.show();
+    }
+}
+
+document.getElementById('editMaterialForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const code = document.getElementById('editMaterialCode').value;
+    const material = materials.find(m => m.code === code);
+    if (material) {
+        material.description = document.getElementById('editMaterialDescription').value;
+        material.cost = parseFloat(document.getElementById('editMaterialCost').value);
+        material.unit = document.getElementById('editMaterialUnit').value;
+        material.existence = parseInt(document.getElementById('editMaterialExistence').value);
+        saveToLocalStorage();
+        loadMaterials();
+        loadInventory();
+        bootstrap.Modal.getInstance(document.getElementById('editMaterialModal')).hide();
+        alert('Material actualizado correctamente.');
+    }
+});
+
 // Función para inicializar la tabla de productos
 function loadProducts() {
     const productsTableBody = document.getElementById('productsTableBody');
