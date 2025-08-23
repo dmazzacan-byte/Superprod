@@ -343,7 +343,8 @@ function updateCostChart() {
                     beginAtZero: true
                 }
             }
-        });
+        }
+    });
 }
 
 // Lógica para manejar formularios
