@@ -77,28 +77,15 @@ document.getElementById('uploadMaterialForm').addEventListener('submit', functio
                 const newMaterialsFromFile = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
                 if (newMaterialsFromFile.length > 1) {
-                    const materialMap = new Map();
-
-                    // 1. Cargar materiales existentes en un mapa para una búsqueda rápida
-                    materials.forEach(mat => materialMap.set(String(mat.code), mat));
-
-                    // 2. Procesar los nuevos materiales del archivo
-                    newMaterialsFromFile.slice(1).forEach(row => {
-                        const newMat = {
-                            code: String(row[0]),
-                            description: String(row[1]),
-                            unit: String(row[2]),
-                            existence: Number(row[3]),
-                            cost: Number(row[4])
-                        };
-
-                        // 3. Si el material existe, actualízalo; si no, añádelo
-                        materialMap.set(newMat.code, newMat);
-                    });
-
-                    // 4. Convertir el mapa de nuevo a un array y reemplazar el original
-                    materials = Array.from(materialMap.values());
-
+                    // Reemplaza completamente los materiales existentes con los del archivo.
+                    materials = newMaterialsFromFile.slice(1).map(row => ({
+                        code: String(row[0]),
+                        description: String(row[1]),
+                        unit: String(row[2]),
+                        existence: Number(row[3]),
+                        cost: Number(row[4])
+                    }));
+                    
                     saveToLocalStorage();
                     loadMaterials();
                     loadInventory();
