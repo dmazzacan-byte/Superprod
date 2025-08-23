@@ -59,7 +59,48 @@ document.addEventListener('DOMContentLoaded', () => {
     updateDashboard();
 });
 
-// *** Las siguientes funciones se mantuvieron intactas ***
+// *** Lógica para el formulario de carga de archivo ***
+document.getElementById('uploadMaterialForm').addEventListener('submit', function(event) {
+    event.preventDefault();
+
+    const fileInput = document.getElementById('materialFile');
+    const file = fileInput.files[0];
+
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                // Asume que la primera fila son los encabezados y los ignora
+                if (json.length > 1) {
+                    const newMaterials = json.slice(1).map(row => {
+                        return {
+                            code: String(row[0]),
+                            description: String(row[1]),
+                            unit: String(row[2]),
+                            existence: Number(row[3]),
+                            cost: Number(row[4])
+                        };
+                    });
+                    materials = [...materials, ...newMaterials];
+                    saveToLocalStorage();
+                    loadMaterials();
+                    loadInventory();
+                }
+                alert('Materiales cargados correctamente.');
+            } catch (error) {
+                console.error("Error al procesar el archivo:", error);
+                alert('Hubo un error al procesar el archivo. Por favor, asegúrese de que el formato sea correcto.');
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    }
+});
 
 // Función para inicializar la tabla de productos
 function loadProducts() {
@@ -256,44 +297,5 @@ document.getElementById('costo-form').addEventListener('submit', (e) => {
         product.standardCost = totalCost;
         saveToLocalStorage();
         loadProducts(); // Recargar la tabla de productos para mostrar el costo actualizado
-    }
-});
-
-// Lógica de Modals y Eventos de Tabla
-// (Omitido para brevedad, ya que se asume que esta parte del código es funcional)
-document.getElementById('uploadMaterialForm').addEventListener('submit', function(event) {
-    event.preventDefault();
-
-    const fileInput = document.getElementById('materialFile');
-    const file = fileInput.files[0];
-
-    if (file) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, { type: 'array' });
-            const firstSheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[firstSheetName];
-            const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
-            // Asume que la primera fila son los encabezados y los ignora
-            if (json.length > 1) {
-                const newMaterials = json.slice(1).map(row => {
-                    return {
-                        code: String(row[0]),
-                        description: String(row[1]),
-                        unit: String(row[2]),
-                        existence: Number(row[3]),
-                        cost: Number(row[4])
-                    };
-                });
-                materials = [...materials, ...newMaterials];
-                saveToLocalStorage();
-                loadMaterials();
-                loadInventory();
-            }
-            alert('Materiales cargados correctamente.');
-        };
-        reader.readAsArrayBuffer(file);
     }
 });
