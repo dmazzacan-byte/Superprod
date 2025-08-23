@@ -59,7 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateDashboard();
 });
 
-// *** Lógica para el formulario de carga de archivo (corregido) ***
+// *** Lógica para el formulario de carga de archivo (CORREGIDO) ***
 document.getElementById('uploadMaterialForm').addEventListener('submit', function(event) {
     event.preventDefault();
 
@@ -74,40 +74,36 @@ document.getElementById('uploadMaterialForm').addEventListener('submit', functio
                 const workbook = XLSX.read(data, { type: 'array' });
                 const firstSheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[firstSheetName];
-                const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                const newMaterialsFromFile = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-                if (json.length > 1) {
-                    const newMaterials = json.slice(1).map(row => {
-                        return {
+                if (newMaterialsFromFile.length > 1) {
+                    const materialMap = new Map();
+
+                    // 1. Cargar materiales existentes en un mapa para una búsqueda rápida
+                    materials.forEach(mat => materialMap.set(String(mat.code), mat));
+
+                    // 2. Procesar los nuevos materiales del archivo
+                    newMaterialsFromFile.slice(1).forEach(row => {
+                        const newMat = {
                             code: String(row[0]),
                             description: String(row[1]),
                             unit: String(row[2]),
                             existence: Number(row[3]),
                             cost: Number(row[4])
                         };
+
+                        // 3. Si el material existe, actualízalo; si no, añádelo
+                        materialMap.set(newMat.code, newMat);
                     });
 
-                    // Aquí está la corrección: recorremos los nuevos materiales y los actualizamos o añadimos
-                    newMaterials.forEach(newMat => {
-                        // Asegura que la comparación se haga sobre el mismo tipo de dato
-                        const existingMaterialIndex = materials.findIndex(mat => String(mat.code) === String(newMat.code));
-                        if (existingMaterialIndex > -1) {
-                            // Si el material existe, actualiza sus propiedades
-                            materials[existingMaterialIndex].description = newMat.description;
-                            materials[existingMaterialIndex].unit = newMat.unit;
-                            materials[existingMaterialIndex].existence = newMat.existence;
-                            materials[existingMaterialIndex].cost = newMat.cost;
-                        } else {
-                            // Si el material no existe, lo añade
-                            materials.push(newMat);
-                        }
-                    });
+                    // 4. Convertir el mapa de nuevo a un array y reemplazar el original
+                    materials = Array.from(materialMap.values());
 
                     saveToLocalStorage();
                     loadMaterials();
                     loadInventory();
+                    alert('Materiales cargados y actualizados correctamente.');
                 }
-                alert('Materiales cargados y actualizados correctamente.');
             } catch (error) {
                 console.error("Error al procesar el archivo:", error);
                 alert('Hubo un error al procesar el archivo. Por favor, asegúrese de que el formato sea correcto.');
