@@ -261,3 +261,39 @@ document.getElementById('costo-form').addEventListener('submit', (e) => {
 
 // Lógica de Modals y Eventos de Tabla
 // (Omitido para brevedad, ya que se asume que esta parte del código es funcional)
+document.getElementById('uploadMaterialForm').addEventListener('submit', function(event) {
+    event.preventDefault();
+
+    const fileInput = document.getElementById('materialFile');
+    const file = fileInput.files[0];
+
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+            // Asume que la primera fila son los encabezados y los ignora
+            if (json.length > 1) {
+                const newMaterials = json.slice(1).map(row => {
+                    return {
+                        code: String(row[0]),
+                        description: String(row[1]),
+                        unit: String(row[2]),
+                        existence: Number(row[3]),
+                        cost: Number(row[4])
+                    };
+                });
+                materials = [...materials, ...newMaterials];
+                saveToLocalStorage();
+                loadMaterials();
+                loadInventory();
+            }
+            alert('Materiales cargados correctamente.');
+        };
+        reader.readAsArrayBuffer(file);
+    }
+});
