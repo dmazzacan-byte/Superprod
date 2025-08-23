@@ -15,7 +15,7 @@ function saveToLocalStorage() {
     localStorage.setItem('materials', JSON.stringify(materials));
 }
 
-// *** Lógica para mostrar las pestañas (sección corregida) ***
+// *** Lógica para mostrar las pestañas ***
 document.addEventListener('DOMContentLoaded', () => {
     const navLinks = document.querySelectorAll('.nav-link');
     const pages = document.querySelectorAll('.page-content');
