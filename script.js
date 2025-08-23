@@ -175,6 +175,8 @@ function loadProducts() {
 function loadMaterials() {
     const materialsTableBody = document.getElementById('materialsTableBody');
     materialsTableBody.innerHTML = '';
+    // Ordenar los materiales por código alfabéticamente
+    materials.sort((a, b) => a.code.localeCompare(b.code));
     materials.forEach(material => {
         const row = document.createElement('tr');
         row.innerHTML = `
@@ -195,6 +197,8 @@ function loadMaterials() {
 function loadInventory() {
     const inventoryTableBody = document.getElementById('inventoryTableBody');
     inventoryTableBody.innerHTML = '';
+    // Ordenar los materiales por código alfabéticamente
+    materials.sort((a, b) => a.code.localeCompare(b.code));
     materials.forEach(material => {
         const row = document.createElement('tr');
         row.innerHTML = `
