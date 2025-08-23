@@ -102,4 +102,210 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="col
+                        <div class="col-md-4">
+                            <div class="card text-white bg-success mb-3">
+                                <div class="card-header">Órdenes de Producción Activas</div>
+                                <div class="card-body">
+                                    <h5 class="card-title"><span id="active-orders">0</span></h5>
+                                    <p class="card-text">Órdenes en proceso.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card text-white bg-info mb-3">
+                                <div class="card-header">Materiales en Bajo Inventario</div>
+                                <div class="card-body">
+                                    <h5 class="card-title"><span id="low-stock">0</span></h5>
+                                    <p class="card-text">Materiales que necesitan ser reabastecidos.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <canvas id="costChart"></canvas>
+                </div>
+
+                <div id="costos-page" class="page-content" style="display: none;">
+                    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                        <h1 class="h2">Costos Estándar</h1>
+                    </div>
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">Calcular Costo Estándar</h5>
+                            <form id="costo-form">
+                                <div class="mb-3">
+                                    <label for="productSelect" class="form-label">Producto</label>
+                                    <select class="form-select" id="productSelect" required>
+                                        <option value="">Seleccione un producto</option>
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Calcular Costo</button>
+                            </form>
+                            <div id="costResult" class="mt-3" style="display: none;">
+                                <h5>Costo Estándar: $<span id="standardCostValue"></span></h5>
+                                <p>Costo de Materiales: $<span id="materialsCost"></span></p>
+                                <p>Costo de Empaque: $<span id="packagingCost"></span></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="ordenes-page" class="page-content" style="display: none;">
+                    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                        <h1 class="h2">Órdenes de Producción</h1>
+                        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addOrderModal">
+                            <i class="bi bi-plus-lg"></i> Agregar Orden
+                        </button>
+                    </div>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>ID Orden</th>
+                                <th>Producto</th>
+                                <th>Cantidad</th>
+                                <th>Fecha Inicio</th>
+                                <th>Fecha Fin</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ordersTableBody">
+                            </tbody>
+                    </table>
+                </div>
+
+                <div id="inventario-page" class="page-content" style="display: none;">
+                    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                        <h1 class="h2">Inventario</h1>
+                    </div>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Código</th>
+                                <th>Descripción</th>
+                                <th>Existencia</th>
+                                <th>Unidad</th>
+                                <th>Costo</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inventoryTableBody">
+                            </tbody>
+                    </table>
+                </div>
+
+                <div id="materiales-page" class="page-content" style="display: none;">
+                    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                        <h1 class="h2">Materiales</h1>
+                        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addMaterialModal">
+                            <i class="bi bi-plus-lg"></i> Agregar Material
+                        </button>
+                    </div>
+                    
+                    <div class="card mt-4">
+                        <div class="card-body">
+                            <h5 class="card-title">Cargar Materiales desde Archivo</h5>
+                            <div class="alert alert-info" role="alert">
+                                Por favor, asegúrese de que su archivo Excel (.xlsx) tenga las siguientes columnas en este orden: **Código**, **Descripción**, **Unidad**, **Existencia** y **Costo**.
+                            </div>
+                            <form id="uploadMaterialForm">
+                                <div class="mb-3">
+                                    <label for="materialFile" class="form-label">Seleccionar archivo (.xlsx)</label>
+                                    <input class="form-control" type="file" id="materialFile" accept=".xlsx" required>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Cargar Archivo</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Código</th>
+                                <th>Descripción</th>
+                                <th>Costo</th>
+                                <th>Unidad</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="materialsTableBody">
+                            </tbody>
+                    </table>
+                </div>
+
+                <div id="reportes-page" class="page-content" style="display: none;">
+                    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                        <h1 class="h2">Reportes</h1>
+                    </div>
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title">Costo por Orden de Producción</h5>
+                            <div id="cost-per-order-report"></div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">Uso de Materiales</h5>
+                            <div id="material-usage-report"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="productos-page" class="page-content" style="display: none;">
+                    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                        <h1 class="h2">Productos</h1>
+                        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addProductModal">
+                            <i class="bi bi-plus-lg"></i> Agregar Producto
+                        </button>
+                    </div>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Código</th>
+                                <th>Nombre</th>
+                                <th>Costo Estándar</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="productsTableBody">
+                            </tbody>
+                    </table>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <div class="modal fade" id="addOrderModal" tabindex="-1" aria-labelledby="addOrderModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addOrderModalLabel">Agregar Orden de Producción</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addOrderForm">
+                        <div class="mb-3">
+                            <label for="orderProductSelect" class="form-label">Producto</label>
+                            <select class="form-select" id="orderProductSelect" required>
+                                <option value="">Seleccione un producto</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="orderQuantity" class="form-label">Cantidad a Producir</label>
+                            <input type="number" class="form-control" id="orderQuantity" required min="1">
+                        </div>
+                        <div class="mb-3">
+                            <label for="orderDate" class="form-label">Fecha de Creación</label>
+                            <input type="date" class="form-control" id="orderDate" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Crear Orden</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="addProductModal" tabindex="-1" aria-labelledby="addProductModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="
