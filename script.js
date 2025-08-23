@@ -59,7 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateDashboard();
 });
 
-// *** Lógica para el formulario de carga de archivo ***
+// *** Lógica para el formulario de carga de archivo (corregido) ***
 document.getElementById('uploadMaterialForm').addEventListener('submit', function(event) {
     event.preventDefault();
 
@@ -76,7 +76,6 @@ document.getElementById('uploadMaterialForm').addEventListener('submit', functio
                 const worksheet = workbook.Sheets[firstSheetName];
                 const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-                // Asume que la primera fila son los encabezados y los ignora
                 if (json.length > 1) {
                     const newMaterials = json.slice(1).map(row => {
                         return {
@@ -87,12 +86,27 @@ document.getElementById('uploadMaterialForm').addEventListener('submit', functio
                             cost: Number(row[4])
                         };
                     });
-                    materials = [...materials, ...newMaterials];
+
+                    // Aquí está la corrección: recorremos los nuevos materiales y los actualizamos o añadimos
+                    newMaterials.forEach(newMat => {
+                        const existingMaterialIndex = materials.findIndex(mat => mat.code === newMat.code);
+                        if (existingMaterialIndex > -1) {
+                            // Si el material existe, actualiza sus propiedades
+                            materials[existingMaterialIndex].description = newMat.description;
+                            materials[existingMaterialIndex].unit = newMat.unit;
+                            materials[existingMaterialIndex].existence = newMat.existence;
+                            materials[existingMaterialIndex].cost = newMat.cost;
+                        } else {
+                            // Si el material no existe, lo añade
+                            materials.push(newMat);
+                        }
+                    });
+
                     saveToLocalStorage();
                     loadMaterials();
                     loadInventory();
                 }
-                alert('Materiales cargados correctamente.');
+                alert('Materiales cargados y actualizados correctamente.');
             } catch (error) {
                 console.error("Error al procesar el archivo:", error);
                 alert('Hubo un error al procesar el archivo. Por favor, asegúrese de que el formato sea correcto.');
