@@ -311,11 +311,11 @@ document.getElementById('addMaterialForm').addEventListener('submit', function(e
 
     const materialCode = document.getElementById('addMaterialCode').value.trim();
     const materialDescription = document.getElementById('addMaterialDescription').value.trim();
-    const materialCost = parseFloat(document.getElementById('addMaterialCost').value);
     const materialUnit = document.getElementById('addMaterialUnit').value.trim();
     const materialExistence = parseInt(document.getElementById('addMaterialExistence').value);
+    const materialCost = parseFloat(document.getElementById('addMaterialCost').value);
 
-    if (materialCode === '' || materialDescription === '' || isNaN(materialCost) || materialUnit === '' || isNaN(materialExistence)) {
+    if (materialCode === '' || materialDescription === '' || materialUnit === '' || isNaN(materialExistence) || isNaN(materialCost)) {
         alert('Por favor, complete todos los campos con valores válidos.');
         return;
     }
@@ -807,9 +807,9 @@ function editMaterial(code) {
     if (material) {
         document.getElementById('editMaterialCode').value = material.code;
         document.getElementById('editMaterialDescription').value = material.description;
-        document.getElementById('editMaterialCost').value = material.cost;
         document.getElementById('editMaterialUnit').value = material.unit;
         document.getElementById('editMaterialExistence').value = material.existence;
+        document.getElementById('editMaterialCost').value = material.cost;
         
         const editModal = new bootstrap.Modal(document.getElementById('editMaterialModal'));
         editModal.show();
@@ -822,9 +822,9 @@ document.getElementById('editMaterialForm').addEventListener('submit', (e) => {
     const material = materials.find(m => m.code === code);
     if (material) {
         material.description = document.getElementById('editMaterialDescription').value;
-        material.cost = parseFloat(document.getElementById('editMaterialCost').value);
         material.unit = document.getElementById('editMaterialUnit').value;
         material.existence = parseInt(document.getElementById('editMaterialExistence').value);
+        material.cost = parseFloat(document.getElementById('editMaterialCost').value);
         saveToLocalStorage();
         loadMaterials();
         loadInventory();
@@ -965,8 +965,8 @@ function loadMaterials() {
         row.innerHTML = `
             <td>${material.code}</td>
             <td>${material.description}</td>
-            <td>$${material.cost.toFixed(2)}</td>
             <td>${material.unit}</td>
+            <td>$${material.cost.toFixed(2)}</td>
             <td>
                 <button class="btn btn-warning btn-sm edit-material-btn" data-code="${material.code}">Editar</button>
                 <button class="btn btn-danger btn-sm delete-material-btn" data-code="${material.code}">Eliminar</button>
@@ -987,8 +987,8 @@ function loadInventory() {
         row.innerHTML = `
             <td>${material.code}</td>
             <td>${material.description}</td>
-            <td>${material.existence}</td>
             <td>${material.unit}</td>
+            <td>${material.existence}</td>
             <td>$${material.cost.toFixed(2)}</td>
         `;
         inventoryTableBody.appendChild(row);
