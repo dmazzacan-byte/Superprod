@@ -332,6 +332,7 @@
                                     <th>Fecha de Inicio</th>
                                     <th>Fecha de Finalización</th>
                                     <th>Estado</th>
+                                    <th>SobreCosto</th>
                                     <th>Acciones</th>
                                 </tr>
                             </thead>
@@ -388,6 +389,7 @@
                                         <th>Fecha de Inicio</th>
                                         <th>Fecha de Finalización</th>
                                         <th>Estado</th>
+                                        <th>SobreCosto</th>
                                     </tr>
                                 </thead>
                                 <tbody id="reportTableBody">
@@ -561,6 +563,13 @@
                     <div class="mb-3">
                         <label for="actualProductionQuantity" class="form-label">Cantidad Real Producida</label>
                         <input type="number" step="0.01" class="form-control" id="actualProductionQuantity" required>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="markAsCompleted">
+                        <label class="form-check-label" for="markAsCompleted">
+                            Marcar como Completada y Cerrar la Orden
+                        </label>
                     </div>
 
                     <h5 class="mt-4">Consumo Extra de Materiales (Opcional)</h5>
