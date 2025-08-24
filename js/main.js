@@ -1,6 +1,6 @@
-import { updateDashboard, initializeDashboardListeners } from './dashboard.js';
-import { loadMaterials, initializeMaterialsListeners } from './materials.js';
-import { loadProducts, loadProductionOrders, initializeProductsListeners } from './products.js';
+import { updateDashboard } from './dashboard.js';
+import { loadMaterials } from './materials.js';
+import { loadProducts, loadProductionOrders } from './products.js';
 
 // Simulación de una base de datos local
 export let products = JSON.parse(localStorage.getItem('products')) || [];
@@ -36,76 +36,14 @@ export function updateGlobalData(dataKey, newData) {
         case 'materials':
             materials = newData;
             break;
+        default:
+            console.error('Clave de datos no válida:', dataKey);
+            return;
     }
     saveToLocalStorage();
 }
 
-/**
- * Calcula el costo total de una orden de producción.
- * @param {object} order - La orden de producción.
- * @returns {{materialCost: number, laborCost: number, totalCost: number, overcost: number}}
- */
-export function calculateTotalCost(order) {
-    let materialCost = 0;
-    let overcost = 0;
-
-    // Calcular costo de materiales según la receta original
-    const recipe = recipes[order.productId];
-    if (recipe) {
-        recipe.materials.forEach(recipeMaterial => {
-            const material = materials.find(m => m.code === recipeMaterial.code);
-            if (material) {
-                materialCost += (recipeMaterial.quantity * material.unitCost);
-            }
-        });
-    }
-
-    // Calcular sobrecostos por materiales extra
-    if (order.extraConsumption) {
-        order.extraConsumption.forEach(extra => {
-            const material = materials.find(m => m.code === extra.code);
-            if (material) {
-                overcost += (extra.quantity * material.unitCost);
-            }
-        });
-    }
-
-    // Calcular el costo de mano de obra
-    const product = products.find(p => p.id === order.productId);
-    const laborCost = product ? (product.laborCost * order.quantity) : 0;
-    
-    const totalCost = materialCost + laborCost + overcost;
-    return { materialCost, laborCost, totalCost, overcost };
-}
-
-/**
- * Calcula métricas generales del dashboard.
- * @returns {{totalValue: number, totalCost: number, totalProfit: number, totalOvercost: number, totalQuantity: number}}
- */
-export function calculateProductionOrderMetrics() {
-    let totalValue = 0;
-    let totalCost = 0;
-    let totalProfit = 0;
-    let totalOvercost = 0;
-    let totalQuantity = 0;
-
-    productionOrders.filter(o => o.status === 'Completada').forEach(order => {
-        const product = products.find(p => p.id === order.productId);
-        const costs = calculateTotalCost(order);
-        
-        const value = product ? product.salePrice * order.quantity : 0;
-        const profit = value - costs.totalCost;
-
-        totalValue += value;
-        totalCost += costs.totalCost;
-        totalProfit += profit;
-        totalOvercost += costs.overcost;
-        totalQuantity += order.quantity;
-    });
-
-    return { totalValue, totalCost, totalProfit, totalOvercost, totalQuantity };
-}
-
+// Inicialización de la página y manejo de la navegación
 document.addEventListener('DOMContentLoaded', () => {
     const navLinks = document.querySelectorAll('.nav-link');
     const pages = document.querySelectorAll('.page-content');
@@ -149,8 +87,4 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const initialPage = window.location.hash.substring(1) || 'dashboard';
     showPage(initialPage);
-
-    initializeDashboardListeners();
-    initializeMaterialsListeners();
-    initializeProductsListeners();
 });
