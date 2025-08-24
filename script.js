@@ -7,6 +7,7 @@ let materials = JSON.parse(localStorage.getItem('materials')) || [];
 let costChartInstance = null;
 
 let currentProductIdForRecipe = null;
+let currentOrderIdToFinalize = null; // Variable para almacenar el ID de la orden actual
 
 // La función 'saveToLocalStorage' ahora guarda los nuevos arrays
 function saveToLocalStorage() {
@@ -365,25 +366,7 @@ document.getElementById('productionOrderForm').addEventListener('submit', functi
         alert('No se puede crear la orden. No hay una receta definida para este producto. Por favor, gestione la receta en la sección de Productos.');
         return;
     }
-
-    // Verificar si hay suficientes materiales en stock
-    let hasSufficientMaterials = true;
-    let missingMaterials = [];
     
-    recipe.forEach(item => {
-        const material = materials.find(m => m.code === item.materialCode);
-        const requiredQuantity = item.quantity * quantity;
-        if (!material || material.existence < requiredQuantity) {
-            hasSufficientMaterials = false;
-            missingMaterials.push(material ? material.description : 'Material Desconocido');
-        }
-    });
-
-    if (!hasSufficientMaterials) {
-        alert(`No hay suficientes materiales para esta orden. Faltan: ${missingMaterials.join(', ')}`);
-        return;
-    }
-
     // Si hay materiales, crear la orden
     const newOrder = {
         orderId: Date.now().toString(), // ID único
@@ -391,13 +374,16 @@ document.getElementById('productionOrderForm').addEventListener('submit', functi
         quantity,
         operator,
         startDate: new Date().toLocaleDateString('es-ES'),
-        status: 'Pendiente'
+        status: 'Pendiente',
+        actualQuantity: null,
+        extraConsumption: []
     };
     productionOrders.push(newOrder);
     saveToLocalStorage();
     loadProductionOrders();
     updateDashboard();
-    alert('Orden de producción creada con éxito. Los materiales se descontarán al completarla.');
+    alert('Orden de producción creada con éxito.');
+    document.getElementById('productionOrderForm').reset();
 });
 
 // Lógica para el formulario de reportes
@@ -443,7 +429,7 @@ function generateProductionReport() {
         row.innerHTML = `
             <td>${order.orderId}</td>
             <td>${product ? product.name : 'Desconocido'}</td>
-            <td>${order.quantity}</td>
+            <td>${order.actualQuantity !== null ? order.actualQuantity : order.quantity}</td>
             <td>${order.operator || 'N/A'}</td>
             <td>${order.startDate}</td>
             <td>${order.finishDate || 'N/A'}</td>
@@ -451,43 +437,6 @@ function generateProductionReport() {
         `;
         reportTableBody.appendChild(row);
     });
-}
-
-// Función para completar una orden de producción
-function completeProductionOrder(orderId) {
-    const order = productionOrders.find(o => o.orderId === orderId);
-    if (!order || order.status === 'Completada') {
-        return;
-    }
-
-    const recipe = recipes[order.productId];
-    if (!recipe) {
-        alert('No se puede completar la orden. No hay una receta definida para este producto.');
-        return;
-    }
-
-    // Descontar los materiales del inventario
-    recipe.forEach(item => {
-        const material = materials.find(m => m.code === item.materialCode);
-        if (material) {
-            const requiredQuantity = item.quantity * order.quantity;
-            material.existence -= requiredQuantity;
-        }
-    });
-
-    // Actualizar el estado de la orden y su fecha de finalización
-    order.status = 'Completada';
-    order.finishDate = new Date().toLocaleDateString('es-ES');
-    
-    // Recalcular el costo total de la orden
-    const { totalCost } = calculateStandardCost(order.productId);
-    order.totalCost = totalCost * order.quantity;
-
-    saveToLocalStorage();
-    loadProductionOrders();
-    loadInventory();
-    updateDashboard();
-    alert('¡Orden de producción completada con éxito! El inventario ha sido actualizado.');
 }
 
 // *** Lógica para los botones de editar y eliminar materiales ***
@@ -503,16 +452,210 @@ document.getElementById('materialsTableBody').addEventListener('click', (e) => {
 
 // Lógica para los botones de la tabla de órdenes
 document.getElementById('ordersTableBody').addEventListener('click', (e) => {
-    if (e.target.classList.contains('complete-order-btn')) {
+    if (e.target.classList.contains('finalize-order-btn')) {
         const orderId = e.target.dataset.id;
-        if (confirm('¿Está seguro de que desea completar esta orden? El inventario será descontado.')) {
-            completeProductionOrder(orderId);
-        }
+        openFinalizeOrderModal(orderId);
     } else if (e.target.classList.contains('view-order-btn')) {
         const orderId = e.target.dataset.id;
         viewOrderDetails(orderId);
+    } else if (e.target.classList.contains('delete-order-btn')) {
+        const orderId = e.target.dataset.id;
+        deleteProductionOrder(orderId);
     }
 });
+
+// Función para abrir el modal de Finalizar Orden
+function openFinalizeOrderModal(orderId) {
+    currentOrderIdToFinalize = orderId;
+    const order = productionOrders.find(o => o.orderId === orderId);
+    if (!order) {
+        alert('Orden no encontrada.');
+        return;
+    }
+
+    document.getElementById('finalizeOrderId').textContent = orderId;
+    document.getElementById('actualProductionQuantity').value = order.quantity;
+
+    const extraConsumptionList = document.getElementById('extraConsumptionList');
+    extraConsumptionList.innerHTML = ''; // Limpiar el contenedor
+
+    // Si ya hay consumos extra guardados, mostrarlos
+    if (order.extraConsumption && order.extraConsumption.length > 0) {
+        order.extraConsumption.forEach(extra => {
+            addExtraConsumptionRow(extra.materialCode, extra.quantity);
+        });
+    }
+
+    const finalizeModal = new bootstrap.Modal(document.getElementById('finalizeOrderModal'));
+    finalizeModal.show();
+}
+
+// Lógica para añadir un campo de consumo extra
+document.getElementById('addExtraMaterialBtn').addEventListener('click', () => {
+    addExtraConsumptionRow();
+});
+
+function addExtraConsumptionRow(materialCode = '', quantity = '') {
+    const extraConsumptionList = document.getElementById('extraConsumptionList');
+    const row = document.createElement('div');
+    row.classList.add('row', 'g-2', 'mb-2');
+    row.innerHTML = `
+        <div class="col-md-7">
+            <select class="form-control extra-material-select" required>
+                <option value="">Seleccione un material</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <input type="number" step="0.01" class="form-control extra-quantity-input" placeholder="Cantidad" value="${quantity}" required>
+        </div>
+        <div class="col-md-2">
+            <button type="button" class="btn btn-danger remove-extra-btn w-100">X</button>
+        </div>
+    `;
+
+    extraConsumptionList.appendChild(row);
+
+    // Llenar el select con los materiales
+    const select = row.querySelector('.extra-material-select');
+    materials.forEach(material => {
+        const option = document.createElement('option');
+        option.value = material.code;
+        option.textContent = `${material.code} - ${material.description}`;
+        select.appendChild(option);
+    });
+
+    if (materialCode) {
+        select.value = materialCode;
+    }
+}
+
+// Lógica para eliminar un campo de consumo extra
+document.getElementById('extraConsumptionList').addEventListener('click', (e) => {
+    if (e.target.classList.contains('remove-extra-btn')) {
+        e.target.closest('.row').remove();
+    }
+});
+
+// Lógica para el envío del formulario de finalización
+document.getElementById('finalizeOrderForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    finalizeProductionOrder();
+});
+
+// Función para finalizar la orden de producción y descontar inventario
+function finalizeProductionOrder() {
+    const order = productionOrders.find(o => o.orderId === currentOrderIdToFinalize);
+    if (!order) return;
+
+    const actualQuantity = parseFloat(document.getElementById('actualProductionQuantity').value);
+    if (isNaN(actualQuantity) || actualQuantity <= 0) {
+        alert('Por favor, ingrese una cantidad real producida válida.');
+        return;
+    }
+
+    const recipe = recipes[order.productId];
+    if (!recipe) {
+        alert('No se puede finalizar la orden. No hay una receta definida para este producto.');
+        return;
+    }
+
+    // Recopilar los consumos extras del formulario
+    const extraConsumption = [];
+    document.querySelectorAll('#extraConsumptionList .row').forEach(row => {
+        const materialCode = row.querySelector('.extra-material-select').value;
+        const quantity = parseFloat(row.querySelector('.extra-quantity-input').value);
+        if (materialCode && !isNaN(quantity) && quantity > 0) {
+            extraConsumption.push({ materialCode, quantity });
+        }
+    });
+
+    // Descontar los materiales del inventario (receta + extras)
+    let hasSufficientMaterials = true;
+    let missingMaterials = [];
+
+    // Calcular y verificar consumo de la receta
+    recipe.forEach(item => {
+        const material = materials.find(m => m.code === item.materialCode);
+        const requiredQuantity = item.quantity * actualQuantity;
+        if (!material || material.existence < requiredQuantity) {
+            hasSufficientMaterials = false;
+            missingMaterials.push(`${material ? material.description : 'Desconocido'} (requerido: ${requiredQuantity})`);
+        }
+        if (material) {
+            material.existence -= requiredQuantity;
+        }
+    });
+
+    // Calcular y verificar consumo extra
+    extraConsumption.forEach(extra => {
+        const material = materials.find(m => m.code === extra.materialCode);
+        if (!material || material.existence < extra.quantity) {
+            hasSufficientMaterials = false;
+            missingMaterials.push(`${material ? material.description : 'Desconocido'} (extra: ${extra.quantity})`);
+        }
+        if (material) {
+            material.existence -= extra.quantity;
+        }
+    });
+
+    if (!hasSufficientMaterials) {
+        alert(`No hay suficientes materiales en stock para finalizar esta orden. Faltan: ${missingMaterials.join(', ')}. No se descontará el inventario.`);
+        // Revertir los cambios de existencia si la validación falla
+        recipe.forEach(item => {
+            const material = materials.find(m => m.code === item.materialCode);
+            if (material) {
+                material.existence += item.quantity * actualQuantity;
+            }
+        });
+        extraConsumption.forEach(extra => {
+            const material = materials.find(m => m.code === extra.materialCode);
+            if (material) {
+                material.existence += extra.quantity;
+            }
+        });
+        return;
+    }
+
+    // Actualizar el estado de la orden y sus datos
+    order.status = 'Completada';
+    order.finishDate = new Date().toLocaleDateString('es-ES');
+    order.actualQuantity = actualQuantity;
+    order.extraConsumption = extraConsumption;
+    
+    // Recalcular el costo total de la orden
+    const { totalCost } = calculateStandardCost(order.productId);
+    order.totalCost = totalCost * actualQuantity;
+
+    saveToLocalStorage();
+    loadProductionOrders();
+    loadInventory();
+    updateDashboard();
+    bootstrap.Modal.getInstance(document.getElementById('finalizeOrderModal')).hide();
+    alert('¡Orden de producción finalizada con éxito! El inventario ha sido actualizado.');
+}
+
+// Función para eliminar una orden de producción
+function deleteProductionOrder(orderId) {
+    const orderIndex = productionOrders.findIndex(o => o.orderId === orderId);
+    if (orderIndex === -1) {
+        alert('Orden no encontrada.');
+        return;
+    }
+
+    const order = productionOrders[orderIndex];
+    if (order.status !== 'Pendiente' || order.actualQuantity !== null) {
+        alert('Solo se pueden eliminar órdenes pendientes sin consumos o producción registrada.');
+        return;
+    }
+
+    if (confirm('¿Está seguro de que desea eliminar esta orden de producción? Esta acción es irreversible.')) {
+        productionOrders.splice(orderIndex, 1);
+        saveToLocalStorage();
+        loadProductionOrders();
+        updateDashboard();
+        alert('Orden eliminada con éxito.');
+    }
+}
 
 // Función para mostrar el modal con los detalles de la orden
 function viewOrderDetails(orderId) {
@@ -529,31 +672,62 @@ function viewOrderDetails(orderId) {
     document.getElementById('detailOrderId').textContent = order.orderId;
     document.getElementById('detailProductName').textContent = product.name;
     document.getElementById('detailQuantity').textContent = order.quantity;
+    document.getElementById('detailActualQuantity').textContent = order.actualQuantity !== null ? order.actualQuantity : 'N/A';
     document.getElementById('detailOperator').textContent = order.operator;
     document.getElementById('detailStartDate').textContent = order.startDate;
+    document.getElementById('detailFinishDate').textContent = order.finishDate || 'N/A';
     document.getElementById('detailStatus').textContent = order.status;
 
     // Llenar la tabla de materiales requeridos
     const requiredMaterialsTableBody = document.getElementById('requiredMaterialsTableBody');
     requiredMaterialsTableBody.innerHTML = '';
+    
+    const combinedConsumption = {};
 
-    if (recipe.length === 0) {
-        requiredMaterialsTableBody.innerHTML = '<tr><td colspan="4" class="text-center">No hay receta definida para este producto.</td></tr>';
+    // Consumo de la receta
+    recipe.forEach(item => {
+        const required = (item.quantity * (order.actualQuantity || order.quantity));
+        combinedConsumption[item.materialCode] = {
+            recipeQuantity: required,
+            extraQuantity: 0
+        };
+    });
+
+    // Consumo extra
+    if (order.extraConsumption) {
+        order.extraConsumption.forEach(extra => {
+            if (combinedConsumption[extra.materialCode]) {
+                combinedConsumption[extra.materialCode].extraQuantity += extra.quantity;
+            } else {
+                combinedConsumption[extra.materialCode] = {
+                    recipeQuantity: 0,
+                    extraQuantity: extra.quantity
+                };
+            }
+        });
+    }
+
+    if (Object.keys(combinedConsumption).length === 0) {
+        requiredMaterialsTableBody.innerHTML = '<tr><td colspan="5" class="text-center">No hay receta o consumos registrados para este producto.</td></tr>';
     } else {
-        recipe.forEach(item => {
-            const material = materials.find(m => m.code === item.materialCode);
+        for (const code in combinedConsumption) {
+            const consumption = combinedConsumption[code];
+            const material = materials.find(m => m.code === code);
+            const total = consumption.recipeQuantity + consumption.extraQuantity;
+            
             if (material) {
-                const requiredQuantity = (item.quantity * order.quantity).toFixed(2);
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td>${item.materialCode}</td>
+                    <td>${code}</td>
                     <td>${material.description}</td>
-                    <td>${requiredQuantity}</td>
+                    <td>${consumption.recipeQuantity.toFixed(2)}</td>
+                    <td>${consumption.extraQuantity.toFixed(2)}</td>
+                    <td>${total.toFixed(2)}</td>
                     <td>${material.unit}</td>
                 `;
                 requiredMaterialsTableBody.appendChild(row);
             }
-        });
+        }
     }
 
     // Mostrar el modal
@@ -828,6 +1002,8 @@ function loadProductionOrders() {
     productionOrders.forEach(order => {
         const product = products.find(p => p.id === order.productId);
         const row = document.createElement('tr');
+        const isCompleted = order.status === 'Completada';
+        
         row.innerHTML = `
             <td>${order.orderId}</td>
             <td>${product ? product.name : 'Desconocido'}</td>
@@ -836,7 +1012,8 @@ function loadProductionOrders() {
             <td>${order.finishDate || 'N/A'}</td>
             <td>${order.status}</td>
             <td>
-                <button class="btn btn-primary btn-sm complete-order-btn" data-id="${order.orderId}" ${order.status === 'Completada' ? 'disabled' : ''}>Completar</button>
+                <button class="btn btn-primary btn-sm finalize-order-btn me-1" data-id="${order.orderId}" ${isCompleted ? 'disabled' : ''}>Finalizar</button>
+                <button class="btn btn-danger btn-sm delete-order-btn me-1" data-id="${order.orderId}" ${isCompleted ? 'disabled' : ''}>Eliminar</button>
                 <button class="btn btn-info btn-sm view-order-btn" data-id="${order.orderId}">Ver</button>
             </td>
         `;
@@ -900,6 +1077,20 @@ function updateDashboard() {
     let completedOrders = 0;
     productionOrders.forEach(order => {
         if (order.status === 'Completada') {
+            const { totalCost: standardCost } = calculateStandardCost(order.productId);
+            const recipeCost = (order.actualQuantity || order.quantity) * standardCost;
+            
+            let extraCost = 0;
+            if (order.extraConsumption && order.extraConsumption.length > 0) {
+                order.extraConsumption.forEach(extra => {
+                    const material = materials.find(m => m.code === extra.materialCode);
+                    if (material) {
+                        extraCost += material.cost * extra.quantity;
+                    }
+                });
+            }
+
+            order.totalCost = recipeCost + extraCost;
             totalCost += order.totalCost;
             completedOrders++;
         }
