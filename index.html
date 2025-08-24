@@ -200,6 +200,22 @@
 
                 <div class="card mt-4">
                     <div class="card-header">
+                        <h4>Cargar Recetas desde Excel</h4>
+                    </div>
+                    <div class="card-body">
+                        <form id="uploadRecipeForm">
+                            <div class="mb-3">
+                                <label for="recipeFile" class="form-label">Seleccione el archivo de recetas (.xlsx, .xls, .csv)</label>
+                                <input class="form-control" type="file" id="recipeFile" accept=".xlsx, .xls, .csv" required>
+                            </div>
+                            <button type="submit" class="btn btn-success">Cargar Recetas</button>
+                            <p class="mt-2 text-muted">Asegúrese de que el archivo tenga las columnas: `product_id`, `material_code`, `quantity`.</p>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-header">
                         <h4>Añadir Producto Individualmente</h4>
                     </div>
                     <div class="card-body">
