@@ -6,6 +6,8 @@ let operators = JSON.parse(localStorage.getItem('operators')) || [];
 let materials = JSON.parse(localStorage.getItem('materials')) || [];
 let costChartInstance = null;
 
+let currentProductIdForRecipe = null;
+
 // La función 'saveToLocalStorage' ahora guarda los nuevos arrays
 function saveToLocalStorage() {
     localStorage.setItem('products', JSON.stringify(products));
@@ -266,8 +268,8 @@ document.getElementById('productionOrderForm').addEventListener('submit', functi
     }
 
     const recipe = recipes[productId];
-    if (!recipe) {
-        alert('No se puede crear la orden. No hay una receta definida para este producto.');
+    if (!recipe || recipe.length === 0) {
+        alert('No se puede crear la orden. No hay una receta definida para este producto. Por favor, gestione la receta en la sección de Productos.');
         return;
     }
 
@@ -474,11 +476,112 @@ function loadProducts() {
             <td>
                 <button class="btn btn-warning btn-sm edit-product-btn" data-id="${product.id}">Editar</button>
                 <button class="btn btn-danger btn-sm delete-product-btn" data-id="${product.id}">Eliminar</button>
+                <button class="btn btn-info btn-sm manage-recipe-btn" data-id="${product.id}">Gestionar Receta</button>
             </td>
         `;
         productsTableBody.appendChild(row);
     });
 }
+
+// Lógica para los nuevos botones "Gestionar Receta"
+document.getElementById('productsTableBody').addEventListener('click', (e) => {
+    if (e.target.classList.contains('manage-recipe-btn')) {
+        const productId = e.target.dataset.id;
+        manageRecipe(productId);
+    }
+});
+
+// Función para inicializar el modal de gestión de recetas
+function manageRecipe(productId) {
+    currentProductIdForRecipe = productId;
+    const product = products.find(p => p.id === productId);
+    document.getElementById('recipeProductName').textContent = product ? product.name : 'Producto Desconocido';
+    
+    populateRecipeMaterialSelect();
+    loadRecipeTable(productId);
+    
+    const recipeModal = new bootstrap.Modal(document.getElementById('manageRecipeModal'));
+    recipeModal.show();
+}
+
+// Función para cargar los materiales en el select del modal de recetas
+function populateRecipeMaterialSelect() {
+    const select = document.getElementById('recipeMaterialSelect');
+    select.innerHTML = '<option value="">Seleccione un material</option>';
+    materials.forEach(material => {
+        const option = document.createElement('option');
+        option.value = material.code;
+        option.textContent = `${material.description} (${material.code})`;
+        select.appendChild(option);
+    });
+}
+
+// Función para cargar los ítems de la receta en la tabla del modal
+function loadRecipeTable(productId) {
+    const recipeTableBody = document.getElementById('recipeTableBody');
+    recipeTableBody.innerHTML = '';
+    const recipe = recipes[productId] || [];
+
+    recipe.forEach(item => {
+        const material = materials.find(m => m.code === item.materialCode);
+        if (material) {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${item.materialCode}</td>
+                <td>${material.description}</td>
+                <td>${item.quantity}</td>
+                <td>${material.unit}</td>
+                <td>
+                    <button class="btn btn-danger btn-sm delete-recipe-item-btn" data-code="${item.materialCode}">Eliminar</button>
+                </td>
+            `;
+            recipeTableBody.appendChild(row);
+        }
+    });
+}
+
+// Lógica para añadir un ítem a la receta
+document.getElementById('addRecipeItemForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const materialCode = document.getElementById('recipeMaterialSelect').value;
+    const quantity = parseFloat(document.getElementById('recipeQuantity').value);
+
+    if (!materialCode || isNaN(quantity) || quantity <= 0) {
+        alert('Por favor, seleccione un material y una cantidad válida.');
+        return;
+    }
+
+    if (!recipes[currentProductIdForRecipe]) {
+        recipes[currentProductIdForRecipe] = [];
+    }
+    
+    const existingItem = recipes[currentProductIdForRecipe].find(item => item.materialCode === materialCode);
+    if (existingItem) {
+        alert('Este material ya está en la receta. Por favor, elimínelo primero si desea modificar la cantidad.');
+        return;
+    }
+
+    recipes[currentProductIdForRecipe].push({
+        materialCode: materialCode,
+        quantity: quantity
+    });
+
+    saveToLocalStorage();
+    loadRecipeTable(currentProductIdForRecipe);
+    document.getElementById('addRecipeItemForm').reset();
+});
+
+// Lógica para eliminar un ítem de la receta
+document.getElementById('recipeTableBody').addEventListener('click', (e) => {
+    if (e.target.classList.contains('delete-recipe-item-btn')) {
+        const materialCodeToDelete = e.target.dataset.code;
+        recipes[currentProductIdForRecipe] = recipes[currentProductIdForRecipe].filter(item => item.materialCode !== materialCodeToDelete);
+        saveToLocalStorage();
+        loadRecipeTable(currentProductIdForRecipe);
+    }
+});
+
 
 // Función para inicializar la tabla de materiales
 function loadMaterials() {
