@@ -13,6 +13,7 @@ function saveToLocalStorage() {
     localStorage.setItem('productionOrders', JSON.stringify(productionOrders));
     localStorage.setItem('operators', JSON.stringify(operators));
     localStorage.setItem('materials', JSON.stringify(materials));
+    console.log('Datos guardados en el almacenamiento local.');
 }
 
 // *** Lógica para mostrar las pestañas ***
@@ -67,48 +68,52 @@ document.getElementById('uploadProductForm').addEventListener('submit', function
     const fileInput = document.getElementById('productFile');
     const file = fileInput.files[0];
 
-    if (file) {
-        const reader = new FileReader();
+    if (!file) {
+        alert('Por favor, seleccione un archivo para cargar.');
+        return;
+    }
 
-        reader.onload = function(e) {
-            let workbook;
-            try {
-                // Leer el archivo basado en el tipo
-                if (file.name.endsWith('.csv')) {
-                    workbook = XLSX.read(e.target.result, { type: 'binary', bookType: 'csv' });
-                } else {
-                    workbook = XLSX.read(e.target.result, { type: 'binary' });
-                }
-
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-                const newProductsFromFile = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
-                if (newProductsFromFile.length > 1) {
-                    products = newProductsFromFile.slice(1).map(row => ({
-                        id: String(row[0]),
-                        name: String(row[1]),
-                        standardCost: 0
-                    }));
-                    
-                    saveToLocalStorage();
-                    loadProducts();
-                    populateProductSelects();
-                    populateReportProductFilter();
-                    alert('Productos cargados y actualizados correctamente.');
-                }
-            } catch (error) {
-                console.error("Error al procesar el archivo:", error);
-                alert('Hubo un error al procesar el archivo. Por favor, asegúrese de que el formato sea correcto.');
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        let workbook;
+        try {
+            console.log('Iniciando lectura del archivo de productos...');
+            if (file.name.endsWith('.csv')) {
+                workbook = XLSX.read(e.target.result, { type: 'binary', bookType: 'csv' });
+            } else {
+                workbook = XLSX.read(e.target.result, { type: 'binary' });
             }
-        };
 
-        // Leer el archivo como ArrayBuffer o Binary String dependiendo del tipo
-        if (file.name.endsWith('.csv')) {
-            reader.readAsBinaryString(file);
-        } else {
-            reader.readAsArrayBuffer(file);
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const newProductsFromFile = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+            
+            if (newProductsFromFile.length > 1) {
+                products = newProductsFromFile.slice(1).map(row => ({
+                    id: String(row[0] || ''),
+                    name: String(row[1] || ''),
+                    standardCost: 0
+                }));
+                
+                saveToLocalStorage();
+                loadProducts();
+                populateProductSelects();
+                populateReportProductFilter();
+                alert('Productos cargados y actualizados correctamente.');
+                console.log('Productos cargados:', products);
+            } else {
+                alert('El archivo no contiene datos válidos.');
+            }
+        } catch (error) {
+            console.error("Error al procesar el archivo:", error);
+            alert('Hubo un error al procesar el archivo. Por favor, asegúrese de que el formato sea correcto. (Ver la consola para más detalles)');
         }
+    };
+
+    if (file.name.endsWith('.csv')) {
+        reader.readAsBinaryString(file);
+    } else {
+        reader.readAsArrayBuffer(file);
     }
 });
 
@@ -142,6 +147,7 @@ document.getElementById('addProductForm').addEventListener('submit', function(ev
     populateReportProductFilter();
     document.getElementById('addProductForm').reset();
     alert('Producto añadido con éxito.');
+    console.log('Producto añadido:', newProduct);
 });
 
 
@@ -152,49 +158,54 @@ document.getElementById('uploadMaterialForm').addEventListener('submit', functio
     const fileInput = document.getElementById('materialFile');
     const file = fileInput.files[0];
 
-    if (file) {
-        const reader = new FileReader();
+    if (!file) {
+        alert('Por favor, seleccione un archivo para cargar.');
+        return;
+    }
 
-        reader.onload = function(e) {
-            let workbook;
-            try {
-                // Leer el archivo basado en el tipo
-                if (file.name.endsWith('.csv')) {
-                    workbook = XLSX.read(e.target.result, { type: 'binary', bookType: 'csv' });
-                } else {
-                    workbook = XLSX.read(e.target.result, { type: 'binary' });
-                }
+    const reader = new FileReader();
 
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-                const newMaterialsFromFile = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
-                if (newMaterialsFromFile.length > 1) {
-                    materials = newMaterialsFromFile.slice(1).map(row => ({
-                        code: String(row[0]),
-                        description: String(row[1]),
-                        unit: String(row[2]),
-                        existence: Number(row[3]),
-                        cost: Number(row[4])
-                    }));
-                    
-                    saveToLocalStorage();
-                    loadMaterials();
-                    loadInventory();
-                    alert('Materiales cargados y actualizados correctamente.');
-                }
-            } catch (error) {
-                console.error("Error al procesar el archivo:", error);
-                alert('Hubo un error al procesar el archivo. Por favor, asegúrese de que el formato sea correcto.');
+    reader.onload = function(e) {
+        let workbook;
+        try {
+            console.log('Iniciando lectura del archivo de materiales...');
+            if (file.name.endsWith('.csv')) {
+                workbook = XLSX.read(e.target.result, { type: 'binary', bookType: 'csv' });
+            } else {
+                workbook = XLSX.read(e.target.result, { type: 'binary' });
             }
-        };
 
-        // Leer el archivo como ArrayBuffer o Binary String dependiendo del tipo
-        if (file.name.endsWith('.csv')) {
-            reader.readAsBinaryString(file);
-        } else {
-            reader.readAsArrayBuffer(file);
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const newMaterialsFromFile = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+            if (newMaterialsFromFile.length > 1) {
+                materials = newMaterialsFromFile.slice(1).map(row => ({
+                    code: String(row[0] || ''),
+                    description: String(row[1] || ''),
+                    unit: String(row[2] || ''),
+                    existence: Number(row[3] || 0),
+                    cost: Number(row[4] || 0)
+                }));
+                
+                saveToLocalStorage();
+                loadMaterials();
+                loadInventory();
+                alert('Materiales cargados y actualizados correctamente.');
+                console.log('Materiales cargados:', materials);
+            } else {
+                alert('El archivo no contiene datos válidos.');
+            }
+        } catch (error) {
+            console.error("Error al procesar el archivo:", error);
+            alert('Hubo un error al procesar el archivo. Por favor, asegúrese de que el formato sea correcto. (Ver la consola para más detalles)');
         }
+    };
+
+    if (file.name.endsWith('.csv')) {
+        reader.readAsBinaryString(file);
+    } else {
+        reader.readAsArrayBuffer(file);
     }
 });
 
@@ -232,6 +243,7 @@ document.getElementById('addMaterialForm').addEventListener('submit', function(e
     loadInventory();
     document.getElementById('addMaterialForm').reset();
     alert('Material añadido con éxito.');
+    console.log('Material añadido:', newMaterial);
 });
 
 // Lógica del formulario de orden de producción
