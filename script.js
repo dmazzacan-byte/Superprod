@@ -69,10 +69,17 @@ document.getElementById('uploadProductForm').addEventListener('submit', function
 
     if (file) {
         const reader = new FileReader();
+
         reader.onload = function(e) {
+            let workbook;
             try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
+                // Leer el archivo basado en el tipo
+                if (file.name.endsWith('.csv')) {
+                    workbook = XLSX.read(e.target.result, { type: 'binary', bookType: 'csv' });
+                } else {
+                    workbook = XLSX.read(e.target.result, { type: 'binary' });
+                }
+
                 const firstSheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[firstSheetName];
                 const newProductsFromFile = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
@@ -95,8 +102,46 @@ document.getElementById('uploadProductForm').addEventListener('submit', function
                 alert('Hubo un error al procesar el archivo. Por favor, asegúrese de que el formato sea correcto.');
             }
         };
-        reader.readAsArrayBuffer(file);
+
+        // Leer el archivo como ArrayBuffer o Binary String dependiendo del tipo
+        if (file.name.endsWith('.csv')) {
+            reader.readAsBinaryString(file);
+        } else {
+            reader.readAsArrayBuffer(file);
+        }
     }
+});
+
+// *** Lógica para el formulario de Añadir Producto Individualmente ***
+document.getElementById('addProductForm').addEventListener('submit', function(event) {
+    event.preventDefault();
+
+    const productId = document.getElementById('addProductId').value.trim();
+    const productName = document.getElementById('addProductName').value.trim();
+
+    if (productId === '' || productName === '') {
+        alert('Por favor, complete todos los campos.');
+        return;
+    }
+
+    if (products.find(p => p.id === productId)) {
+        alert('Ya existe un producto con este ID. Por favor, use uno diferente.');
+        return;
+    }
+
+    const newProduct = {
+        id: productId,
+        name: productName,
+        standardCost: 0
+    };
+
+    products.push(newProduct);
+    saveToLocalStorage();
+    loadProducts();
+    populateProductSelects();
+    populateReportProductFilter();
+    document.getElementById('addProductForm').reset();
+    alert('Producto añadido con éxito.');
 });
 
 
@@ -109,10 +154,17 @@ document.getElementById('uploadMaterialForm').addEventListener('submit', functio
 
     if (file) {
         const reader = new FileReader();
+
         reader.onload = function(e) {
+            let workbook;
             try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
+                // Leer el archivo basado en el tipo
+                if (file.name.endsWith('.csv')) {
+                    workbook = XLSX.read(e.target.result, { type: 'binary', bookType: 'csv' });
+                } else {
+                    workbook = XLSX.read(e.target.result, { type: 'binary' });
+                }
+
                 const firstSheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[firstSheetName];
                 const newMaterialsFromFile = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
@@ -136,8 +188,50 @@ document.getElementById('uploadMaterialForm').addEventListener('submit', functio
                 alert('Hubo un error al procesar el archivo. Por favor, asegúrese de que el formato sea correcto.');
             }
         };
-        reader.readAsArrayBuffer(file);
+
+        // Leer el archivo como ArrayBuffer o Binary String dependiendo del tipo
+        if (file.name.endsWith('.csv')) {
+            reader.readAsBinaryString(file);
+        } else {
+            reader.readAsArrayBuffer(file);
+        }
     }
+});
+
+// *** Lógica para el formulario de Añadir Material Individualmente ***
+document.getElementById('addMaterialForm').addEventListener('submit', function(event) {
+    event.preventDefault();
+
+    const materialCode = document.getElementById('addMaterialCode').value.trim();
+    const materialDescription = document.getElementById('addMaterialDescription').value.trim();
+    const materialCost = parseFloat(document.getElementById('addMaterialCost').value);
+    const materialUnit = document.getElementById('addMaterialUnit').value.trim();
+    const materialExistence = parseInt(document.getElementById('addMaterialExistence').value);
+
+    if (materialCode === '' || materialDescription === '' || isNaN(materialCost) || materialUnit === '' || isNaN(materialExistence)) {
+        alert('Por favor, complete todos los campos con valores válidos.');
+        return;
+    }
+
+    if (materials.find(m => m.code === materialCode)) {
+        alert('Ya existe un material con este código. Por favor, use uno diferente.');
+        return;
+    }
+
+    const newMaterial = {
+        code: materialCode,
+        description: materialDescription,
+        unit: materialUnit,
+        existence: materialExistence,
+        cost: materialCost
+    };
+
+    materials.push(newMaterial);
+    saveToLocalStorage();
+    loadMaterials();
+    loadInventory();
+    document.getElementById('addMaterialForm').reset();
+    alert('Material añadido con éxito.');
 });
 
 // Lógica del formulario de orden de producción
