@@ -45,18 +45,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const pages = document.querySelectorAll('.page-content');
 
     function showPage(pageId) {
-        // Esconder todas las páginas
         pages.forEach(page => {
             page.style.display = 'none';
         });
 
-        // Mostrar solo la página que coincide con el ID, añadiendo el sufijo '-page'
+        // Este es el cambio crucial: se añade '-page' al ID para que coincida con el HTML
         const pageElement = document.getElementById(`${pageId}-page`);
         if (pageElement) {
             pageElement.style.display = 'block';
         }
 
-        // Activar el enlace de la barra lateral
         navLinks.forEach(link => {
             link.classList.remove('active');
             if (link.getAttribute('data-page') === pageId) {
@@ -64,7 +62,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // Recargar el contenido de la página al cambiar
         if (pageId === 'dashboard') updateDashboard();
         if (pageId === 'materials') loadMaterials();
         if (pageId === 'products') loadProducts();
@@ -88,7 +85,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const initialPage = window.location.hash.substring(1) || 'dashboard';
     showPage(initialPage);
 
-    // Inicializar listeners de todos los módulos
     initializeDashboardListeners();
     initializeMaterialsListeners();
     initializeProductsListeners();
