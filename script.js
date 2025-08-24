@@ -417,10 +417,113 @@ document.getElementById('ordersTableBody').addEventListener('click', (e) => {
         }
     } else if (e.target.classList.contains('view-order-btn')) {
         const orderId = e.target.dataset.id;
-        // Esta función aún no está implementada, pero el evento está listo
-        alert(`Ver detalles de la orden ${orderId}`);
+        viewOrderDetails(orderId);
     }
 });
+
+// Función para mostrar el modal con los detalles de la orden
+function viewOrderDetails(orderId) {
+    const order = productionOrders.find(o => o.orderId === orderId);
+    const product = products.find(p => p.id === order.productId);
+    const recipe = recipes[order.productId] || [];
+
+    if (!order || !product) {
+        alert('No se encontraron los detalles de la orden.');
+        return;
+    }
+
+    // Llenar la información general de la orden
+    document.getElementById('detailOrderId').textContent = order.orderId;
+    document.getElementById('detailProductName').textContent = product.name;
+    document.getElementById('detailQuantity').textContent = order.quantity;
+    document.getElementById('detailOperator').textContent = order.operator;
+    document.getElementById('detailStartDate').textContent = order.startDate;
+    document.getElementById('detailStatus').textContent = order.status;
+
+    // Llenar la tabla de materiales requeridos
+    const requiredMaterialsTableBody = document.getElementById('requiredMaterialsTableBody');
+    requiredMaterialsTableBody.innerHTML = '';
+
+    if (recipe.length === 0) {
+        requiredMaterialsTableBody.innerHTML = '<tr><td colspan="4" class="text-center">No hay receta definida para este producto.</td></tr>';
+    } else {
+        recipe.forEach(item => {
+            const material = materials.find(m => m.code === item.materialCode);
+            if (material) {
+                const requiredQuantity = (item.quantity * order.quantity).toFixed(2);
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${item.materialCode}</td>
+                    <td>${material.description}</td>
+                    <td>${requiredQuantity}</td>
+                    <td>${material.unit}</td>
+                `;
+                requiredMaterialsTableBody.appendChild(row);
+            }
+        });
+    }
+
+    // Mostrar el modal
+    const orderDetailsModal = new bootstrap.Modal(document.getElementById('orderDetailsModal'));
+    orderDetailsModal.show();
+}
+
+// Botones para Imprimir y Descargar PDF
+document.getElementById('printOrderBtn').addEventListener('click', () => {
+    printOrderDetails();
+});
+
+document.getElementById('downloadPdfBtn').addEventListener('click', () => {
+    downloadOrderPdf();
+});
+
+// Función para imprimir el contenido del modal
+function printOrderDetails() {
+    const content = document.getElementById('orderDetailsContent').outerHTML;
+    const printWindow = window.open('', '', 'height=600,width=800');
+    printWindow.document.write('<html><head><title>Orden de Producción</title>');
+    printWindow.document.write('<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">');
+    printWindow.document.write('<style>body{font-family: \'Poppins\', sans-serif;} .modal-body{padding: 2rem;} h5{color: #333;} .list-group-item strong{min-width: 150px; display: inline-block;}</style>');
+    printWindow.document.write('</head><body>');
+    printWindow.document.write(content);
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+    }, 500); // Pequeño retraso para que los estilos se carguen
+}
+
+// Función para generar el PDF
+function downloadOrderPdf() {
+    const { jsPDF } = window.jspdf;
+    const element = document.getElementById('orderDetailsContent');
+
+    html2canvas(element, { scale: 2 }).then(canvas => {
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const imgWidth = 210;
+        const pageHeight = 297;
+        const imgHeight = canvas.height * imgWidth / canvas.width;
+        let heightLeft = imgHeight;
+        let position = 0;
+
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+
+        while (heightLeft >= 0) {
+            position = heightLeft - imgHeight;
+            pdf.addPage();
+            pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+            heightLeft -= pageHeight;
+        }
+
+        const orderId = document.getElementById('detailOrderId').textContent;
+        pdf.save(`Orden_${orderId}.pdf`);
+    });
+}
+
 
 function deleteMaterial(code) {
     if (confirm('¿Está seguro de que desea eliminar este material?')) {
@@ -777,3 +880,77 @@ document.getElementById('costo-form').addEventListener('submit', (e) => {
         loadProducts(); // Recargar la tabla de productos para mostrar el costo actualizado
     }
 });
+
+// *** Funciones de Backup y Restore ***
+document.getElementById('exportDataBtn').addEventListener('click', exportData);
+document.getElementById('importFile').addEventListener('change', importData);
+
+function exportData() {
+    const data = {
+        products,
+        materials,
+        recipes,
+        productionOrders,
+        operators // Incluir también operadores si se usa
+    };
+    const dataStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `produccion_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function importData(event) {
+    if (!confirm('Esta acción sobrescribirá todos los datos actuales (Materiales, Productos, Recetas y Órdenes de Producción). ¿Está seguro de que desea continuar?')) {
+        event.target.value = ''; // Resetear el input para permitir la re-selección del mismo archivo
+        return;
+    }
+
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const importedData = JSON.parse(e.target.result);
+            
+            if (importedData.products && importedData.materials && importedData.recipes && importedData.productionOrders) {
+                products = importedData.products;
+                materials = importedData.materials;
+                recipes = importedData.recipes;
+                productionOrders = importedData.productionOrders;
+                // Opcional: Si el backup incluye otros datos, actualizarlos también
+                if (importedData.operators) {
+                    operators = importedData.operators;
+                }
+
+                saveToLocalStorage();
+                alert('Datos restaurados correctamente desde el archivo de copia de seguridad.');
+                // Recargar todas las tablas para reflejar los nuevos datos
+                loadProducts();
+                loadMaterials();
+                loadInventory();
+                loadProductionOrders();
+                populateProductSelects();
+                populateReportProductFilter();
+                updateDashboard();
+                // Ocultar la página después de cargar
+                document.querySelector('.page-content').style.display = 'block';
+
+            } else {
+                alert('El archivo no tiene el formato de copia de seguridad correcto.');
+            }
+        } catch (error) {
+            console.error('Error al importar el archivo:', error);
+            alert('Error al leer el archivo. Asegúrese de que sea un archivo de copia de seguridad válido (.json).');
+        } finally {
+            event.target.value = ''; // Resetear el input
+        }
+    };
+    reader.readAsText(file);
+}
