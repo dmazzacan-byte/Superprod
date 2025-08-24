@@ -49,7 +49,6 @@ document.addEventListener('DOMContentLoaded', () => {
             page.style.display = 'none';
         });
 
-        // Este es el cambio crucial: se añade '-page' al ID para que coincida con el HTML
         const pageElement = document.getElementById(`${pageId}-page`);
         if (pageElement) {
             pageElement.style.display = 'block';
@@ -67,7 +66,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pageId === 'products') loadProducts();
         if (pageId === 'production-orders') loadProductionOrders();
     }
-
+    
+    // Mover este bloque DENTRO del evento DOMContentLoaded
     navLinks.forEach(link => {
         link.addEventListener('click', (event) => {
             event.preventDefault();
