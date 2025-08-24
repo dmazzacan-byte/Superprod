@@ -419,6 +419,53 @@
     </div>
 </div>
 
+<div class="modal fade" id="manageRecipeModal" tabindex="-1" aria-labelledby="manageRecipeModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="manageRecipeModalLabel">Receta para: <span id="recipeProductName"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addRecipeItemForm" class="row g-3">
+                    <div class="col-md-6">
+                        <label for="recipeMaterialSelect" class="form-label">Material</label>
+                        <select class="form-control" id="recipeMaterialSelect" required>
+                            <option value="">Seleccione un material</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="recipeQuantity" class="form-label">Cantidad</label>
+                        <input type="number" step="0.01" class="form-control" id="recipeQuantity" required>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="submit" class="btn btn-success w-100">Añadir</button>
+                    </div>
+                </form>
+                
+                <h5 class="mt-4">Lista de Materiales de la Receta</h5>
+                <div class="table-responsive">
+                    <table class="table table-striped mt-2">
+                        <thead>
+                            <tr>
+                                <th>Código</th>
+                                <th>Descripción</th>
+                                <th>Cantidad</th>
+                                <th>Unidad</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recipeTableBody">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
