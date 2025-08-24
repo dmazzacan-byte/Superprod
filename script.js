@@ -1,555 +1,1049 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestión de Producción</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
-</head>
-<body>
+// Simulación de una base de datos local
+let products = JSON.parse(localStorage.getItem('products')) || [];
+let recipes = JSON.parse(localStorage.getItem('recipes')) || {};
+let productionOrders = JSON.parse(localStorage.getItem('productionOrders')) || [];
+let operators = JSON.parse(localStorage.getItem('operators')) || [];
+let materials = JSON.parse(localStorage.getItem('materials')) || [];
+let costChartInstance = null;
 
-<div class="container-fluid">
-    <div class="row">
-        <nav id="sidebar" class="col-lg-2 col-md-3 d-md-block sidebar collapse">
-            <div class="position-sticky">
-                <ul class="nav flex-column">
-                    <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="#dashboard" data-page="dashboard">
-                            <i class="fas fa-chart-line me-2"></i>Dashboard
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#materials" data-page="materials">
-                            <i class="fas fa-cube me-2"></i>Materiales
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#products" data-page="products">
-                            <i class="fas fa-box-open me-2"></i>Productos
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#cost-calculation" data-page="cost-calculation">
-                            <i class="fas fa-calculator me-2"></i>Cálculo de Costos
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#inventory" data-page="inventory">
-                            <i class="fas fa-warehouse me-2"></i>Inventario
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#production-orders" data-page="production-orders">
-                            <i class="fas fa-industry me-2"></i>Órdenes de Producción
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#reports" data-page="reports">
-                            <i class="fas fa-file-alt me-2"></i>Reportes
-                        </a>
-                    </li>
-                </ul>
-            </div>
-        </nav>
+let currentProductIdForRecipe = null;
 
-        <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 main-content">
-            <button class="navbar-toggler d-md-none" type="button" data-bs-toggle="collapse" data-bs-target="#sidebar" aria-controls="sidebar" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
-            </button>
+// La función 'saveToLocalStorage' ahora guarda los nuevos arrays
+function saveToLocalStorage() {
+    localStorage.setItem('products', JSON.stringify(products));
+    localStorage.setItem('recipes', JSON.stringify(recipes));
+    localStorage.setItem('productionOrders', JSON.stringify(productionOrders));
+    localStorage.setItem('operators', JSON.stringify(operators));
+    localStorage.setItem('materials', JSON.stringify(materials));
+    console.log('Datos guardados en el almacenamiento local.');
+}
 
-            <div class="page-content" id="dashboard-page">
-                <h1 class="mt-4">Dashboard</h1>
-                <hr>
-                <div class="row">
-                    <div class="col-md-4 mb-4">
-                        <div class="card p-3">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <p class="text-muted mb-0">Costo Promedio</p>
-                                    <h2 class="fw-bold">$<span id="avg-cost">0.00</span></h2>
-                                </div>
-                                <i class="icon-card fas fa-dollar-sign"></i>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4 mb-4">
-                        <div class="card p-3">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <p class="text-muted mb-0">Órdenes Activas</p>
-                                    <h2 class="fw-bold"><span id="active-orders">0</span></h2>
-                                </div>
-                                <i class="icon-card fas fa-clipboard-list"></i>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4 mb-4">
-                        <div class="card p-3">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <p class="text-muted mb-0">Stock Bajo</p>
-                                    <h2 class="fw-bold"><span id="low-stock">0</span></h2>
-                                </div>
-                                <i class="icon-card fas fa-exclamation-triangle"></i>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="row mt-4">
-                    <div class="col-12">
-                        <div class="card p-4">
-                            <h4>Costo por Orden de Producción</h4>
-                            <canvas id="costChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
+// *** Lógica para mostrar las pestañas ***
+document.addEventListener('DOMContentLoaded', () => {
+    const navLinks = document.querySelectorAll('.nav-link');
+    const pages = document.querySelectorAll('.page-content');
 
-            <div class="page-content" id="materials-page" style="display:none;">
-                <h1 class="mt-4">Gestión de Materiales</h1>
-                <hr>
-                
-                <div class="card mt-4">
-                    <div class="card-header">
-                        <h4>Cargar Materiales desde Excel</h4>
-                    </div>
-                    <div class="card-body">
-                        <form id="uploadMaterialForm">
-                            <div class="mb-3">
-                                <label for="materialFile" class="form-label">Seleccione el archivo de materiales (.xlsx, .xls, .csv)</label>
-                                <input class="form-control" type="file" id="materialFile" accept=".xlsx, .xls, .csv" required>
-                            </div>
-                            <button type="submit" class="btn btn-success">Cargar Materiales</button>
-                        </form>
-                    </div>
-                </div>
+    // Función para mostrar la página correcta
+    function showPage(pageId) {
+        pages.forEach(page => {
+            page.style.display = 'none';
+        });
+        document.getElementById(`${pageId}-page`).style.display = 'block';
 
-                <div class="card mt-4">
-                    <div class="card-header">
-                        <h4>Añadir Material Individualmente</h4>
-                    </div>
-                    <div class="card-body">
-                        <form id="addMaterialForm">
-                            <div class="mb-3">
-                                <label for="addMaterialCode" class="form-label">Código</label>
-                                <input type="text" class="form-control" id="addMaterialCode" required>
-                            </div>
-                            <div class="mb-3">
-                                <label for="addMaterialDescription" class="form-label">Descripción</label>
-                                <input type="text" class="form-control" id="addMaterialDescription" required>
-                            </div>
-                            <div class="mb-3">
-                                <label for="addMaterialCost" class="form-label">Costo</label>
-                                <input type="number" step="0.01" class="form-control" id="addMaterialCost" required>
-                            </div>
-                            <div class="mb-3">
-                                <label for="addMaterialUnit" class="form-label">Unidad</label>
-                                <input type="text" class="form-control" id="addMaterialUnit" required>
-                            </div>
-                            <div class="mb-3">
-                                <label for="addMaterialExistence" class="form-label">Existencia</label>
-                                <input type="number" class="form-control" id="addMaterialExistence" required>
-                            </div>
-                            <button type="submit" class="btn btn-primary">Añadir Material</button>
-                        </form>
-                    </div>
-                </div>
+        navLinks.forEach(link => {
+            link.classList.remove('active');
+            if (link.dataset.page === pageId) {
+                link.classList.add('active');
+            }
+        });
+    }
 
-                <div class="card mt-4 p-3">
-                    <h4>Lista de Materiales</h4>
-                    <div class="table-responsive">
-                        <table class="table table-striped">
-                            <thead>
-                                <tr>
-                                    <th>Código</th>
-                                    <th>Descripción</th>
-                                    <th>Costo</th>
-                                    <th>Unidad</th>
-                                    <th>Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody id="materialsTableBody">
-                                </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+    // Manejar clics en los enlaces de navegación
+    navLinks.forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const pageId = e.target.dataset.page;
+            showPage(pageId);
+            // Actualizar el hash de la URL sin recargar la página
+            window.location.hash = pageId;
+        });
+    });
 
-            <div class="page-content" id="products-page" style="display:none;">
-                <h1 class="mt-4">Gestión de Productos</h1>
-                <hr>
-                <div class="card mt-4">
-                    <div class="card-header">
-                        <h4>Cargar Productos desde Excel</h4>
-                    </div>
-                    <div class="card-body">
-                        <form id="uploadProductForm">
-                            <div class="mb-3">
-                                <label for="productFile" class="form-label">Seleccione el archivo de productos (.xlsx, .xls, .csv)</label>
-                                <input class="form-control" type="file" id="productFile" accept=".xlsx, .xls, .csv" required>
-                            </div>
-                            <button type="submit" class="btn btn-success">Cargar Productos</button>
-                        </form>
-                    </div>
-                </div>
+    // Cargar la página correcta al inicio
+    const initialPage = window.location.hash ? window.location.hash.substring(1) : 'dashboard';
+    showPage(initialPage);
 
-                <div class="card mt-4">
-                    <div class="card-header">
-                        <h4>Cargar Recetas desde Excel</h4>
-                    </div>
-                    <div class="card-body">
-                        <form id="uploadRecipeForm">
-                            <div class="mb-3">
-                                <label for="recipeFile" class="form-label">Seleccione el archivo de recetas (.xlsx, .xls, .csv)</label>
-                                <input class="form-control" type="file" id="recipeFile" accept=".xlsx, .xls, .csv" required>
-                            </div>
-                            <button type="submit" class="btn btn-success">Cargar Recetas</button>
-                            <p class="mt-2 text-muted">Asegúrese de que el archivo tenga las columnas: `product_id`, `material_code`, `quantity`.</p>
-                        </form>
-                    </div>
-                </div>
+    // Llamadas iniciales
+    loadProducts();
+    loadMaterials();
+    loadInventory();
+    loadProductionOrders();
+    populateProductSelects();
+    populateReportProductFilter();
+    updateDashboard();
+});
 
-                <div class="card mt-4">
-                    <div class="card-header">
-                        <h4>Añadir Producto Individualmente</h4>
-                    </div>
-                    <div class="card-body">
-                        <form id="addProductForm">
-                            <div class="mb-3">
-                                <label for="addProductId" class="form-label">ID del Producto</label>
-                                <input type="text" class="form-control" id="addProductId" required>
-                            </div>
-                            <div class="mb-3">
-                                <label for="addProductName" class="form-label">Nombre del Producto</label>
-                                <input type="text" class="form-control" id="addProductName" required>
-                            </div>
-                            <button type="submit" class="btn btn-primary">Añadir Producto</button>
-                        </form>
-                    </div>
-                </div>
+// *** Lógica para el formulario de carga de archivo de PRODUCTOS ***
+document.getElementById('uploadProductForm').addEventListener('submit', function(event) {
+    event.preventDefault();
 
-                <div class="card mt-4 p-3">
-                    <h4>Lista de Productos</h4>
-                    <div class="table-responsive">
-                        <table class="table table-striped">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Nombre</th>
-                                    <th>Costo Estándar</th>
-                                    <th>Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody id="productsTableBody">
-                                </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+    const fileInput = document.getElementById('productFile');
+    const file = fileInput.files[0];
+
+    if (!file) {
+        alert('Por favor, seleccione un archivo para cargar.');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        let workbook;
+        try {
+            console.log('Iniciando lectura del archivo de productos...');
+            if (file.name.endsWith('.csv')) {
+                workbook = XLSX.read(e.target.result, { type: 'binary', bookType: 'csv' });
+            } else {
+                workbook = XLSX.read(e.target.result, { type: 'binary' });
+            }
+
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const newProductsFromFile = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
             
-            <div class="page-content" id="cost-calculation-page" style="display:none;">
-                <h1 class="mt-4">Cálculo de Costos Estándar</h1>
-                <hr>
-                <div class="card p-4">
-                    <form id="costo-form">
-                        <div class="mb-3">
-                            <label for="productSelect" class="form-label">Seleccione un Producto</label>
-                            <select class="form-control" id="productSelect" required>
-                                <option value="">Seleccione un producto</option>
-                            </select>
-                        </div>
-                        <button type="submit" class="btn btn-primary">Calcular Costo</button>
-                    </form>
-
-                    <div id="costResult" class="mt-4" style="display:none;">
-                        <h4>Detalle del Costo Estándar</h4>
-                        <p><strong>Costo Estándar Total:</strong> $<span id="standardCostValue"></span></p>
-                        <p><strong>Costo de Materiales:</strong> $<span id="materialsCost"></span></p>
-                        <p><strong>Costo de Empaque:</strong> $<span id="packagingCost"></span></p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="page-content" id="inventory-page" style="display:none;">
-                <h1 class="mt-4">Inventario de Materiales</h1>
-                <hr>
-                <div class="card p-3">
-                    <div class="table-responsive">
-                        <table class="table table-striped">
-                            <thead>
-                                <tr>
-                                    <th>Código</th>
-                                    <th>Descripción</th>
-                                    <th>Existencia</th>
-                                    <th>Unidad</th>
-                                    <th>Costo Unitario</th>
-                                </tr>
-                            </thead>
-                            <tbody id="inventoryTableBody">
-                                </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <div class="page-content" id="production-orders-page" style="display:none;">
-                <h1 class="mt-4">Órdenes de Producción</h1>
-                <hr>
-                <div class="card p-3">
-                    <form id="productionOrderForm">
-                        <div class="mb-3">
-                            <label for="orderProductSelect" class="form-label">Producto a Producir</label>
-                            <select class="form-control" id="orderProductSelect" required>
-                                <option value="">Seleccione un producto</option>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label for="orderQuantity" class="form-label">Cantidad</label>
-                            <input type="number" class="form-control" id="orderQuantity" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="orderOperator" class="form-label">Operador</label>
-                            <input type="text" class="form-control" id="orderOperator" required>
-                        </div>
-                        <button type="submit" class="btn btn-primary">Crear Orden</button>
-                    </form>
-                </div>
-
-                <div class="card mt-4 p-3">
-                    <h4>Lista de Órdenes</h4>
-                    <div class="table-responsive">
-                        <table class="table table-striped">
-                            <thead>
-                                <tr>
-                                    <th>ID de Orden</th>
-                                    <th>Producto</th>
-                                    <th>Cantidad</th>
-                                    <th>Fecha de Inicio</th>
-                                    <th>Fecha de Finalización</th>
-                                    <th>Estado</th>
-                                    <th>Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody id="ordersTableBody">
-                                </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <div class="page-content" id="reports-page" style="display:none;">
-                <h1 class="mt-4">Reportes de Producción</h1>
-                <hr>
-                <div class="card p-4 mb-4">
-                    <h4>Generar Reporte</h4>
-                    <form id="productionReportForm" class="row g-3 align-items-end">
-                        <div class="col-md-3">
-                            <label for="reportProductFilter" class="form-label">Filtrar por Producto</label>
-                            <select class="form-control" id="reportProductFilter">
-                                <option value="">Todos los productos</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label for="reportOrderIdFilter" class="form-label">Filtrar por ID de Orden</label>
-                            <input type="text" class="form-control" id="reportOrderIdFilter" placeholder="ID de Orden">
-                        </div>
-                        <div class="col-md-3">
-                            <label for="reportOperatorFilter" class="form-label">Filtrar por Operador</label>
-                            <input type="text" class="form-control" id="reportOperatorFilter" placeholder="Nombre del Operador">
-                        </div>
-                        <div class="col-md-3">
-                            <label for="reportStartDate" class="form-label">Desde</label>
-                            <input type="date" class="form-control" id="reportStartDate">
-                        </div>
-                        <div class="col-md-3">
-                            <label for="reportEndDate" class="form-label">Hasta</label>
-                            <input type="date" class="form-control" id="reportEndDate">
-                        </div>
-                        <div class="col-md-3">
-                            <button type="submit" class="btn btn-primary w-100">Generar Reporte</button>
-                        </div>
-                    </form>
-
-                    <div id="reportResults" class="mt-4">
-                        <h4>Resultados del Reporte</h4>
-                        <div class="table-responsive">
-                            <table class="table table-striped">
-                                <thead>
-                                    <tr>
-                                        <th>ID de Orden</th>
-                                        <th>Producto</th>
-                                        <th>Cantidad</th>
-                                        <th>Operador</th>
-                                        <th>Fecha de Inicio</th>
-                                        <th>Fecha de Finalización</th>
-                                        <th>Estado</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="reportTableBody">
-                                    </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
+            if (newProductsFromFile.length > 1) {
+                products = newProductsFromFile.slice(1).map(row => ({
+                    id: String(row[0] || ''),
+                    name: String(row[1] || ''),
+                    standardCost: 0
+                }));
                 
-                <div class="card p-4 mt-4">
-                    <h4>Copia de Seguridad y Restauración</h4>
-                    <p>Guarda y restaura todos los datos de tu aplicación (Materiales, Productos, Recetas y Órdenes de Producción).</p>
-                    <div class="d-flex gap-2">
-                        <button id="exportDataBtn" class="btn btn-secondary"><i class="fas fa-download me-2"></i>Exportar Datos</button>
-                        <div class="btn btn-success position-relative overflow-hidden">
-                            <i class="fas fa-upload me-2"></i>Cargar Copia de Seguridad
-                            <input type="file" id="importFile" class="position-absolute top-0 start-0 w-100 h-100 opacity-0 cursor-pointer" accept=".json">
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </main>
-    </div>
-</div>
+                saveToLocalStorage();
+                loadProducts();
+                populateProductSelects();
+                populateReportProductFilter();
+                alert('Productos cargados y actualizados correctamente.');
+                console.log('Productos cargados:', products);
+            } else {
+                alert('El archivo no contiene datos válidos.');
+            }
+        } catch (error) {
+            console.error("Error al procesar el archivo:", error);
+            alert('Hubo un error al procesar el archivo. Por favor, asegúrese de que el formato sea correcto. (Ver la consola para más detalles)');
+        }
+    };
 
-<div class="modal fade" id="editMaterialModal" tabindex="-1" aria-labelledby="editMaterialModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="editMaterialModalLabel">Editar Material</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <form id="editMaterialForm">
-                    <div class="mb-3">
-                        <label for="editMaterialCode" class="form-label">Código</label>
-                        <input type="text" class="form-control" id="editMaterialCode" disabled>
-                    </div>
-                    <div class="mb-3">
-                        <label for="editMaterialDescription" class="form-label">Descripción</label>
-                        <input type="text" class="form-control" id="editMaterialDescription" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="editMaterialCost" class="form-label">Costo</label>
-                        <input type="number" step="0.01" class="form-control" id="editMaterialCost" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="editMaterialUnit" class="form-label">Unidad</label>
-                        <input type="text" class="form-control" id="editMaterialUnit" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="editMaterialExistence" class="form-label">Existencia</label>
-                        <input type="number" class="form-control" id="editMaterialExistence" required>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
-                        <button type="submit" class="btn btn-primary">Guardar Cambios</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
+    if (file.name.endsWith('.csv')) {
+        reader.readAsBinaryString(file);
+    } else {
+        reader.readAsArrayBuffer(file);
+    }
+});
 
-<div class="modal fade" id="manageRecipeModal" tabindex="-1" aria-labelledby="manageRecipeModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="manageRecipeModalLabel">Receta para: <span id="recipeProductName"></span></h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <form id="addRecipeItemForm" class="row g-3">
-                    <div class="col-md-6">
-                        <label for="recipeMaterialSelect" class="form-label">Código de Material</label>
-                        <select class="form-control" id="recipeMaterialSelect" required>
-                            <option value="">Seleccione un material</option>
-                        </select>
-                    </div>
-                    <div class="col-md-4">
-                        <label for="recipeQuantity" class="form-label">Cantidad</label>
-                        <input type="number" step="0.01" class="form-control" id="recipeQuantity" required>
-                    </div>
-                    <div class="col-md-2 d-flex align-items-end">
-                        <button type="submit" class="btn btn-success w-100">Añadir</button>
-                    </div>
-                </form>
+// *** Lógica para el formulario de carga de archivo de RECETAS ***
+document.getElementById('uploadRecipeForm').addEventListener('submit', function(event) {
+    event.preventDefault();
+
+    if (!confirm('Esta acción sobrescribirá todas las recetas existentes. ¿Desea continuar?')) {
+        return;
+    }
+
+    const fileInput = document.getElementById('recipeFile');
+    const file = fileInput.files[0];
+
+    if (!file) {
+        alert('Por favor, seleccione un archivo para cargar.');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        let workbook;
+        try {
+            console.log('Iniciando lectura del archivo de recetas...');
+            if (file.name.endsWith('.csv')) {
+                workbook = XLSX.read(e.target.result, { type: 'binary', bookType: 'csv' });
+            } else {
+                workbook = XLSX.read(e.target.result, { type: 'binary' });
+            }
+
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const recipesFromFile = XLSX.utils.sheet_to_json(worksheet);
+
+            // Reiniciar el objeto de recetas para la nueva carga
+            recipes = {};
+            let hasError = false;
+
+            recipesFromFile.forEach(row => {
+                const productId = String(row.product_id).trim();
+                const materialCode = String(row.material_code).trim();
+                const quantity = parseFloat(row.quantity);
+
+                // Validaciones
+                if (!productId || !materialCode || isNaN(quantity) || quantity <= 0) {
+                    console.error(`Error en la fila: `, row);
+                    alert(`Error: Fila con datos inválidos. Asegúrese de que las columnas 'product_id', 'material_code' y 'quantity' existan y tengan valores correctos.`);
+                    hasError = true;
+                    return;
+                }
+
+                if (!products.find(p => p.id === productId)) {
+                    alert(`Error: El ID de producto '${productId}' no existe. Por favor, cargue primero los productos.`);
+                    hasError = true;
+                    return;
+                }
+
+                if (!materials.find(m => m.code === materialCode)) {
+                    alert(`Error: El código de material '${materialCode}' no existe. Por favor, cargue primero los materiales.`);
+                    hasError = true;
+                    return;
+                }
+
+                if (!recipes[productId]) {
+                    recipes[productId] = [];
+                }
                 
-                <h5 class="mt-4">Lista de Materiales de la Receta</h5>
-                <div class="table-responsive">
-                    <table class="table table-striped mt-2">
-                        <thead>
-                            <tr>
-                                <th>Código</th>
-                                <th>Descripción</th>
-                                <th>Cantidad</th>
-                                <th>Unidad</th>
-                                <th>Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody id="recipeTableBody">
-                            </tbody>
-                    </table>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
-            </div>
-        </div>
-    </div>
-</div>
+                // Evitar duplicados por si acaso
+                if (!recipes[productId].find(item => item.materialCode === materialCode)) {
+                    recipes[productId].push({
+                        materialCode,
+                        quantity
+                    });
+                }
+            });
 
-<div class="modal fade" id="orderDetailsModal" tabindex="-1" aria-labelledby="orderDetailsModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="orderDetailsModalLabel">Detalle de la Orden de Producción</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div id="orderDetailsContent">
-                    <h5>Información de la Orden</h5>
-                    <ul class="list-group list-group-flush mb-4">
-                        <li class="list-group-item"><strong>ID de Orden:</strong> <span id="detailOrderId"></span></li>
-                        <li class="list-group-item"><strong>Producto:</strong> <span id="detailProductName"></span></li>
-                        <li class="list-group-item"><strong>Cantidad a Producir:</strong> <span id="detailQuantity"></span></li>
-                        <li class="list-group-item"><strong>Operador:</strong> <span id="detailOperator"></span></li>
-                        <li class="list-group-item"><strong>Fecha de Creación:</strong> <span id="detailStartDate"></span></li>
-                        <li class="list-group-item"><strong>Estado:</strong> <span id="detailStatus"></span></li>
-                    </ul>
+            if (!hasError) {
+                saveToLocalStorage();
+                alert('Recetas cargadas y actualizadas correctamente.');
+                console.log('Recetas cargadas:', recipes);
+            }
 
-                    <h5>Materiales Requeridos para la Orden</h5>
-                    <div class="table-responsive">
-                        <table class="table table-bordered table-striped">
-                            <thead>
-                                <tr>
-                                    <th>Código</th>
-                                    <th>Descripción</th>
-                                    <th>Cantidad Requerida</th>
-                                    <th>Unidad</th>
-                                </tr>
-                            </thead>
-                            <tbody id="requiredMaterialsTableBody">
-                                </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
-                <button type="button" class="btn btn-info" id="printOrderBtn"><i class="fas fa-print"></i> Imprimir</button>
-                <button type="button" class="btn btn-danger" id="downloadPdfBtn"><i class="fas fa-file-pdf"></i> Descargar PDF</button>
-            </div>
-        </div>
-    </div>
-</div>
+        } catch (error) {
+            console.error("Error al procesar el archivo:", error);
+            alert('Hubo un error al procesar el archivo. Asegúrese de que el formato sea correcto. (Ver la consola para más detalles)');
+        }
+    };
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="script.js"></script>
-</body>
-</html>
+    if (file.name.endsWith('.csv')) {
+        reader.readAsBinaryString(file);
+    } else {
+        reader.readAsArrayBuffer(file);
+    }
+});
+
+
+// *** Lógica para el formulario de Añadir Producto Individualmente ***
+document.getElementById('addProductForm').addEventListener('submit', function(event) {
+    event.preventDefault();
+
+    const productId = document.getElementById('addProductId').value.trim();
+    const productName = document.getElementById('addProductName').value.trim();
+
+    if (productId === '' || productName === '') {
+        alert('Por favor, complete todos los campos.');
+        return;
+    }
+
+    if (products.find(p => p.id === productId)) {
+        alert('Ya existe un producto con este ID. Por favor, use uno diferente.');
+        return;
+    }
+
+    const newProduct = {
+        id: productId,
+        name: productName,
+        standardCost: 0
+    };
+
+    products.push(newProduct);
+    saveToLocalStorage();
+    loadProducts();
+    populateProductSelects();
+    populateReportProductFilter();
+    document.getElementById('addProductForm').reset();
+    alert('Producto añadido con éxito.');
+    console.log('Producto añadido:', newProduct);
+});
+
+
+// *** Lógica para el formulario de carga de archivo de MATERIALES ***
+document.getElementById('uploadMaterialForm').addEventListener('submit', function(event) {
+    event.preventDefault();
+
+    const fileInput = document.getElementById('materialFile');
+    const file = fileInput.files[0];
+
+    if (!file) {
+        alert('Por favor, seleccione un archivo para cargar.');
+        return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = function(e) {
+        let workbook;
+        try {
+            console.log('Iniciando lectura del archivo de materiales...');
+            if (file.name.endsWith('.csv')) {
+                workbook = XLSX.read(e.target.result, { type: 'binary', bookType: 'csv' });
+            } else {
+                workbook = XLSX.read(e.target.result, { type: 'binary' });
+            }
+
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const newMaterialsFromFile = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+            if (newMaterialsFromFile.length > 1) {
+                materials = newMaterialsFromFile.slice(1).map(row => ({
+                    code: String(row[0] || ''),
+                    description: String(row[1] || ''),
+                    unit: String(row[2] || ''),
+                    existence: Number(row[3] || 0),
+                    cost: Number(row[4] || 0)
+                }));
+                
+                saveToLocalStorage();
+                loadMaterials();
+                loadInventory();
+                alert('Materiales cargados y actualizados correctamente.');
+                console.log('Materiales cargados:', materials);
+            } else {
+                alert('El archivo no contiene datos válidos.');
+            }
+        } catch (error) {
+            console.error("Error al procesar el archivo:", error);
+            alert('Hubo un error al procesar el archivo. Por favor, asegúrese de que el formato sea correcto. (Ver la consola para más detalles)');
+        }
+    };
+
+    if (file.name.endsWith('.csv')) {
+        reader.readAsBinaryString(file);
+    } else {
+        reader.readAsArrayBuffer(file);
+    }
+});
+
+// *** Lógica para el formulario de Añadir Material Individualmente ***
+document.getElementById('addMaterialForm').addEventListener('submit', function(event) {
+    event.preventDefault();
+
+    const materialCode = document.getElementById('addMaterialCode').value.trim();
+    const materialDescription = document.getElementById('addMaterialDescription').value.trim();
+    const materialCost = parseFloat(document.getElementById('addMaterialCost').value);
+    const materialUnit = document.getElementById('addMaterialUnit').value.trim();
+    const materialExistence = parseInt(document.getElementById('addMaterialExistence').value);
+
+    if (materialCode === '' || materialDescription === '' || isNaN(materialCost) || materialUnit === '' || isNaN(materialExistence)) {
+        alert('Por favor, complete todos los campos con valores válidos.');
+        return;
+    }
+
+    if (materials.find(m => m.code === materialCode)) {
+        alert('Ya existe un material con este código. Por favor, use uno diferente.');
+        return;
+    }
+
+    const newMaterial = {
+        code: materialCode,
+        description: materialDescription,
+        unit: materialUnit,
+        existence: materialExistence,
+        cost: materialCost
+    };
+
+    materials.push(newMaterial);
+    saveToLocalStorage();
+    loadMaterials();
+    loadInventory();
+    document.getElementById('addMaterialForm').reset();
+    alert('Material añadido con éxito.');
+    console.log('Material añadido:', newMaterial);
+});
+
+// Lógica del formulario de orden de producción
+document.getElementById('productionOrderForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const productId = document.getElementById('orderProductSelect').value;
+    const quantity = parseInt(document.getElementById('orderQuantity').value);
+    const operator = document.getElementById('orderOperator').value.trim();
+    
+    // Validar que se ha seleccionado un producto
+    if (!productId || isNaN(quantity) || quantity <= 0) {
+        alert('Por favor, seleccione un producto y una cantidad válida.');
+        return;
+    }
+
+    if (!operator) {
+        alert('Por favor, ingrese el nombre del operador.');
+        return;
+    }
+
+    const recipe = recipes[productId];
+    if (!recipe || recipe.length === 0) {
+        alert('No se puede crear la orden. No hay una receta definida para este producto. Por favor, gestione la receta en la sección de Productos.');
+        return;
+    }
+
+    // Verificar si hay suficientes materiales en stock
+    let hasSufficientMaterials = true;
+    let missingMaterials = [];
+    
+    recipe.forEach(item => {
+        const material = materials.find(m => m.code === item.materialCode);
+        const requiredQuantity = item.quantity * quantity;
+        if (!material || material.existence < requiredQuantity) {
+            hasSufficientMaterials = false;
+            missingMaterials.push(material ? material.description : 'Material Desconocido');
+        }
+    });
+
+    if (!hasSufficientMaterials) {
+        alert(`No hay suficientes materiales para esta orden. Faltan: ${missingMaterials.join(', ')}`);
+        return;
+    }
+
+    // Si hay materiales, crear la orden
+    const newOrder = {
+        orderId: Date.now().toString(), // ID único
+        productId,
+        quantity,
+        operator,
+        startDate: new Date().toLocaleDateString('es-ES'),
+        status: 'Pendiente'
+    };
+    productionOrders.push(newOrder);
+    saveToLocalStorage();
+    loadProductionOrders();
+    updateDashboard();
+    alert('Orden de producción creada con éxito. Los materiales se descontarán al completarla.');
+});
+
+// Lógica para el formulario de reportes
+document.getElementById('productionReportForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    generateProductionReport();
+});
+
+// Función para generar el reporte de producción
+function generateProductionReport() {
+    const productFilter = document.getElementById('reportProductFilter').value;
+    const orderIdFilter = document.getElementById('reportOrderIdFilter').value.toLowerCase();
+    const operatorFilter = document.getElementById('reportOperatorFilter').value.toLowerCase();
+    const startDateFilter = document.getElementById('reportStartDate').value;
+    const endDateFilter = document.getElementById('reportEndDate').value;
+
+    let filteredOrders = productionOrders.filter(order => {
+        // Filtro por producto
+        const productMatch = !productFilter || order.productId === productFilter;
+        // Filtro por ID de Orden
+        const orderIdMatch = !orderIdFilter || order.orderId.toLowerCase().includes(orderIdFilter);
+        // Filtro por Operador
+        const operatorMatch = !operatorFilter || (order.operator && order.operator.toLowerCase().includes(operatorFilter));
+        // Filtro por rango de fechas
+        const orderDate = new Date(order.startDate.split('/').reverse().join('-'));
+        const startDateMatch = !startDateFilter || orderDate >= new Date(startDateFilter);
+        const endDateMatch = !endDateFilter || orderDate <= new Date(endDateFilter);
+        
+        return productMatch && orderIdMatch && operatorMatch && startDateMatch && endDateMatch;
+    });
+
+    const reportTableBody = document.getElementById('reportTableBody');
+    reportTableBody.innerHTML = '';
+
+    if (filteredOrders.length === 0) {
+        reportTableBody.innerHTML = '<tr><td colspan="7" class="text-center">No se encontraron órdenes que coincidan con los filtros.</td></tr>';
+        return;
+    }
+
+    filteredOrders.forEach(order => {
+        const product = products.find(p => p.id === order.productId);
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${order.orderId}</td>
+            <td>${product ? product.name : 'Desconocido'}</td>
+            <td>${order.quantity}</td>
+            <td>${order.operator || 'N/A'}</td>
+            <td>${order.startDate}</td>
+            <td>${order.finishDate || 'N/A'}</td>
+            <td>${order.status}</td>
+        `;
+        reportTableBody.appendChild(row);
+    });
+}
+
+// Función para completar una orden de producción
+function completeProductionOrder(orderId) {
+    const order = productionOrders.find(o => o.orderId === orderId);
+    if (!order || order.status === 'Completada') {
+        return;
+    }
+
+    const recipe = recipes[order.productId];
+    if (!recipe) {
+        alert('No se puede completar la orden. No hay una receta definida para este producto.');
+        return;
+    }
+
+    // Descontar los materiales del inventario
+    recipe.forEach(item => {
+        const material = materials.find(m => m.code === item.materialCode);
+        if (material) {
+            const requiredQuantity = item.quantity * order.quantity;
+            material.existence -= requiredQuantity;
+        }
+    });
+
+    // Actualizar el estado de la orden y su fecha de finalización
+    order.status = 'Completada';
+    order.finishDate = new Date().toLocaleDateString('es-ES');
+    
+    // Recalcular el costo total de la orden
+    const { totalCost } = calculateStandardCost(order.productId);
+    order.totalCost = totalCost * order.quantity;
+
+    saveToLocalStorage();
+    loadProductionOrders();
+    loadInventory();
+    updateDashboard();
+    alert('¡Orden de producción completada con éxito! El inventario ha sido actualizado.');
+}
+
+// *** Lógica para los botones de editar y eliminar materiales ***
+document.getElementById('materialsTableBody').addEventListener('click', (e) => {
+    if (e.target.classList.contains('delete-material-btn')) {
+        const materialCode = e.target.dataset.code;
+        deleteMaterial(materialCode);
+    } else if (e.target.classList.contains('edit-material-btn')) {
+        const materialCode = e.target.dataset.code;
+        editMaterial(materialCode);
+    }
+});
+
+// Lógica para los botones de la tabla de órdenes
+document.getElementById('ordersTableBody').addEventListener('click', (e) => {
+    if (e.target.classList.contains('complete-order-btn')) {
+        const orderId = e.target.dataset.id;
+        if (confirm('¿Está seguro de que desea completar esta orden? El inventario será descontado.')) {
+            completeProductionOrder(orderId);
+        }
+    } else if (e.target.classList.contains('view-order-btn')) {
+        const orderId = e.target.dataset.id;
+        viewOrderDetails(orderId);
+    }
+});
+
+// Función para mostrar el modal con los detalles de la orden
+function viewOrderDetails(orderId) {
+    const order = productionOrders.find(o => o.orderId === orderId);
+    const product = products.find(p => p.id === order.productId);
+    const recipe = recipes[order.productId] || [];
+
+    if (!order || !product) {
+        alert('No se encontraron los detalles de la orden.');
+        return;
+    }
+
+    // Llenar la información general de la orden
+    document.getElementById('detailOrderId').textContent = order.orderId;
+    document.getElementById('detailProductName').textContent = product.name;
+    document.getElementById('detailQuantity').textContent = order.quantity;
+    document.getElementById('detailOperator').textContent = order.operator;
+    document.getElementById('detailStartDate').textContent = order.startDate;
+    document.getElementById('detailStatus').textContent = order.status;
+
+    // Llenar la tabla de materiales requeridos
+    const requiredMaterialsTableBody = document.getElementById('requiredMaterialsTableBody');
+    requiredMaterialsTableBody.innerHTML = '';
+
+    if (recipe.length === 0) {
+        requiredMaterialsTableBody.innerHTML = '<tr><td colspan="4" class="text-center">No hay receta definida para este producto.</td></tr>';
+    } else {
+        recipe.forEach(item => {
+            const material = materials.find(m => m.code === item.materialCode);
+            if (material) {
+                const requiredQuantity = (item.quantity * order.quantity).toFixed(2);
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${item.materialCode}</td>
+                    <td>${material.description}</td>
+                    <td>${requiredQuantity}</td>
+                    <td>${material.unit}</td>
+                `;
+                requiredMaterialsTableBody.appendChild(row);
+            }
+        });
+    }
+
+    // Mostrar el modal
+    const orderDetailsModal = new bootstrap.Modal(document.getElementById('orderDetailsModal'));
+    orderDetailsModal.show();
+}
+
+// Botones para Imprimir y Descargar PDF
+document.getElementById('printOrderBtn').addEventListener('click', () => {
+    printOrderDetails();
+});
+
+document.getElementById('downloadPdfBtn').addEventListener('click', () => {
+    downloadOrderPdf();
+});
+
+// Función para imprimir el contenido del modal
+function printOrderDetails() {
+    const content = document.getElementById('orderDetailsContent').outerHTML;
+    const printWindow = window.open('', '', 'height=600,width=800');
+    printWindow.document.write('<html><head><title>Orden de Producción</title>');
+    printWindow.document.write('<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">');
+    printWindow.document.write('<style>body{font-family: \'Poppins\', sans-serif;} .modal-body{padding: 2rem;} h5{color: #333;} .list-group-item strong{min-width: 150px; display: inline-block;}</style>');
+    printWindow.document.write('</head><body>');
+    printWindow.document.write(content);
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+    }, 500); // Pequeño retraso para que los estilos se carguen
+}
+
+// Función para generar el PDF
+function downloadOrderPdf() {
+    const { jsPDF } = window.jspdf;
+    const element = document.getElementById('orderDetailsContent');
+
+    html2canvas(element, { scale: 2 }).then(canvas => {
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const imgWidth = 210;
+        const pageHeight = 297;
+        const imgHeight = canvas.height * imgWidth / canvas.width;
+        let heightLeft = imgHeight;
+        let position = 0;
+
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+
+        while (heightLeft >= 0) {
+            position = heightLeft - imgHeight;
+            pdf.addPage();
+            pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+            heightLeft -= pageHeight;
+        }
+
+        const orderId = document.getElementById('detailOrderId').textContent;
+        pdf.save(`Orden_${orderId}.pdf`);
+    });
+}
+
+
+function deleteMaterial(code) {
+    if (confirm('¿Está seguro de que desea eliminar este material?')) {
+        materials = materials.filter(material => material.code !== code);
+        saveToLocalStorage();
+        loadMaterials();
+        loadInventory();
+        alert('Material eliminado con éxito.');
+    }
+}
+
+function editMaterial(code) {
+    const material = materials.find(m => m.code === code);
+    if (material) {
+        document.getElementById('editMaterialCode').value = material.code;
+        document.getElementById('editMaterialDescription').value = material.description;
+        document.getElementById('editMaterialCost').value = material.cost;
+        document.getElementById('editMaterialUnit').value = material.unit;
+        document.getElementById('editMaterialExistence').value = material.existence;
+        
+        const editModal = new bootstrap.Modal(document.getElementById('editMaterialModal'));
+        editModal.show();
+    }
+}
+
+document.getElementById('editMaterialForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const code = document.getElementById('editMaterialCode').value;
+    const material = materials.find(m => m.code === code);
+    if (material) {
+        material.description = document.getElementById('editMaterialDescription').value;
+        material.cost = parseFloat(document.getElementById('editMaterialCost').value);
+        material.unit = document.getElementById('editMaterialUnit').value;
+        material.existence = parseInt(document.getElementById('editMaterialExistence').value);
+        saveToLocalStorage();
+        loadMaterials();
+        loadInventory();
+        bootstrap.Modal.getInstance(document.getElementById('editMaterialModal')).hide();
+        alert('Material actualizado correctamente.');
+    }
+});
+
+// Función para inicializar la tabla de productos
+function loadProducts() {
+    const productsTableBody = document.getElementById('productsTableBody');
+    productsTableBody.innerHTML = '';
+    products.forEach(product => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${product.id}</td>
+            <td>${product.name}</td>
+            <td>$${product.standardCost.toFixed(2)}</td>
+            <td>
+                <button class="btn btn-warning btn-sm edit-product-btn" data-id="${product.id}">Editar</button>
+                <button class="btn btn-danger btn-sm delete-product-btn" data-id="${product.id}">Eliminar</button>
+                <button class="btn btn-info btn-sm manage-recipe-btn" data-id="${product.id}">Gestionar Receta</button>
+            </td>
+        `;
+        productsTableBody.appendChild(row);
+    });
+}
+
+// Lógica para los nuevos botones "Gestionar Receta"
+document.getElementById('productsTableBody').addEventListener('click', (e) => {
+    if (e.target.classList.contains('manage-recipe-btn')) {
+        const productId = e.target.dataset.id;
+        manageRecipe(productId);
+    }
+});
+
+// Función para inicializar el modal de gestión de recetas
+function manageRecipe(productId) {
+    currentProductIdForRecipe = productId;
+    const product = products.find(p => p.id === productId);
+    document.getElementById('recipeProductName').textContent = product ? product.name : 'Producto Desconocido';
+    
+    populateRecipeMaterialSelect();
+    loadRecipeTable(productId);
+    
+    const recipeModal = new bootstrap.Modal(document.getElementById('manageRecipeModal'));
+    recipeModal.show();
+}
+
+// Función para cargar los materiales en el select del modal de recetas
+function populateRecipeMaterialSelect() {
+    const select = document.getElementById('recipeMaterialSelect');
+    select.innerHTML = '<option value="">Seleccione un material</option>';
+    materials.forEach(material => {
+        const option = document.createElement('option');
+        option.value = material.code;
+        // Ahora el texto de la opción muestra el código y luego la descripción
+        option.textContent = `${material.code} - ${material.description}`;
+        select.appendChild(option);
+    });
+}
+
+// Función para cargar los ítems de la receta en la tabla del modal
+function loadRecipeTable(productId) {
+    const recipeTableBody = document.getElementById('recipeTableBody');
+    recipeTableBody.innerHTML = '';
+    const recipe = recipes[productId] || [];
+
+    recipe.forEach(item => {
+        const material = materials.find(m => m.code === item.materialCode);
+        if (material) {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${item.materialCode}</td>
+                <td>${material.description}</td>
+                <td>${item.quantity}</td>
+                <td>${material.unit}</td>
+                <td>
+                    <button class="btn btn-danger btn-sm delete-recipe-item-btn" data-code="${item.materialCode}">Eliminar</button>
+                </td>
+            `;
+            recipeTableBody.appendChild(row);
+        }
+    });
+}
+
+// Lógica para añadir un ítem a la receta
+document.getElementById('addRecipeItemForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const materialCode = document.getElementById('recipeMaterialSelect').value;
+    const quantity = parseFloat(document.getElementById('recipeQuantity').value);
+
+    if (!materialCode || isNaN(quantity) || quantity <= 0) {
+        alert('Por favor, seleccione un material y una cantidad válida.');
+        return;
+    }
+
+    if (!recipes[currentProductIdForRecipe]) {
+        recipes[currentProductIdForRecipe] = [];
+    }
+    
+    const existingItem = recipes[currentProductIdForRecipe].find(item => item.materialCode === materialCode);
+    if (existingItem) {
+        alert('Este material ya está en la receta. Por favor, elimínelo primero si desea modificar la cantidad.');
+        return;
+    }
+
+    recipes[currentProductIdForRecipe].push({
+        materialCode: materialCode,
+        quantity: quantity
+    });
+
+    saveToLocalStorage();
+    loadRecipeTable(currentProductIdForRecipe);
+    document.getElementById('addRecipeItemForm').reset();
+});
+
+// Lógica para eliminar un ítem de la receta
+document.getElementById('recipeTableBody').addEventListener('click', (e) => {
+    if (e.target.classList.contains('delete-recipe-item-btn')) {
+        const materialCodeToDelete = e.target.dataset.code;
+        recipes[currentProductIdForRecipe] = recipes[currentProductIdForRecipe].filter(item => item.materialCode !== materialCodeToDelete);
+        saveToLocalStorage();
+        loadRecipeTable(currentProductIdForRecipe);
+    }
+});
+
+
+// Función para inicializar la tabla de materiales
+function loadMaterials() {
+    const materialsTableBody = document.getElementById('materialsTableBody');
+    materialsTableBody.innerHTML = '';
+    // Ordenar los materiales por código alfabéticamente
+    materials.sort((a, b) => a.code.localeCompare(b.code));
+    materials.forEach(material => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${material.code}</td>
+            <td>${material.description}</td>
+            <td>$${material.cost.toFixed(2)}</td>
+            <td>${material.unit}</td>
+            <td>
+                <button class="btn btn-warning btn-sm edit-material-btn" data-code="${material.code}">Editar</button>
+                <button class="btn btn-danger btn-sm delete-material-btn" data-code="${material.code}">Eliminar</button>
+            </td>
+        `;
+        materialsTableBody.appendChild(row);
+    });
+}
+
+// Función para inicializar la tabla de inventario
+function loadInventory() {
+    const inventoryTableBody = document.getElementById('inventoryTableBody');
+    inventoryTableBody.innerHTML = '';
+    // Ordenar los materiales por código alfabéticamente
+    materials.sort((a, b) => a.code.localeCompare(b.code));
+    materials.forEach(material => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${material.code}</td>
+            <td>${material.description}</td>
+            <td>${material.existence}</td>
+            <td>${material.unit}</td>
+            <td>$${material.cost.toFixed(2)}</td>
+        `;
+        inventoryTableBody.appendChild(row);
+    });
+}
+
+// Función para inicializar la tabla de órdenes de producción
+function loadProductionOrders() {
+    const ordersTableBody = document.getElementById('ordersTableBody');
+    ordersTableBody.innerHTML = '';
+    productionOrders.forEach(order => {
+        const product = products.find(p => p.id === order.productId);
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${order.orderId}</td>
+            <td>${product ? product.name : 'Desconocido'}</td>
+            <td>${order.quantity}</td>
+            <td>${order.startDate}</td>
+            <td>${order.finishDate || 'N/A'}</td>
+            <td>${order.status}</td>
+            <td>
+                <button class="btn btn-primary btn-sm complete-order-btn" data-id="${order.orderId}" ${order.status === 'Completada' ? 'disabled' : ''}>Completar</button>
+                <button class="btn btn-info btn-sm view-order-btn" data-id="${order.orderId}">Ver</button>
+            </td>
+        `;
+        ordersTableBody.appendChild(row);
+    });
+}
+
+// Funciones para cargar datos en los selectores
+function populateProductSelects() {
+    const selects = document.querySelectorAll('#productSelect, #orderProductSelect');
+    selects.forEach(select => {
+        select.innerHTML = '<option value="">Seleccione un producto</option>';
+        products.forEach(product => {
+            const option = document.createElement('option');
+            option.value = product.id;
+            option.textContent = product.name;
+            select.appendChild(option);
+        });
+    });
+}
+
+function populateReportProductFilter() {
+    const select = document.getElementById('reportProductFilter');
+    select.innerHTML = '<option value="">Todos los productos</option>';
+    products.forEach(product => {
+        const option = document.createElement('option');
+        option.value = product.id;
+        option.textContent = product.name;
+        select.appendChild(option);
+    });
+}
+
+// Funciones de cálculo y reportes
+function calculateStandardCost(productId) {
+    const recipe = recipes[productId];
+    if (!recipe) {
+        return { totalCost: 0, materialsCost: 0, packagingCost: 0 };
+    }
+
+    let materialsCost = 0;
+    let packagingCost = 0;
+
+    recipe.forEach(item => {
+        const material = materials.find(m => m.code === item.materialCode);
+        if (material) {
+            const cost = material.cost * item.quantity;
+            if (material.code.startsWith('MP')) {
+                materialsCost += cost;
+            } else if (material.code.startsWith('ME')) {
+                packagingCost += cost;
+            }
+        }
+    });
+
+    const totalCost = materialsCost + packagingCost;
+    return { totalCost, materialsCost, packagingCost };
+}
+
+function updateDashboard() {
+    let totalCost = 0;
+    let completedOrders = 0;
+    productionOrders.forEach(order => {
+        if (order.status === 'Completada') {
+            totalCost += order.totalCost;
+            completedOrders++;
+        }
+    });
+    const avgCost = completedOrders > 0 ? totalCost / completedOrders : 0;
+    document.getElementById('avg-cost').textContent = avgCost.toFixed(2);
+
+    const activeOrders = productionOrders.filter(order => order.status === 'Pendiente').length;
+    document.getElementById('active-orders').textContent = activeOrders;
+
+    const lowStockCount = materials.filter(m => m.existence < 100).length; // Ejemplo: menos de 100 unidades en stock
+    document.getElementById('low-stock').textContent = lowStockCount;
+
+    // Actualizar el gráfico
+    updateCostChart();
+}
+
+function updateCostChart() {
+    const ctx = document.getElementById('costChart').getContext('2d');
+
+    // Destruir el gráfico anterior si existe
+    if (costChartInstance) {
+        costChartInstance.destroy();
+    }
+
+    const completedOrderCosts = productionOrders
+        .filter(order => order.status === 'Completada')
+        .map(order => ({
+            label: `Orden ${order.orderId}`,
+            cost: order.totalCost
+        }));
+
+    costChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: completedOrderCosts.map(item => item.label),
+            datasets: [{
+                label: 'Costo Total por Orden de Producción',
+                data: completedOrderCosts.map(item => item.cost),
+                backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+// Lógica para manejar formularios
+document.getElementById('costo-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const productId = document.getElementById('productSelect').value;
+    const { totalCost, materialsCost, packagingCost } = calculateStandardCost(productId);
+
+    document.getElementById('standardCostValue').textContent = totalCost.toFixed(2);
+    document.getElementById('materialsCost').textContent = materialsCost.toFixed(2);
+    document.getElementById('packagingCost').textContent = packagingCost.toFixed(2);
+    document.getElementById('costResult').style.display = 'block';
+
+    // Actualizar el costo estándar en el array de productos
+    const product = products.find(p => p.id === productId);
+    if (product) {
+        product.standardCost = totalCost;
+        saveToLocalStorage();
+        loadProducts(); // Recargar la tabla de productos para mostrar el costo actualizado
+    }
+});
+
+// *** Funciones de Backup y Restore ***
+document.getElementById('exportDataBtn').addEventListener('click', exportData);
+document.getElementById('importFile').addEventListener('change', importData);
+
+function exportData() {
+    const data = {
+        products,
+        materials,
+        recipes,
+        productionOrders,
+        operators // Incluir también operadores si se usa
+    };
+    const dataStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `produccion_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function importData(event) {
+    if (!confirm('Esta acción sobrescribirá todos los datos actuales (Materiales, Productos, Recetas y Órdenes de Producción). ¿Está seguro de que desea continuar?')) {
+        event.target.value = ''; // Resetear el input para permitir la re-selección del mismo archivo
+        return;
+    }
+
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const importedData = JSON.parse(e.target.result);
+            
+            if (importedData.products && importedData.materials && importedData.recipes && importedData.productionOrders) {
+                products = importedData.products;
+                materials = importedData.materials;
+                recipes = importedData.recipes;
+                productionOrders = importedData.productionOrders;
+                // Opcional: Si el backup incluye otros datos, actualizarlos también
+                if (importedData.operators) {
+                    operators = importedData.operators;
+                }
+
+                saveToLocalStorage();
+                alert('Datos restaurados correctamente desde el archivo de copia de seguridad.');
+                // Recargar todas las tablas para reflejar los nuevos datos
+                loadProducts();
+                loadMaterials();
+                loadInventory();
+                loadProductionOrders();
+                populateProductSelects();
+                populateReportProductFilter();
+                updateDashboard();
+                // Ocultar la página después de cargar
+                document.querySelector('.page-content').style.display = 'block';
+
+            } else {
+                alert('El archivo no tiene el formato de copia de seguridad correcto.');
+            }
+        } catch (error) {
+            console.error('Error al importar el archivo:', error);
+            alert('Error al leer el archivo. Asegúrese de que sea un archivo de copia de seguridad válido (.json).');
+        } finally {
+            event.target.value = ''; // Resetear el input
+        }
+    };
+    reader.readAsText(file);
+}
