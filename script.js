@@ -375,8 +375,9 @@ document.getElementById('productionOrderForm').addEventListener('submit', functi
         operator,
         startDate: new Date().toLocaleDateString('es-ES'),
         status: 'Pendiente',
-        actualQuantity: null,
-        extraConsumption: []
+        actualQuantity: 0, // Inicia en 0 para producciones parciales
+        extraConsumption: [],
+        extraCost: 0
     };
     productionOrders.push(newOrder);
     saveToLocalStorage();
@@ -419,7 +420,7 @@ function generateProductionReport() {
     reportTableBody.innerHTML = '';
 
     if (filteredOrders.length === 0) {
-        reportTableBody.innerHTML = '<tr><td colspan="7" class="text-center">No se encontraron órdenes que coincidan con los filtros.</td></tr>';
+        reportTableBody.innerHTML = '<tr><td colspan="8" class="text-center">No se encontraron órdenes que coincidan con los filtros.</td></tr>';
         return;
     }
 
@@ -434,6 +435,7 @@ function generateProductionReport() {
             <td>${order.startDate}</td>
             <td>${order.finishDate || 'N/A'}</td>
             <td>${order.status}</td>
+            <td>$${(order.extraCost || 0).toFixed(2)}</td>
         `;
         reportTableBody.appendChild(row);
     });
@@ -474,7 +476,10 @@ function openFinalizeOrderModal(orderId) {
     }
 
     document.getElementById('finalizeOrderId').textContent = orderId;
-    document.getElementById('actualProductionQuantity').value = order.quantity;
+    document.getElementById('actualProductionQuantity').value = order.actualQuantity || 0;
+    
+    // Al abrir el modal, la casilla debe estar desmarcada por defecto
+    document.getElementById('markAsCompleted').checked = false;
 
     const extraConsumptionList = document.getElementById('extraConsumptionList');
     extraConsumptionList.innerHTML = ''; // Limpiar el contenedor
@@ -520,6 +525,7 @@ function addExtraConsumptionRow(materialCode = '', quantity = '') {
     materials.forEach(material => {
         const option = document.createElement('option');
         option.value = material.code;
+        // Ahora el texto de la opción muestra el código y luego la descripción
         option.textContent = `${material.code} - ${material.description}`;
         select.appendChild(option);
     });
@@ -547,25 +553,40 @@ function finalizeProductionOrder() {
     const order = productionOrders.find(o => o.orderId === currentOrderIdToFinalize);
     if (!order) return;
 
-    const actualQuantity = parseFloat(document.getElementById('actualProductionQuantity').value);
-    if (isNaN(actualQuantity) || actualQuantity <= 0) {
+    const newActualQuantity = parseFloat(document.getElementById('actualProductionQuantity').value);
+    const isCompleted = document.getElementById('markAsCompleted').checked;
+    
+    if (isNaN(newActualQuantity) || newActualQuantity <= 0) {
         alert('Por favor, ingrese una cantidad real producida válida.');
         return;
     }
-
+    
     const recipe = recipes[order.productId];
     if (!recipe) {
         alert('No se puede finalizar la orden. No hay una receta definida para este producto.');
         return;
     }
 
+    // Calcular la cantidad a descontar de inventario
+    const quantityToDeduct = newActualQuantity - order.actualQuantity;
+
+    if (quantityToDeduct <= 0 && isCompleted === false) {
+      alert('La cantidad a producir debe ser mayor a la cantidad ya registrada para una producción parcial.');
+      return;
+    }
+
     // Recopilar los consumos extras del formulario
     const extraConsumption = [];
+    let extraCost = 0; // Variable para acumular el sobrecosto
     document.querySelectorAll('#extraConsumptionList .row').forEach(row => {
         const materialCode = row.querySelector('.extra-material-select').value;
         const quantity = parseFloat(row.querySelector('.extra-quantity-input').value);
         if (materialCode && !isNaN(quantity) && quantity > 0) {
             extraConsumption.push({ materialCode, quantity });
+            const material = materials.find(m => m.code === materialCode);
+            if (material) {
+                extraCost += material.cost * quantity;
+            }
         }
     });
 
@@ -576,10 +597,10 @@ function finalizeProductionOrder() {
     // Calcular y verificar consumo de la receta
     recipe.forEach(item => {
         const material = materials.find(m => m.code === item.materialCode);
-        const requiredQuantity = item.quantity * actualQuantity;
+        const requiredQuantity = item.quantity * quantityToDeduct;
         if (!material || material.existence < requiredQuantity) {
             hasSufficientMaterials = false;
-            missingMaterials.push(`${material ? material.description : 'Desconocido'} (requerido: ${requiredQuantity})`);
+            missingMaterials.push(`${material ? material.description : 'Desconocido'} (requerido: ${requiredQuantity.toFixed(2)})`);
         }
         if (material) {
             material.existence -= requiredQuantity;
@@ -591,7 +612,7 @@ function finalizeProductionOrder() {
         const material = materials.find(m => m.code === extra.materialCode);
         if (!material || material.existence < extra.quantity) {
             hasSufficientMaterials = false;
-            missingMaterials.push(`${material ? material.description : 'Desconocido'} (extra: ${extra.quantity})`);
+            missingMaterials.push(`${material ? material.description : 'Desconocido'} (extra: ${extra.quantity.toFixed(2)})`);
         }
         if (material) {
             material.existence -= extra.quantity;
@@ -604,7 +625,7 @@ function finalizeProductionOrder() {
         recipe.forEach(item => {
             const material = materials.find(m => m.code === item.materialCode);
             if (material) {
-                material.existence += item.quantity * actualQuantity;
+                material.existence += item.quantity * quantityToDeduct;
             }
         });
         extraConsumption.forEach(extra => {
@@ -616,23 +637,29 @@ function finalizeProductionOrder() {
         return;
     }
 
-    // Actualizar el estado de la orden y sus datos
-    order.status = 'Completada';
-    order.finishDate = new Date().toLocaleDateString('es-ES');
-    order.actualQuantity = actualQuantity;
+    // Actualizar los datos de la orden
+    order.actualQuantity = newActualQuantity;
     order.extraConsumption = extraConsumption;
+    order.extraCost = extraCost;
     
-    // Recalcular el costo total de la orden
-    const { totalCost } = calculateStandardCost(order.productId);
-    order.totalCost = totalCost * actualQuantity;
-
+    // Si la casilla de "Completada" está marcada
+    if (isCompleted) {
+        order.status = 'Completada';
+        order.finishDate = new Date().toLocaleDateString('es-ES');
+        alert('¡Orden de producción finalizada con éxito! El inventario ha sido actualizado.');
+    } else {
+        order.status = 'Pendiente';
+        order.finishDate = null;
+        alert('Producción parcial registrada. La orden sigue pendiente.');
+    }
+    
     saveToLocalStorage();
     loadProductionOrders();
     loadInventory();
     updateDashboard();
     bootstrap.Modal.getInstance(document.getElementById('finalizeOrderModal')).hide();
-    alert('¡Orden de producción finalizada con éxito! El inventario ha sido actualizado.');
 }
+
 
 // Función para eliminar una orden de producción
 function deleteProductionOrder(orderId) {
@@ -643,8 +670,8 @@ function deleteProductionOrder(orderId) {
     }
 
     const order = productionOrders[orderIndex];
-    if (order.status !== 'Pendiente' || order.actualQuantity !== null) {
-        alert('Solo se pueden eliminar órdenes pendientes sin consumos o producción registrada.');
+    if (order.status !== 'Pendiente' || order.actualQuantity > 0) {
+        alert('Solo se pueden eliminar órdenes que estén pendientes y no tengan producción registrada.');
         return;
     }
 
@@ -1003,6 +1030,7 @@ function loadProductionOrders() {
         const product = products.find(p => p.id === order.productId);
         const row = document.createElement('tr');
         const isCompleted = order.status === 'Completada';
+        const hasProduction = order.actualQuantity > 0;
         
         row.innerHTML = `
             <td>${order.orderId}</td>
@@ -1011,9 +1039,10 @@ function loadProductionOrders() {
             <td>${order.startDate}</td>
             <td>${order.finishDate || 'N/A'}</td>
             <td>${order.status}</td>
+            <td>$${(order.extraCost || 0).toFixed(2)}</td>
             <td>
                 <button class="btn btn-primary btn-sm finalize-order-btn me-1" data-id="${order.orderId}" ${isCompleted ? 'disabled' : ''}>Finalizar</button>
-                <button class="btn btn-danger btn-sm delete-order-btn me-1" data-id="${order.orderId}" ${isCompleted ? 'disabled' : ''}>Eliminar</button>
+                <button class="btn btn-danger btn-sm delete-order-btn me-1" data-id="${order.orderId}" ${hasProduction ? 'disabled' : ''}>Eliminar</button>
                 <button class="btn btn-info btn-sm view-order-btn" data-id="${order.orderId}">Ver</button>
             </td>
         `;
@@ -1076,9 +1105,9 @@ function updateDashboard() {
     let totalCost = 0;
     let completedOrders = 0;
     productionOrders.forEach(order => {
-        if (order.status === 'Completada') {
+        if (order.status === 'Completada' && order.actualQuantity !== null) {
             const { totalCost: standardCost } = calculateStandardCost(order.productId);
-            const recipeCost = (order.actualQuantity || order.quantity) * standardCost;
+            const recipeCost = order.actualQuantity * standardCost;
             
             let extraCost = 0;
             if (order.extraConsumption && order.extraConsumption.length > 0) {
