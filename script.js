@@ -511,7 +511,8 @@ function populateRecipeMaterialSelect() {
     materials.forEach(material => {
         const option = document.createElement('option');
         option.value = material.code;
-        option.textContent = `${material.description} (${material.code})`;
+        // Ahora el texto de la opción muestra el código y luego la descripción
+        option.textContent = `${material.code} - ${material.description}`;
         select.appendChild(option);
     });
 }
