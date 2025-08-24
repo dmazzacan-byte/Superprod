@@ -18,67 +18,6 @@ export function saveToLocalStorage() {
     console.log('Datos guardados en el almacenamiento local.');
 }
 
-// Funciones necesarias para el dashboard
-export function calculateProductionOrderMetrics() {
-    const metrics = {
-        totalValue: 0,
-        totalCost: 0,
-        totalProfit: 0,
-        totalOvercost: 0,
-        totalQuantity: 0
-    };
-
-    const completedOrders = productionOrders.filter(o => o.status === 'Completada');
-
-    completedOrders.forEach(order => {
-        const product = products.find(p => p.id === order.productId);
-        if (!product) return;
-
-        const costs = calculateTotalCost(order);
-        const revenue = product.salePrice * order.quantity;
-
-        metrics.totalValue += revenue;
-        metrics.totalCost += costs.totalCost;
-        metrics.totalProfit += revenue - costs.totalCost;
-        metrics.totalOvercost += costs.overcost;
-        metrics.totalQuantity += order.quantity;
-    });
-
-    return metrics;
-}
-
-export function calculateTotalCost(order) {
-    let materialCost = 0;
-    let overcost = 0;
-    let laborCost = 0;
-    const product = products.find(p => p.id === order.productId);
-
-    if (order.materials && recipes[order.productId]) {
-        for (const materialId in order.materials) {
-            const material = materials.find(m => m.code === materialId);
-            if (material) {
-                const recipeQuantity = recipes[order.productId][materialId];
-                const consumedQuantity = order.materials[materialId].totalQuantity;
-                materialCost += material.cost * consumedQuantity;
-                if (consumedQuantity > recipeQuantity) {
-                    overcost += material.cost * (consumedQuantity - recipeQuantity);
-                }
-            }
-        }
-    }
-    if (product) {
-        laborCost = product.laborCost * order.quantity;
-    }
-    
-    return {
-        materialCost: materialCost,
-        laborCost: laborCost,
-        totalCost: materialCost + laborCost,
-        overcost: overcost
-    };
-}
-
-
 // Función para actualizar las variables globales
 export function updateGlobalData(dataKey, newData) {
     switch (dataKey) {
@@ -97,14 +36,69 @@ export function updateGlobalData(dataKey, newData) {
         case 'materials':
             materials = newData;
             break;
-        default:
-            console.error('Clave de datos no válida:', dataKey);
-            return;
     }
     saveToLocalStorage();
 }
 
-// Inicialización de la página y manejo de la navegación
+// Funciones necesarias para el dashboard
+export function calculateProductionOrderMetrics() {
+    const metrics = {
+        totalValue: 0,
+        totalCost: 0,
+        totalProfit: 0,
+        totalOvercost: 0,
+        totalQuantity: 0
+    };
+
+    const completedOrders = productionOrders.filter(o => o.status === 'Completada');
+
+    completedOrders.forEach(order => {
+        const product = products.find(p => p.id === order.productId);
+        if (product) {
+            const recipe = recipes[product.id];
+            const materialCosts = recipe ? recipe.items.reduce((sum, item) => {
+                const material = materials.find(m => m.code === item.materialId);
+                return sum + (material ? material.cost * item.quantity : 0);
+            }, 0) : 0;
+            const extraMaterialCosts = order.extraConsumption ? order.extraConsumption.reduce((sum, item) => {
+                const material = materials.find(m => m.code === item.materialId);
+                return sum + (material ? material.cost * item.quantity : 0);
+            }, 0) : 0;
+
+            const totalMaterialCost = materialCosts + extraMaterialCosts;
+            const laborCost = order.quantity * product.laborCost;
+            const totalCost = totalMaterialCost + laborCost + order.extraCost;
+            const revenue = order.quantity * product.salePrice;
+            const profit = revenue - totalCost;
+
+            metrics.totalValue += revenue;
+            metrics.totalCost += totalCost;
+            metrics.totalProfit += profit;
+            metrics.totalOvercost += order.extraCost;
+            metrics.totalQuantity += order.quantity;
+        }
+    });
+
+    return metrics;
+}
+
+export function calculateTotalCost(order) {
+    const product = products.find(p => p.id === order.productId);
+    const recipe = recipes[product.id];
+    let materialCost = 0;
+    if (recipe) {
+        materialCost = recipe.items.reduce((sum, item) => {
+            const material = materials.find(m => m.code === item.materialId);
+            return sum + (material ? material.cost * item.quantity : 0);
+        }, 0);
+    }
+    const laborCost = order.quantity * product.laborCost;
+    const totalCost = materialCost + laborCost + (order.extraCost || 0);
+
+    return { totalCost, materialCost, laborCost };
+}
+
+
 document.addEventListener('DOMContentLoaded', () => {
     const navLinks = document.querySelectorAll('.nav-link');
     const pages = document.querySelectorAll('.page-content');
