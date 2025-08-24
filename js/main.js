@@ -66,8 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pageId === 'products') loadProducts();
         if (pageId === 'production-orders') loadProductionOrders();
     }
-    
-    // Mover este bloque DENTRO del evento DOMContentLoaded
+
     navLinks.forEach(link => {
         link.addEventListener('click', (event) => {
             event.preventDefault();
