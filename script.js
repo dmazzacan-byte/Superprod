@@ -56,10 +56,51 @@ document.addEventListener('DOMContentLoaded', () => {
     loadInventory();
     loadProductionOrders();
     populateProductSelects();
+    populateReportProductFilter();
     updateDashboard();
 });
 
-// *** Lógica para el formulario de carga de archivo (CORREGIDO) ***
+// *** Lógica para el formulario de carga de archivo de PRODUCTOS ***
+document.getElementById('uploadProductForm').addEventListener('submit', function(event) {
+    event.preventDefault();
+
+    const fileInput = document.getElementById('productFile');
+    const file = fileInput.files[0];
+
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const newProductsFromFile = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                if (newProductsFromFile.length > 1) {
+                    products = newProductsFromFile.slice(1).map(row => ({
+                        id: String(row[0]),
+                        name: String(row[1]),
+                        standardCost: 0
+                    }));
+                    
+                    saveToLocalStorage();
+                    loadProducts();
+                    populateProductSelects();
+                    populateReportProductFilter();
+                    alert('Productos cargados y actualizados correctamente.');
+                }
+            } catch (error) {
+                console.error("Error al procesar el archivo:", error);
+                alert('Hubo un error al procesar el archivo. Por favor, asegúrese de que el formato sea correcto.');
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    }
+});
+
+
+// *** Lógica para el formulario de carga de archivo de MATERIALES ***
 document.getElementById('uploadMaterialForm').addEventListener('submit', function(event) {
     event.preventDefault();
 
@@ -77,7 +118,6 @@ document.getElementById('uploadMaterialForm').addEventListener('submit', functio
                 const newMaterialsFromFile = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
                 if (newMaterialsFromFile.length > 1) {
-                    // Reemplaza completamente los materiales existentes con los del archivo.
                     materials = newMaterialsFromFile.slice(1).map(row => ({
                         code: String(row[0]),
                         description: String(row[1]),
@@ -100,6 +140,155 @@ document.getElementById('uploadMaterialForm').addEventListener('submit', functio
     }
 });
 
+// Lógica del formulario de orden de producción
+document.getElementById('productionOrderForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const productId = document.getElementById('orderProductSelect').value;
+    const quantity = parseInt(document.getElementById('orderQuantity').value);
+    const operator = document.getElementById('orderOperator').value.trim();
+    
+    // Validar que se ha seleccionado un producto
+    if (!productId || isNaN(quantity) || quantity <= 0) {
+        alert('Por favor, seleccione un producto y una cantidad válida.');
+        return;
+    }
+
+    if (!operator) {
+        alert('Por favor, ingrese el nombre del operador.');
+        return;
+    }
+
+    const recipe = recipes[productId];
+    if (!recipe) {
+        alert('No se puede crear la orden. No hay una receta definida para este producto.');
+        return;
+    }
+
+    // Verificar si hay suficientes materiales en stock
+    let hasSufficientMaterials = true;
+    let missingMaterials = [];
+    
+    recipe.forEach(item => {
+        const material = materials.find(m => m.code === item.materialCode);
+        const requiredQuantity = item.quantity * quantity;
+        if (!material || material.existence < requiredQuantity) {
+            hasSufficientMaterials = false;
+            missingMaterials.push(material ? material.description : 'Material Desconocido');
+        }
+    });
+
+    if (!hasSufficientMaterials) {
+        alert(`No hay suficientes materiales para esta orden. Faltan: ${missingMaterials.join(', ')}`);
+        return;
+    }
+
+    // Si hay materiales, crear la orden
+    const newOrder = {
+        orderId: Date.now().toString(), // ID único
+        productId,
+        quantity,
+        operator,
+        startDate: new Date().toLocaleDateString('es-ES'),
+        status: 'Pendiente'
+    };
+    productionOrders.push(newOrder);
+    saveToLocalStorage();
+    loadProductionOrders();
+    updateDashboard();
+    alert('Orden de producción creada con éxito. Los materiales se descontarán al completarla.');
+});
+
+// Lógica para el formulario de reportes
+document.getElementById('productionReportForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    generateProductionReport();
+});
+
+// Función para generar el reporte de producción
+function generateProductionReport() {
+    const productFilter = document.getElementById('reportProductFilter').value;
+    const orderIdFilter = document.getElementById('reportOrderIdFilter').value.toLowerCase();
+    const operatorFilter = document.getElementById('reportOperatorFilter').value.toLowerCase();
+    const startDateFilter = document.getElementById('reportStartDate').value;
+    const endDateFilter = document.getElementById('reportEndDate').value;
+
+    let filteredOrders = productionOrders.filter(order => {
+        // Filtro por producto
+        const productMatch = !productFilter || order.productId === productFilter;
+        // Filtro por ID de Orden
+        const orderIdMatch = !orderIdFilter || order.orderId.toLowerCase().includes(orderIdFilter);
+        // Filtro por Operador
+        const operatorMatch = !operatorFilter || (order.operator && order.operator.toLowerCase().includes(operatorFilter));
+        // Filtro por rango de fechas
+        const orderDate = new Date(order.startDate.split('/').reverse().join('-'));
+        const startDateMatch = !startDateFilter || orderDate >= new Date(startDateFilter);
+        const endDateMatch = !endDateFilter || orderDate <= new Date(endDateFilter);
+        
+        return productMatch && orderIdMatch && operatorMatch && startDateMatch && endDateMatch;
+    });
+
+    const reportTableBody = document.getElementById('reportTableBody');
+    reportTableBody.innerHTML = '';
+
+    if (filteredOrders.length === 0) {
+        reportTableBody.innerHTML = '<tr><td colspan="7" class="text-center">No se encontraron órdenes que coincidan con los filtros.</td></tr>';
+        return;
+    }
+
+    filteredOrders.forEach(order => {
+        const product = products.find(p => p.id === order.productId);
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${order.orderId}</td>
+            <td>${product ? product.name : 'Desconocido'}</td>
+            <td>${order.quantity}</td>
+            <td>${order.operator || 'N/A'}</td>
+            <td>${order.startDate}</td>
+            <td>${order.finishDate || 'N/A'}</td>
+            <td>${order.status}</td>
+        `;
+        reportTableBody.appendChild(row);
+    });
+}
+
+// Función para completar una orden de producción
+function completeProductionOrder(orderId) {
+    const order = productionOrders.find(o => o.orderId === orderId);
+    if (!order || order.status === 'Completada') {
+        return;
+    }
+
+    const recipe = recipes[order.productId];
+    if (!recipe) {
+        alert('No se puede completar la orden. No hay una receta definida para este producto.');
+        return;
+    }
+
+    // Descontar los materiales del inventario
+    recipe.forEach(item => {
+        const material = materials.find(m => m.code === item.materialCode);
+        if (material) {
+            const requiredQuantity = item.quantity * order.quantity;
+            material.existence -= requiredQuantity;
+        }
+    });
+
+    // Actualizar el estado de la orden y su fecha de finalización
+    order.status = 'Completada';
+    order.finishDate = new Date().toLocaleDateString('es-ES');
+    
+    // Recalcular el costo total de la orden
+    const { totalCost } = calculateStandardCost(order.productId);
+    order.totalCost = totalCost * order.quantity;
+
+    saveToLocalStorage();
+    loadProductionOrders();
+    loadInventory();
+    updateDashboard();
+    alert('¡Orden de producción completada con éxito! El inventario ha sido actualizado.');
+}
+
 // *** Lógica para los botones de editar y eliminar materiales ***
 document.getElementById('materialsTableBody').addEventListener('click', (e) => {
     if (e.target.classList.contains('delete-material-btn')) {
@@ -108,6 +297,20 @@ document.getElementById('materialsTableBody').addEventListener('click', (e) => {
     } else if (e.target.classList.contains('edit-material-btn')) {
         const materialCode = e.target.dataset.code;
         editMaterial(materialCode);
+    }
+});
+
+// Lógica para los botones de la tabla de órdenes
+document.getElementById('ordersTableBody').addEventListener('click', (e) => {
+    if (e.target.classList.contains('complete-order-btn')) {
+        const orderId = e.target.dataset.id;
+        if (confirm('¿Está seguro de que desea completar esta orden? El inventario será descontado.')) {
+            completeProductionOrder(orderId);
+        }
+    } else if (e.target.classList.contains('view-order-btn')) {
+        const orderId = e.target.dataset.id;
+        // Esta función aún no está implementada, pero el evento está listo
+        alert(`Ver detalles de la orden ${orderId}`);
     }
 });
 
@@ -246,6 +449,17 @@ function populateProductSelects() {
             option.textContent = product.name;
             select.appendChild(option);
         });
+    });
+}
+
+function populateReportProductFilter() {
+    const select = document.getElementById('reportProductFilter');
+    select.innerHTML = '<option value="">Todos los productos</option>';
+    products.forEach(product => {
+        const option = document.createElement('option');
+        option.value = product.id;
+        option.textContent = product.name;
+        select.appendChild(option);
     });
 }
 
