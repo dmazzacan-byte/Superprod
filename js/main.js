@@ -45,25 +45,31 @@ document.addEventListener('DOMContentLoaded', () => {
     const pages = document.querySelectorAll('.page-content');
 
     function showPage(pageId) {
-        pages.forEach(page => {
-            page.style.display = 'none';
-        });
-        document.getElementById(pageId).style.display = 'block';
+    // Esconder todas las páginas
+    pages.forEach(page => {
+        page.style.display = 'none';
+    });
 
-        navLinks.forEach(link => {
-            link.classList.remove('active');
-            if (link.getAttribute('data-page') === pageId) {
-                link.classList.add('active');
-            }
-        });
-
-        // Recargar el contenido de la página al cambiar
-        if (pageId === 'dashboard') updateDashboard();
-        if (pageId === 'materials') loadMaterials();
-        if (pageId === 'products') loadProducts();
-        if (pageId === 'production-orders') loadProductionOrders();
-        // ... Cargar otras vistas si las añades
+    // Mostrar solo la página que coincide con el ID, añadiendo el sufijo '-page'
+    const pageElement = document.getElementById(`${pageId}-page`);
+    if (pageElement) {
+        pageElement.style.display = 'block';
     }
+
+    // Activar el enlace de la barra lateral
+    navLinks.forEach(link => {
+        link.classList.remove('active');
+        if (link.getAttribute('data-page') === pageId) {
+            link.classList.add('active');
+        }
+    });
+
+    // Recargar el contenido de la página al cambiar
+    if (pageId === 'dashboard') updateDashboard();
+    if (pageId === 'materials') loadMaterials();
+    if (pageId === 'products') loadProducts();
+    if (pageId === 'production-orders') loadProductionOrders();
+}
 
     navLinks.forEach(link => {
         link.addEventListener('click', (event) => {
@@ -90,3 +96,4 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Lógica de importación/exportación (sin cambios)
 // ...
+
