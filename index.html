@@ -15,7 +15,7 @@
 
 <div class="container-fluid">
     <div class="row">
-        <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block sidebar collapse">
+        <nav id="sidebar" class="col-lg-2 col-md-3 d-md-block sidebar collapse">
             <div class="position-sticky">
                 <ul class="nav flex-column">
                     <li class="nav-item">
@@ -57,7 +57,11 @@
             </div>
         </nav>
 
-        <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+        <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 main-content">
+            <button class="navbar-toggler d-md-none" type="button" data-bs-toggle="collapse" data-bs-target="#sidebar" aria-controls="sidebar" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
             <div class="page-content" id="dashboard-page">
                 <h1 class="mt-4">Dashboard</h1>
                 <hr>
