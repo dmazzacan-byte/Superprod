@@ -18,6 +18,67 @@ export function saveToLocalStorage() {
     console.log('Datos guardados en el almacenamiento local.');
 }
 
+// Funciones necesarias para el dashboard
+export function calculateProductionOrderMetrics() {
+    const metrics = {
+        totalValue: 0,
+        totalCost: 0,
+        totalProfit: 0,
+        totalOvercost: 0,
+        totalQuantity: 0
+    };
+
+    const completedOrders = productionOrders.filter(o => o.status === 'Completada');
+
+    completedOrders.forEach(order => {
+        const product = products.find(p => p.id === order.productId);
+        if (!product) return;
+
+        const costs = calculateTotalCost(order);
+        const revenue = product.salePrice * order.quantity;
+
+        metrics.totalValue += revenue;
+        metrics.totalCost += costs.totalCost;
+        metrics.totalProfit += revenue - costs.totalCost;
+        metrics.totalOvercost += costs.overcost;
+        metrics.totalQuantity += order.quantity;
+    });
+
+    return metrics;
+}
+
+export function calculateTotalCost(order) {
+    let materialCost = 0;
+    let overcost = 0;
+    let laborCost = 0;
+    const product = products.find(p => p.id === order.productId);
+
+    if (order.materials && recipes[order.productId]) {
+        for (const materialId in order.materials) {
+            const material = materials.find(m => m.code === materialId);
+            if (material) {
+                const recipeQuantity = recipes[order.productId][materialId];
+                const consumedQuantity = order.materials[materialId].totalQuantity;
+                materialCost += material.cost * consumedQuantity;
+                if (consumedQuantity > recipeQuantity) {
+                    overcost += material.cost * (consumedQuantity - recipeQuantity);
+                }
+            }
+        }
+    }
+    if (product) {
+        laborCost = product.laborCost * order.quantity;
+    }
+    
+    return {
+        materialCost: materialCost,
+        laborCost: laborCost,
+        totalCost: materialCost + laborCost,
+        overcost: overcost
+    };
+}
+
+
 // Función para actualizar las variables globales
 export function updateGlobalData(dataKey, newData) {
     switch (dataKey) {
