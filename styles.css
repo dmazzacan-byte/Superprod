@@ -10,30 +10,27 @@ body {
     padding-top: 1rem;
     box-shadow: 0 0 10px rgba(0,0,0,0.1);
     transition: transform 0.3s ease-in-out;
-    transform: translateX(0); /* Estado por defecto en pantallas grandes */
+    transform: translateX(0);
 }
 
-/* Regla para pantallas pequeñas */
+/* Pantallas pequeñas */
 @media (max-width: 767.98px) {
     .sidebar {
         position: fixed;
         top: 0;
         bottom: 0;
         left: 0;
-        z-index: 1050; /* Por encima del contenido */
-        transform: translateX(-100%); /* Oculto por defecto */
+        z-index: 1050;
+        transform: translateX(-100%);
         width: 250px;
     }
-
     .sidebar.show {
-        transform: translateX(0); /* Mostrar cuando esté activo */
+        transform: translateX(0);
     }
-
     .main-content {
         padding-top: 1rem;
     }
 }
-
 
 .nav-link {
     color: #4a5568;
@@ -59,7 +56,7 @@ body {
     transition: margin-left 0.3s ease-in-out;
 }
 
-/* Estilo de las cards del dashboard */
+/* Cards dashboard */
 .card {
     border: none;
     border-radius: 12px;
@@ -71,23 +68,21 @@ body {
     color: #cbd5e0;
 }
 
-/* Estilos para las tablas */
+/* Tablas */
 .table-responsive {
     border-radius: 8px;
     overflow: hidden;
 }
-
 .table th, .table td {
     vertical-align: middle;
 }
-
 .table thead th {
     background-color: #4a5568;
     color: #fff;
     border-bottom: 2px solid #3d4653;
 }
 
-/* Estilos para formularios y botones */
+/* Formularios y botones */
 .form-control, .btn {
     border-radius: 8px;
 }
