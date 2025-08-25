@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 
@@ -140,8 +140,12 @@
                                 <input type="text" class="form-control" id="addMaterialCode" required>
                             </div>
                             <div class="mb-3">
-                                <label for="addMaterialDeion" class="form-label">Descripción</label>
-                                <input type="text" class="form-control" id="addMaterialDeion" required>
+                                <label for="addMaterialDescription" class="form-label">Descripción</label>
+                                <input type="text" class="form-control" id="addMaterialDescription" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="addMaterialCost" class="form-label">Costo</label>
+                                <input type="number" step="0.01" class="form-control" id="addMaterialCost" required>
                             </div>
                             <div class="mb-3">
                                 <label for="addMaterialUnit" class="form-label">Unidad</label>
@@ -150,10 +154,6 @@
                             <div class="mb-3">
                                 <label for="addMaterialExistence" class="form-label">Existencia</label>
                                 <input type="number" class="form-control" id="addMaterialExistence" required>
-                            </div>
-                            <div class="mb-3">
-                                <label for="addMaterialCost" class="form-label">Costo</label>
-                                <input type="number" step="0.01" class="form-control" id="addMaterialCost" required>
                             </div>
                             <button type="submit" class="btn btn-primary">Añadir Material</button>
                         </form>
@@ -168,8 +168,8 @@
                                 <tr>
                                     <th>Código</th>
                                     <th>Descripción</th>
-                                    <th>Unidad</th>
                                     <th>Costo</th>
+                                    <th>Unidad</th>
                                     <th>Acciones</th>
                                 </tr>
                             </thead>
@@ -194,22 +194,6 @@
                                 <input class="form-control" type="file" id="productFile" accept=".xlsx, .xls, .csv" required>
                             </div>
                             <button type="submit" class="btn btn-success">Cargar Productos</button>
-                        </form>
-                    </div>
-                </div>
-
-                <div class="card mt-4">
-                    <div class="card-header">
-                        <h4>Cargar Recetas desde Excel</h4>
-                    </div>
-                    <div class="card-body">
-                        <form id="uploadRecipeForm">
-                            <div class="mb-3">
-                                <label for="recipeFile" class="form-label">Seleccione el archivo de recetas (.xlsx, .xls, .csv)</label>
-                                <input class="form-control" type="file" id="recipeFile" accept=".xlsx, .xls, .csv" required>
-                            </div>
-                            <button type="submit" class="btn btn-success">Cargar Recetas</button>
-                            <p class="mt-2 text-muted">Asegúrese de que el archivo tenga las columnas: `product_id`, `material_code`, `quantity`.</p>
                         </form>
                     </div>
                 </div>
@@ -285,8 +269,8 @@
                                 <tr>
                                     <th>Código</th>
                                     <th>Descripción</th>
-                                    <th>Unidad</th>
                                     <th>Existencia</th>
+                                    <th>Unidad</th>
                                     <th>Costo Unitario</th>
                                 </tr>
                             </thead>
@@ -332,7 +316,6 @@
                                     <th>Fecha de Inicio</th>
                                     <th>Fecha de Finalización</th>
                                     <th>Estado</th>
-                                    <th>SobreCosto</th>
                                     <th>Acciones</th>
                                 </tr>
                             </thead>
@@ -346,8 +329,7 @@
             <div class="page-content" id="reports-page" style="display:none;">
                 <h1 class="mt-4">Reportes de Producción</h1>
                 <hr>
-                <div class="card p-4 mb-4">
-                    <h4>Generar Reporte</h4>
+                <div class="card p-4">
                     <form id="productionReportForm" class="row g-3 align-items-end">
                         <div class="col-md-3">
                             <label for="reportProductFilter" class="form-label">Filtrar por Producto</label>
@@ -389,24 +371,11 @@
                                         <th>Fecha de Inicio</th>
                                         <th>Fecha de Finalización</th>
                                         <th>Estado</th>
-                                        <th>SobreCosto</th>
                                     </tr>
                                 </thead>
                                 <tbody id="reportTableBody">
                                     </tbody>
                             </table>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card p-4 mt-4">
-                    <h4>Copia de Seguridad y Restauración</h4>
-                    <p>Guarda y restaura todos los datos de tu aplicación (Materiales, Productos, Recetas y Órdenes de Producción).</p>
-                    <div class="d-flex gap-2">
-                        <button id="exportDataBtn" class="btn btn-secondary"><i class="fas fa-download me-2"></i>Exportar Datos</button>
-                        <div class="btn btn-success position-relative overflow-hidden">
-                            <i class="fas fa-upload me-2"></i>Cargar Copia de Seguridad
-                            <input type="file" id="importFile" class="position-absolute top-0 start-0 w-100 h-100 opacity-0 cursor-pointer" accept=".json">
                         </div>
                     </div>
                 </div>
@@ -433,16 +402,16 @@
                         <input type="text" class="form-control" id="editMaterialDescription" required>
                     </div>
                     <div class="mb-3">
+                        <label for="editMaterialCost" class="form-label">Costo</label>
+                        <input type="number" step="0.01" class="form-control" id="editMaterialCost" required>
+                    </div>
+                    <div class="mb-3">
                         <label for="editMaterialUnit" class="form-label">Unidad</label>
                         <input type="text" class="form-control" id="editMaterialUnit" required>
                     </div>
                     <div class="mb-3">
                         <label for="editMaterialExistence" class="form-label">Existencia</label>
                         <input type="number" class="form-control" id="editMaterialExistence" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="editMaterialCost" class="form-label">Costo</label>
-                        <input type="number" step="0.01" class="form-control" id="editMaterialCost" required>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
@@ -502,101 +471,9 @@
     </div>
 </div>
 
-<div class="modal fade" id="orderDetailsModal" tabindex="-1" aria-labelledby="orderDetailsModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="orderDetailsModalLabel">Detalle de la Orden de Producción</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div id="orderDetailsContent">
-                    <h5>Información de la Orden</h5>
-                    <ul class="list-group list-group-flush mb-4">
-                        <li class="list-group-item"><strong>ID de Orden:</strong> <span id="detailOrderId"></span></li>
-                        <li class="list-group-item"><strong>Producto:</strong> <span id="detailProductName"></span></li>
-                        <li class="list-group-item"><strong>Cantidad a Producir:</strong> <span id="detailQuantity"></span></li>
-                        <li class="list-group-item"><strong>Cantidad Real Producida:</strong> <span id="detailActualQuantity">N/A</span></li>
-                        <li class="list-group-item"><strong>Operador:</strong> <span id="detailOperator"></span></li>
-                        <li class="list-group-item"><strong>Fecha de Creación:</strong> <span id="detailStartDate"></span></li>
-                        <li class="list-group-item"><strong>Fecha de Finalización:</strong> <span id="detailFinishDate">N/A</span></li>
-                        <li class="list-group-item"><strong>Estado:</strong> <span id="detailStatus"></span></li>
-                    </ul>
-
-                    <h5>Consumo de Materiales</h5>
-                    <div class="table-responsive">
-                        <table class="table table-bordered table-striped">
-                            <thead>
-                                <tr>
-                                    <th>Código</th>
-                                    <th>Descripción</th>
-                                    <th>Cantidad de Receta</th>
-                                    <th>Cantidad Extra</th>
-                                    <th>Cantidad Total</th>
-                                    <th>Unidad</th>
-                                </tr>
-                            </thead>
-                            <tbody id="requiredMaterialsTableBody">
-                                </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
-                <button type="button" class="btn btn-info" id="printOrderBtn"><i class="fas fa-print"></i> Imprimir</button>
-                <button type="button" class="btn btn-danger" id="downloadPdfBtn"><i class="fas fa-file-pdf"></i> Descargar PDF</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="modal fade" id="finalizeOrderModal" tabindex="-1" aria-labelledby="finalizeOrderModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="finalizeOrderModalLabel">Finalizar Orden: <span id="finalizeOrderId"></span></h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <form id="finalizeOrderForm">
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="actualProductionQuantity" class="form-label">Cantidad Real Producida</label>
-                        <input type="number" step="0.01" class="form-control" id="actualProductionQuantity" required>
-                    </div>
-
-                    <div class="form-check mb-3">
-                        <input class="form-check-input" type="checkbox" id="markAsCompleted">
-                        <label class="form-check-label" for="markAsCompleted">
-                            Marcar como Completada y Cerrar la Orden
-                        </label>
-                    </div>
-
-                    <h5 class="mt-4">Consumo Extra de Materiales (Opcional)</h5>
-                    <div id="extraConsumptionList">
-                        </div>
-
-                    <button type="button" id="addExtraMaterialBtn" class="btn btn-outline-secondary mt-2">
-                        <i class="fas fa-plus"></i> Añadir Material Extra
-                    </button>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Guardar y Finalizar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script type="module" src="js/main.js"></script>
+<script src="js/main.js" type="module"></script>
 </body>
 </html>
-
-
-
