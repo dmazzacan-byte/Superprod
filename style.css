@@ -120,3 +120,8 @@ body {
 .text-center .small {
   display: block;
 }
+
+.th-multiline {
+  text-align: center;
+  vertical-align: middle;
+}
