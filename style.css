@@ -1,0 +1,122 @@
+:root {
+    --primary-color: #2c3e50;
+    --secondary-color: #34495e;
+    --background-color: #f4f7f9;
+    --card-background: #ffffff;
+    --text-color: #333333;
+    --light-text-color: #7f8c8d;
+    --success-color: #27ae60;
+    --danger-color: #e74c3c;
+    --info-color: #3498db;
+    --warning-color: #f39c12;
+    --link-color: #2980b9;
+    --border-color: #ecf0f1;
+}
+
+body {
+    font-family: 'Poppins', sans-serif;
+    background-color: var(--background-color);
+    color: var(--text-color);
+}
+
+.sidebar {
+    height: 100vh;
+    background-color: var(--secondary-color);
+    padding-top: 1rem;
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.nav-link {
+    color: #ecf0f1;
+    font-weight: 500;
+    padding: 1rem 1.5rem;
+    transition: all 0.3s ease;
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+}
+
+.nav-link.active, .nav-link:hover {
+    background-color: var(--primary-color);
+    color: #ffffff;
+}
+
+.sidebar .nav-item .nav-link i {
+    width: 25px;
+    text-align: center;
+}
+
+.card {
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.card-header {
+    background-color: var(--card-background);
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 600;
+    color: var(--primary-color);
+    border-radius: 12px 12px 0 0;
+}
+
+.btn-primary {
+    background-color: var(--info-color);
+    border-color: var(--info-color);
+}
+.btn-primary:hover {
+    background-color: #2980b9;
+    border-color: #2980b9;
+}
+
+.kpi-card {
+    background-color: var(--card-background);
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.kpi-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(44, 62, 80, 0.1);
+}
+
+.kpi-card.positive .kpi-value { color: var(--success-color); }
+.kpi-card.negative .kpi-value { color: var(--danger-color); }
+
+.kpi-card .card-body { padding: 1.5rem; }
+.kpi-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--light-text-color);
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+}
+.kpi-value {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    margin-bottom: 0;
+}
+.kpi-icon {
+    position: absolute;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 3rem;
+    color: var(--border-color);
+    opacity: 0.8;
+}
+/* Centrar encabezados de tabla en modales */
+.modal-body .row.fw-bold {
+    font-size: 0.9rem;
+    text-align: center;
+}
+.table th .small {
+  font-weight: normal;
+  font-size: 0.75em;
+}
+.text-center .small {
+  display: block;
+}
