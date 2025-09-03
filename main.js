@@ -308,6 +308,57 @@ function loadProductionOrders(filter = '') {
     } else if (btn.classList.contains('reopen-order-btn')) reopenOrder(oid);
   });
 }
+
+function showOrderDetails(oid) {
+  const ord = productionOrders.find(o => o.order_id === oid);
+  if (!ord) {
+    Toastify({ text: 'Orden no encontrada', backgroundColor: 'var(--danger-color)' }).showToast();
+    return;
+  }
+
+  document.getElementById('detailOrderId').textContent = ord.order_id;
+  document.getElementById('detailProductName').textContent = ord.product_name;
+  const operator = operators.find(op => op.id === ord.operator_id);
+  document.getElementById('detailOperatorName').textContent = operator ? operator.name : 'N/A';
+
+  const statusBadge = document.getElementById('detailStatus');
+  statusBadge.textContent = ord.status;
+  statusBadge.className = `badge ${ord.status === 'Completada' ? 'bg-success' : 'bg-warning'}`;
+
+  document.getElementById('detailQuantityPlanned').textContent = ord.quantity;
+  document.getElementById('detailQuantityProduced').textContent = ord.quantity_produced ?? 'N/A';
+  document.getElementById('detailCreatedDate').textContent = ord.created_at;
+  document.getElementById('detailCompletedDate').textContent = ord.completed_at ?? 'N/A';
+
+  document.getElementById('detailStandardCost').textContent = `$${(ord.cost_standard || 0).toFixed(2)}`;
+  document.getElementById('detailExtraCost').textContent = `$${(ord.cost_extra || 0).toFixed(2)}`;
+  document.getElementById('detailRealCost').textContent = ord.cost_real ? `$${ord.cost_real.toFixed(2)}` : 'N/A';
+
+  const overcostEl = document.getElementById('detailOvercost');
+  const oc = ord.overcost;
+  overcostEl.textContent = oc ? `$${oc.toFixed(2)}` : 'N/A';
+  const ocValue = oc || 0;
+  overcostEl.className = 'h5 ' + (ocValue > 0 ? 'text-danger' : ocValue < 0 ? 'text-success' : '');
+
+  const materialsTbody = document.getElementById('detailMaterialsTableBody');
+  materialsTbody.innerHTML = '';
+  // NOTE: This table shows planned materials. Real consumption is not tracked per item.
+  ord.materials_used.forEach(u => {
+    const m = materials.find(ma => ma.codigo === u.material_code);
+    const cost = m ? m.costo * u.quantity : 0;
+    materialsTbody.insertAdjacentHTML('beforeend', `
+        <tr>
+            <td>${u.material_code}</td>
+            <td>${m ? m.descripcion : 'N/A'}</td>
+            <td>${u.quantity.toFixed(2)}</td>
+            <td>$${cost.toFixed(2)}</td>
+        </tr>
+    `);
+  });
+
+  orderDetailsModal.show();
+}
+
 document.getElementById('productionOrderForm').addEventListener('submit', e => {
   e.preventDefault();
   const pCode = document.getElementById('orderProductSelect').value;
@@ -347,17 +398,29 @@ function completeOrder(oid, realQty) {
   const idx = productionOrders.findIndex(o => o.order_id === oid);
   if (idx === -1) return;
   const ord = productionOrders[idx];
+  
+  // NOTE: This logic deducts all planned materials regardless of the real quantity produced.
   ord.materials_used.filter(u => u.type === 'material').forEach(u => {
     const mIdx = materials.findIndex(m => m.codigo === u.material_code);
     if (mIdx !== -1) materials[mIdx].existencia -= u.quantity;
   });
+
   ord.quantity_produced = realQty;
   ord.status = 'Completada';
   ord.completed_at = new Date().toISOString().slice(0, 10);
-  ord.cost_real = ord.cost_standard + ord.cost_extra;
-  ord.overcost = ord.cost_real - ord.cost_standard_unit * realQty;
-  generateOrderPDF(oid);
-  saveToLocalStorage(); loadProductionOrders(); loadMaterials(); updateDashboard();
+  
+  // Calculate costs based on the provided logic
+  ord.cost_real = (ord.cost_standard || 0) + (ord.cost_extra || 0);
+  ord.overcost = ord.cost_real - ((ord.cost_standard_unit || 0) * realQty);
+
+  // Save changes and refresh UI
+  saveToLocalStorage(); 
+  loadProductionOrders(); 
+  loadMaterials(); 
+  updateDashboard();
+
+  // Provide user feedback
+  Toastify({ text: `Orden ${oid} completada con éxito.`, backgroundColor: 'var(--success-color)' }).showToast();
 }
 function reopenOrder(oid) {
   const idx = productionOrders.findIndex(o => o.order_id === oid);
@@ -377,30 +440,38 @@ function reopenOrder(oid) {
   saveToLocalStorage(); loadProductionOrders(); loadMaterials(); updateDashboard();
 }
 function generateOrderPDF(oid) {
-  const { jsPDF } = window.jspdf;
-  const ord = productionOrders.find(o => o.order_id === oid);
-  if (!ord) return;
-  const doc = new jsPDF();
-  const logo = localStorage.getItem('companyLogo');
-  if (logo) doc.addImage(logo, 'PNG', 15, 10, 40, 15);
-  doc.setFontSize(20);
-  doc.text('Orden de Producción', 105, 20, null, null, 'center');
-  doc.setFontSize(12);
-  doc.text(`ID de Orden: ${ord.order_id}`, 15, 30);
-  doc.text(`Producto: ${ord.product_name}`, 15, 35);
-  doc.text(`Operador: ${operators.find(op => op.id === ord.operator_id)?.name || 'N/A'}`, 15, 40);
-  doc.text(`Cantidad Planificada: ${ord.quantity}`, 15, 45);
-  doc.text(`Cantidad Real Producida: ${ord.quantity_produced || 'N/A'}`, 15, 50);
-  doc.text(`Costo Estándar: $${ord.cost_standard.toFixed(2)}`, 15, 55);
-  doc.text(`Costo Extra: $${ord.cost_extra.toFixed(2)}`, 15, 60);
-  doc.text(`Costo Real Total: $${ord.cost_real ? ord.cost_real.toFixed(2) : 'N/A'}`, 15, 65);
-  doc.text(`Sobrecosto: $${(ord.overcost || 0).toFixed(2)}`, 15, 70);
-  const bodyRows = ord.materials_used.map(u => {
-    const m = materials.find(ma => ma.codigo === u.material_code);
-    return [m ? m.descripcion : u.material_code, u.quantity, (u.quantity * (m ? m.costo : 0)).toFixed(2)];
-  });
-  doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: 80 });
-  doc.save(`orden_${ord.order_id}.pdf`);
+  try {
+    const { jsPDF } = window.jspdf;
+    const ord = productionOrders.find(o => o.order_id === oid);
+    if (!ord) {
+      Toastify({ text: 'Error: Orden no encontrada para PDF.', backgroundColor: 'var(--danger-color)' }).showToast();
+      return;
+    }
+    const doc = new jsPDF();
+    const logo = localStorage.getItem('companyLogo');
+    if (logo) doc.addImage(logo, 'PNG', 15, 10, 40, 15);
+    doc.setFontSize(20);
+    doc.text('Orden de Producción', 105, 20, null, null, 'center');
+    doc.setFontSize(12);
+    doc.text(`ID de Orden: ${ord.order_id}`, 15, 30);
+    doc.text(`Producto: ${ord.product_name}`, 15, 35);
+    doc.text(`Operador: ${operators.find(op => op.id === ord.operator_id)?.name || 'N/A'}`, 15, 40);
+    doc.text(`Cantidad Planificada: ${ord.quantity}`, 15, 45);
+    doc.text(`Cantidad Real Producida: ${ord.quantity_produced || 'N/A'}`, 15, 50);
+    doc.text(`Costo Estándar: $${(ord.cost_standard || 0).toFixed(2)}`, 15, 55);
+    doc.text(`Costo Extra: $${(ord.cost_extra || 0).toFixed(2)}`, 15, 60);
+    doc.text(`Costo Real Total: $${ord.cost_real ? ord.cost_real.toFixed(2) : 'N/A'}`, 15, 65);
+    doc.text(`Sobrecosto: $${(ord.overcost || 0).toFixed(2)}`, 15, 70);
+    const bodyRows = ord.materials_used.map(u => {
+      const m = materials.find(ma => ma.codigo === u.material_code);
+      return [m ? m.descripcion : u.material_code, u.quantity, (u.quantity * (m ? m.costo : 0)).toFixed(2)];
+    });
+    doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: 80 });
+    doc.save(`orden_${ord.order_id}.pdf`);
+  } catch (error) {
+    console.error(`Error al generar PDF para orden ${oid}:`, error);
+    Toastify({ text: 'No se pudo generar el PDF.', backgroundColor: 'var(--danger-color)' }).showToast();
+  }
 }
 function generateValePDF(vale) {
   const { jsPDF } = window.jspdf;
