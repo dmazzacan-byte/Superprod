@@ -293,9 +293,11 @@ function loadProductionOrders(filter = '') {
   tbody.addEventListener('click', e => {
     const btn = e.target.closest('button'); if (!btn) return;
     const oid = parseInt(btn.dataset.orderId);
-    if (btn.classList.contains('view-details-btn')) showOrderDetails(oid);
-    else if (btn.classList.contains('pdf-btn')) generateOrderPDF(oid);
-    else if (btn.classList.contains('delete-order-btn')) {
+    if (btn.classList.contains('view-details-btn')) {
+      showOrderDetails(oid);
+    } else if (btn.classList.contains('pdf-btn')) {
+      generateOrderPDF(oid);
+    } else if (btn.classList.contains('delete-order-btn')) {
       if (confirm(`¿Eliminar orden ${oid}?`)) {
         productionOrders = productionOrders.filter(o => o.order_id !== oid);
         saveToLocalStorage(); loadProductionOrders(); updateDashboard();
@@ -305,7 +307,9 @@ function loadProductionOrders(filter = '') {
       document.getElementById('closeHiddenOrderId').value = oid;
       document.getElementById('realQuantityInput').value = ord.quantity;
       confirmCloseOrderModal.show();
-    } else if (btn.classList.contains('reopen-order-btn')) reopenOrder(oid);
+    } else if (btn.classList.contains('reopen-order-btn')) {
+      reopenOrder(oid);
+    }
   });
 }
 
@@ -448,10 +452,15 @@ function completeOrder(oid, realQty) {
   if (idx === -1) return;
   const ord = productionOrders[idx];
 
-  // NOTE: This logic deducts all planned materials regardless of the real quantity produced.
-  ord.materials_used.filter(u => u.type === 'material').forEach(u => {
-    const mIdx = materials.findIndex(m => m.codigo === u.material_code);
-    if (mIdx !== -1) materials[mIdx].existencia -= u.quantity;
+  // Deduct materials proportionally based on real production quantity.
+  (ord.materials_used || []).forEach(orderMat => {
+    if (orderMat.type !== 'material') return;
+    const mIdx = materials.findIndex(m => m.codigo === orderMat.material_code);
+    if (mIdx !== -1) {
+      const perUnitQty = (ord.quantity > 0) ? (orderMat.quantity / ord.quantity) : 0;
+      const consumedQty = perUnitQty * realQty;
+      materials[mIdx].existencia -= consumedQty;
+    }
   });
 
   ord.quantity_produced = realQty;
@@ -475,9 +484,15 @@ function reopenOrder(oid) {
   const idx = productionOrders.findIndex(o => o.order_id === oid);
   if (idx === -1) return;
   const ord = productionOrders[idx];
-  ord.materials_used.filter(u => u.type === 'material').forEach(u => {
-    const mIdx = materials.findIndex(m => m.codigo === u.material_code);
-    if (mIdx !== -1) materials[mIdx].existencia += u.quantity;
+  // Add back materials proportionally based on what was produced.
+  (ord.materials_used || []).forEach(orderMat => {
+    if (orderMat.type !== 'material') return;
+    const mIdx = materials.findIndex(m => m.codigo === orderMat.material_code);
+    if (mIdx !== -1) {
+      const perUnitQty = (ord.quantity > 0) ? (orderMat.quantity / ord.quantity) : 0;
+      const consumedQty = perUnitQty * (ord.quantity_produced || 0); // Use the stored produced qty
+      materials[mIdx].existencia += consumedQty;
+    }
   });
   vales.filter(v => v.order_id === oid).forEach(v => {
     v.materials.forEach(m => {
@@ -498,24 +513,37 @@ function generateOrderPDF(oid) {
     }
     const doc = new jsPDF();
     const logo = localStorage.getItem('companyLogo');
-    if (logo) doc.addImage(logo, 'PNG', 15, 10, 40, 15);
+    if (logo) doc.addImage(logo, 'PNG', 15, 10, 40, 0);
     doc.setFontSize(20);
-    doc.text('Orden de Producción', 105, 20, null, null, 'center');
+    doc.text('Orden de Producción', 105, 25, null, null, 'center');
+
+    let startY = 40;
+    const lineHeight = 7;
     doc.setFontSize(12);
-    doc.text(`ID de Orden: ${ord.order_id}`, 15, 30);
-    doc.text(`Producto: ${ord.product_name}`, 15, 35);
-    doc.text(`Operador: ${operators.find(op => op.id === ord.operator_id)?.name || 'N/A'}`, 15, 40);
-    doc.text(`Cantidad Planificada: ${ord.quantity}`, 15, 45);
-    doc.text(`Cantidad Real Producida: ${ord.quantity_produced || 'N/A'}`, 15, 50);
-    doc.text(`Costo Estándar: $${(ord.cost_standard || 0).toFixed(2)}`, 15, 55);
-    doc.text(`Costo Extra: $${(ord.cost_extra || 0).toFixed(2)}`, 15, 60);
-    doc.text(`Costo Real Total: $${ord.cost_real ? ord.cost_real.toFixed(2) : 'N/A'}`, 15, 65);
-    doc.text(`Sobrecosto: $${(ord.overcost || 0).toFixed(2)}`, 15, 70);
+
+    doc.text(`ID de Orden: ${ord.order_id}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Producto: ${ord.product_name}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Operador: ${operators.find(op => op.id === ord.operator_id)?.name || 'N/A'}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Cantidad Planificada: ${ord.quantity}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Cantidad Real Producida: ${ord.quantity_produced || 'N/A'}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Costo Estándar: $${(ord.cost_standard || 0).toFixed(2)}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Costo Extra: $${(ord.cost_extra || 0).toFixed(2)}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Costo Real Total: $${ord.cost_real ? ord.cost_real.toFixed(2) : 'N/A'}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Sobrecosto: $${(ord.overcost || 0).toFixed(2)}`, 15, startY);
+
     const bodyRows = ord.materials_used.map(u => {
       const m = materials.find(ma => ma.codigo === u.material_code);
       return [m ? m.descripcion : u.material_code, u.quantity, (u.quantity * (m ? m.costo : 0)).toFixed(2)];
     });
-    doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: 80 });
+    doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: startY + 5 });
 
     const pageHeight = doc.internal.pageSize.getHeight();
     const bottomMargin = 20;
@@ -534,19 +562,27 @@ function generateValePDF(vale) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const logo = localStorage.getItem('companyLogo');
-  if (logo) doc.addImage(logo, 'PNG', 15, 10, 40, 15);
+  if (logo) doc.addImage(logo, 'PNG', 15, 10, 40, 0);
   doc.setFontSize(18);
   doc.text('Vale de Almacén', 105, 25, null, null, 'center');
+
+  let startY = 40;
+  const lineHeight = 7;
   doc.setFontSize(11);
-  doc.text(`Vale ID: ${vale.vale_id}`, 15, 40);
-  doc.text(`Orden: ${vale.order_id}`, 15, 47);
-  doc.text(`Tipo: ${vale.type === 'salida' ? 'Salida' : 'Devolución'}`, 15, 54);
-  doc.text(`Fecha: ${vale.created_at}`, 15, 61);
+
+  doc.text(`Vale ID: ${vale.vale_id}`, 15, startY);
+  startY += lineHeight;
+  doc.text(`Orden: ${vale.order_id}`, 15, startY);
+  startY += lineHeight;
+  doc.text(`Tipo: ${vale.type === 'salida' ? 'Salida' : 'Devolución'}`, 15, startY);
+  startY += lineHeight;
+  doc.text(`Fecha: ${vale.created_at}`, 15, startY);
+
   const bodyRows = vale.materials.map(m => {
     const mat = materials.find(ma => ma.codigo === m.material_code);
     return [mat ? mat.descripcion : m.material_code, m.quantity, (m.quantity * (mat ? mat.costo : 0)).toFixed(2)];
   });
-  doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: 75 });
+  doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: startY + 5 });
 
   const pageHeight = doc.internal.pageSize.getHeight();
   const bottomMargin = 20;
