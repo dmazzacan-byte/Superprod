@@ -52,22 +52,56 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ----------  DASHBOARD  ---------- */
 function updateDashboard() {
-  const completed = productionOrders.filter(o => o.status === 'Completada');
-  const pending   = productionOrders.filter(o => o.status === 'Pendiente');
-  const realCost  = completed.reduce((a, o) => a + (o.cost_real || 0), 0);
-  const overCost  = completed.reduce((a, o) => a + (o.overcost || 0), 0);
-  const invValue  = materials.reduce((a, m) => a + m.existencia * m.costo, 0);
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
 
-  document.getElementById('pendingOrdersCard').textContent   = pending.length;
-  document.getElementById('totalCostCard').textContent       = `$${realCost.toFixed(2)}`;
-  document.getElementById('inventoryValueCard').textContent  = `$${invValue.toFixed(2)}`;
-  document.getElementById('totalOvercostCard').textContent   = `$${overCost.toFixed(2)}`;
+  // Filter orders for the current month based on their COMPLETION date for financial metrics.
+  const completedThisMonth = productionOrders.filter(o => {
+    if (o.status !== 'Completada' || !o.completed_at) return false;
+    const orderDate = new Date(o.completed_at);
+    return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
+  });
 
+  // Pending orders are not time-sensitive in the same way.
+  const pending = productionOrders.filter(o => o.status === 'Pendiente');
+
+  const totalProduction = completedThisMonth.reduce((acc, o) => acc + (o.quantity_produced || 0), 0);
+  const realCost = completedThisMonth.reduce((acc, o) => acc + (o.cost_real || 0), 0);
+  const overCost = completedThisMonth.reduce((acc, o) => acc + (o.overcost || 0), 0);
+
+  document.getElementById('pendingOrdersCard').textContent = pending.length;
+  document.getElementById('completedOrdersCard').textContent = completedThisMonth.length;
+  document.getElementById('totalProductionCard').textContent = totalProduction;
+  document.getElementById('totalCostCard').textContent = `$${realCost.toFixed(2)}`;
+  document.getElementById('totalOvercostCard').textContent = `$${overCost.toFixed(2)}`;
+
+  // Operator Rankings for the current month
+  const operatorStats = {};
+  completedThisMonth.forEach(o => {
+    const opId = o.operator_id;
+    if (!operatorStats[opId]) {
+      operatorStats[opId] = { name: operators.find(op => op.id === opId)?.name || opId, production: 0, overcost: 0 };
+    }
+    operatorStats[opId].production += o.quantity_produced || 0;
+    operatorStats[opId].overcost += o.overcost || 0;
+  });
+
+  const sortedByProduction = Object.values(operatorStats).sort((a, b) => b.production - a.production);
+  const sortedByOvercost = Object.values(operatorStats).sort((a, b) => a.overcost - b.overcost);
+
+  const prodRankBody = document.getElementById('operatorProductionRankBody');
+  prodRankBody.innerHTML = sortedByProduction.map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>${op.production}</td></tr>`).join('');
+
+  const overcostRankBody = document.getElementById('operatorOvercostRankBody');
+  overcostRankBody.innerHTML = sortedByOvercost.map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>$${op.overcost.toFixed(2)}</td></tr>`).join('');
+
+  // Low stock alert is not month-dependent, so it remains the same.
   const usedMaterials = new Set();
   Object.values(recipes).flat().forEach(r => usedMaterials.add(r.code));
   const low = materials.filter(m => m.existencia < 10 && usedMaterials.has(m.codigo));
-  const tbody = document.getElementById('lowStockTableBody');
-  tbody.innerHTML = low.length
+  const lowStockTbody = document.getElementById('lowStockTableBody');
+  lowStockTbody.innerHTML = low.length
     ? low.map(m => `<tr><td>${m.descripcion}</td><td>${m.existencia}</td><td>${m.unidad}</td></tr>`).join('')
     : '<tr><td colspan="3" class="text-center">Sin alertas</td></tr>';
 }
@@ -79,19 +113,23 @@ function loadProducts(filter = '') {
   const tbody = document.getElementById('productsTableBody'); tbody.innerHTML = '';
   products.sort((a, b) => a.codigo.localeCompare(b.codigo));
   products.filter(p => !filter || p.codigo.includes(filter) || p.descripcion.toLowerCase().includes(filter.toLowerCase()))
-    .forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td>${p.codigo}</td><td>${p.descripcion}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${p.codigo}"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${p.codigo}"><i class="fas fa-trash"></i></button></td></tr>`));
+    .forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td>${p.codigo}</td><td>${p.descripcion}</td><td>${p.unidad || ''}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${p.codigo}"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${p.codigo}"><i class="fas fa-trash"></i></button></td></tr>`));
 }
 document.getElementById('productForm').addEventListener('submit', e => {
   e.preventDefault();
   const code = document.getElementById('productCode').value.trim();
   const desc = document.getElementById('productDescription').value.trim();
+  const unit = document.getElementById('productUnit').value.trim();
   if (!code || !desc) return;
   if (isEditingProduct) {
     const idx = products.findIndex(p => p.codigo === currentProductCode);
-    products[idx].descripcion = desc;
+    if (idx !== -1) {
+      products[idx].descripcion = desc;
+      products[idx].unidad = unit;
+    }
   } else {
     if (products.some(p => p.codigo === code)) { Toastify({ text: 'Código duplicado', backgroundColor: 'var(--danger-color)' }).showToast(); return; }
-    products.push({ codigo: code, descripcion: desc });
+    products.push({ codigo: code, descripcion: desc, unidad: unit });
   }
   saveToLocalStorage(); loadProducts(); productModal.hide();
 });
@@ -99,7 +137,7 @@ document.getElementById('productsTableBody').addEventListener('click', e => {
   const btn = e.target.closest('button'); if (!btn) return;
   const code = btn.dataset.code;
   if (btn.classList.contains('delete-btn')) { products = products.filter(p => p.codigo !== code); saveToLocalStorage(); loadProducts(); }
-  if (btn.classList.contains('edit-btn')) { isEditingProduct = true; currentProductCode = code; const p = products.find(p => p.codigo === code); document.getElementById('productCode').value = p.codigo; document.getElementById('productDescription').value = p.descripcion; document.getElementById('productCode').disabled = true; document.getElementById('productModalLabel').textContent = 'Editar Producto'; productModal.show(); }
+  if (btn.classList.contains('edit-btn')) { isEditingProduct = true; currentProductCode = code; const p = products.find(p => p.codigo === code); document.getElementById('productCode').value = p.codigo; document.getElementById('productDescription').value = p.descripcion; document.getElementById('productUnit').value = p.unidad || ''; document.getElementById('productCode').disabled = true; document.getElementById('productModalLabel').textContent = 'Editar Producto'; productModal.show(); }
 });
 document.getElementById('productModal').addEventListener('hidden.bs.modal', () => { isEditingProduct = false; document.getElementById('productForm').reset(); document.getElementById('productCode').disabled = false; document.getElementById('productModalLabel').textContent = 'Añadir Producto'; });
 document.getElementById('searchProduct').addEventListener('input', e => loadProducts(e.target.value));
@@ -773,7 +811,7 @@ document.getElementById('productFile').addEventListener('change', e => {
   reader.onload = ev => {
     const wb = XLSX.read(ev.target.result, { type: 'binary' });
     const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-    products = json.map(r => ({ codigo: r.codigo || r.Código, descripcion: r.descripcion || r.Descripción }));
+    products = json.map(r => ({ codigo: r.codigo || r.Código, descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad || '' }));
     saveToLocalStorage(); loadProducts();
     Toastify({ text: 'Productos importados', backgroundColor: 'var(--success-color)' }).showToast();
   };
@@ -852,25 +890,60 @@ document.getElementById('importBackupFile').addEventListener('change', e => {
 
 /* ----------  CHARTS  ---------- */
 function initCharts() {
-  // Cost Chart (Top 5 products)
+  if (costChartInstance) costChartInstance.destroy();
+  if (productionChartInstance) productionChartInstance.destroy();
+
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+
+  const completedThisMonth = productionOrders.filter(o => {
+    if (o.status !== 'Completada' || !o.completed_at) return false;
+    const orderDate = new Date(o.completed_at);
+    return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
+  });
+
+  // Cost Chart (Top 5 products this month)
   const ctxCost = document.getElementById('costChart');
   if (ctxCost) {
-    const top = Object.keys(recipes)
-      .map(pid => ({ product: products.find(p => p.codigo === pid)?.descripcion || pid, cost: calculateRecipeCost(recipes[pid]) }))
+    const costMap = {};
+    completedThisMonth.forEach(o => {
+        costMap[o.product_name] = (costMap[o.product_name] || 0) + (o.cost_real || 0);
+    });
+    const topCost = Object.entries(costMap).map(([name, cost]) => ({ name, cost }))
       .sort((a, b) => b.cost - a.cost).slice(0, 5);
-    new Chart(ctxCost, { type: 'bar', data: { labels: top.map(x => x.product), datasets: [{ label: 'Costo', data: top.map(x => x.cost), backgroundColor: '#3498db' }] } });
+
+    costChartInstance = new Chart(ctxCost, {
+      type: 'bar',
+      data: {
+        labels: topCost.map(x => x.name),
+        datasets: [{ label: 'Costo', data: topCost.map(x => x.cost), backgroundColor: '#3498db' }]
+      },
+      options: { plugins: { datalabels: { anchor: 'end', align: 'top', formatter: (value, context) => `$${value.toFixed(2)}` } } }
+    });
   }
 
-  // Production chart (Top 5 products)
+  // Production chart (Top 5 products this month)
   const ctxProd = document.getElementById('productionChart');
   if (ctxProd) {
     const prodMap = {};
-    productionOrders.filter(o => o.status === 'Completada').forEach(o => {
+    completedThisMonth.forEach(o => {
       prodMap[o.product_name] = (prodMap[o.product_name] || 0) + (o.quantity_produced || 0);
     });
     const topProd = Object.entries(prodMap).map(([name, qty]) => ({ name, qty }))
       .sort((a, b) => b.qty - a.qty).slice(0, 5);
-    new Chart(ctxProd, { type: 'bar', data: { labels: topProd.map(x => x.name), datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }] } });
+
+    productionChartInstance = new Chart(ctxProd, {
+      type: 'bar',
+      data: {
+        labels: topProd.map(x => x.name),
+        datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }]
+      },
+      options: { plugins: { datalabels: { anchor: 'end', align: 'top' } } }
+    });
   }
 }
-document.addEventListener('DOMContentLoaded', initCharts);
+document.addEventListener('DOMContentLoaded', () => {
+    Chart.register(ChartDataLabels);
+    initCharts();
+});
