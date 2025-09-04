@@ -386,13 +386,13 @@ function loadProductionOrders(filter = '') {
     });
 
   // Delegated listeners
-  tbody.addEventListener('click', e => {
+  tbody.addEventListener('click', async e => {
     const btn = e.target.closest('button'); if (!btn) return;
     const oid = parseInt(btn.dataset.orderId);
     if (btn.classList.contains('view-details-btn')) {
       showOrderDetails(oid);
     } else if (btn.classList.contains('pdf-btn')) {
-      generateOrderPDF(oid);
+      await generateOrderPDF(oid);
     } else if (btn.classList.contains('delete-order-btn')) {
       if (confirm(`¿Eliminar orden ${oid}?`)) {
         productionOrders = productionOrders.filter(o => o.order_id !== oid);
@@ -599,7 +599,7 @@ function reopenOrder(oid) {
   ord.status = 'Pendiente'; ord.completed_at = null; ord.quantity_produced = null; ord.cost_real = null; ord.overcost = null;
   saveToLocalStorage(); loadProductionOrders(); loadMaterials(); updateDashboard();
 }
-function generateOrderPDF(oid) {
+async function generateOrderPDF(oid) {
   try {
     const { jsPDF } = window.jspdf;
     const ord = productionOrders.find(o => o.order_id === oid);
@@ -608,12 +608,29 @@ function generateOrderPDF(oid) {
       return;
     }
     const doc = new jsPDF();
-    const logo = localStorage.getItem('companyLogo');
-    if (logo) doc.addImage(logo, 'PNG', 15, 10, 40, 0);
-    doc.setFontSize(20);
-    doc.text('Orden de Producción', 105, 25, null, null, 'center');
 
-    let startY = 40;
+    let logoHeight = 0;
+    const logoData = localStorage.getItem('companyLogo');
+    if (logoData) {
+        const getImageDimensions = (dataUrl) => new Promise(resolve => {
+            const img = new Image();
+            img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+            img.src = dataUrl;
+        });
+        const dims = await getImageDimensions(logoData);
+        const maxWidth = 40;
+        const maxHeight = 20;
+        const ratio = Math.min(maxWidth / dims.width, maxHeight / dims.height);
+        const w = dims.width * ratio;
+        const h = dims.height * ratio;
+        doc.addImage(logoData, 'PNG', 15, 10, w, h);
+        logoHeight = h;
+    }
+
+    doc.setFontSize(20);
+    doc.text('Orden de Producción', 105, logoHeight > 0 ? 15 + logoHeight : 25, null, null, 'center');
+
+    let startY = (logoHeight > 0 ? 15 + logoHeight : 25) + 15;
     const lineHeight = 7;
     doc.setFontSize(12);
 
@@ -637,7 +654,7 @@ function generateOrderPDF(oid) {
 
     const bodyRows = ord.materials_used.map(u => {
       const m = materials.find(ma => ma.codigo === u.material_code);
-      return [m ? m.descripcion : u.material_code, u.quantity, (u.quantity * (m ? m.costo : 0)).toFixed(2)];
+      return [m ? m.descripcion : u.material_code, u.quantity.toFixed(2), (u.quantity * (m ? m.costo : 0)).toFixed(2)];
     });
     doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: startY + 5 });
 
@@ -654,15 +671,32 @@ function generateOrderPDF(oid) {
     Toastify({ text: 'No se pudo generar el PDF.', backgroundColor: 'var(--danger-color)' }).showToast();
   }
 }
-function generateValePDF(vale) {
+async function generateValePDF(vale) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  const logo = localStorage.getItem('companyLogo');
-  if (logo) doc.addImage(logo, 'PNG', 15, 10, 40, 0);
-  doc.setFontSize(18);
-  doc.text('Vale de Almacén', 105, 25, null, null, 'center');
 
-  let startY = 40;
+  let logoHeight = 0;
+  const logoData = localStorage.getItem('companyLogo');
+  if (logoData) {
+      const getImageDimensions = (dataUrl) => new Promise(resolve => {
+          const img = new Image();
+          img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+          img.src = dataUrl;
+      });
+      const dims = await getImageDimensions(logoData);
+      const maxWidth = 40;
+      const maxHeight = 20;
+      const ratio = Math.min(maxWidth / dims.width, maxHeight / dims.height);
+      const w = dims.width * ratio;
+      const h = dims.height * ratio;
+      doc.addImage(logoData, 'PNG', 15, 10, w, h);
+      logoHeight = h;
+  }
+
+  doc.setFontSize(18);
+  doc.text('Vale de Almacén', 105, logoHeight > 0 ? 15 + logoHeight : 25, null, null, 'center');
+
+  let startY = (logoHeight > 0 ? 15 + logoHeight : 25) + 15;
   const lineHeight = 7;
   doc.setFontSize(11);
 
@@ -676,7 +710,7 @@ function generateValePDF(vale) {
 
   const bodyRows = vale.materials.map(m => {
     const mat = materials.find(ma => ma.codigo === m.material_code);
-    return [mat ? mat.descripcion : m.material_code, m.quantity, (m.quantity * (mat ? mat.costo : 0)).toFixed(2)];
+    return [mat ? mat.descripcion : m.material_code, m.quantity.toFixed(2), (m.quantity * (mat ? mat.costo : 0)).toFixed(2)];
   });
   doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: startY + 5 });
 
@@ -705,7 +739,7 @@ function generateValePrompt(oid) {
   document.getElementById('valeType').value = 'salida';
   valeModal.show();
 }
-document.getElementById('valeForm').addEventListener('submit', e => {
+document.getElementById('valeForm').addEventListener('submit', async e => {
   e.preventDefault();
   const oid = parseInt(document.getElementById('valeHiddenOrderId').value);
   const type = document.getElementById('valeType').value;
@@ -732,7 +766,7 @@ document.getElementById('valeForm').addEventListener('submit', e => {
   const valeId = `${oid}-${seq}`;
   const newVale = { vale_id: valeId, order_id: oid, type, created_at: new Date().toISOString().slice(0, 10), materials: mats, cost };
   vales.push(newVale);
-  generateValePDF(newVale);
+  await generateValePDF(newVale);
   saveToLocalStorage(); loadProductionOrders(); loadMaterials();
   bootstrap.Modal.getInstance(document.getElementById('valeModal')).hide();
 });
