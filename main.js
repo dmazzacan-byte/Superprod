@@ -19,6 +19,14 @@ function generateSequentialOrderId() {
   const nums = productionOrders.map(o => Number(o.order_id)).filter(n => !isNaN(n));
   return nums.length ? Math.max(...nums) + 1 : 1;
 }
+function formatDate(isoDate) {
+  if (!isoDate || typeof isoDate !== 'string') return 'N/A';
+  const parts = isoDate.split('-');
+  if (parts.length !== 3) return isoDate;
+  const [year, month, day] = parts;
+  return `${day}-${month}-${year}`;
+}
+
 function saveToLocalStorage() {
   localStorage.setItem('products', JSON.stringify(products));
   localStorage.setItem('recipes', JSON.stringify(recipes));
@@ -426,8 +434,8 @@ function showOrderDetails(oid) {
   statusBadge.className = `badge ${ord.status === 'Completada' ? 'bg-success' : 'bg-warning'}`;
   document.getElementById('detailQuantityPlanned').textContent = ord.quantity;
   document.getElementById('detailQuantityProduced').textContent = ord.quantity_produced ?? 'N/A';
-  document.getElementById('detailCreatedDate').textContent = ord.created_at;
-  document.getElementById('detailCompletedDate').textContent = ord.completed_at ?? 'N/A';
+  document.getElementById('detailCreatedDate').textContent = formatDate(ord.created_at);
+  document.getElementById('detailCompletedDate').textContent = formatDate(ord.completed_at);
 
   // --- Recalculate Costs for Display based on user's formulas ---
   const realQty = ord.quantity_produced || 0;
@@ -706,7 +714,7 @@ async function generateValePDF(vale) {
   startY += lineHeight;
   doc.text(`Tipo: ${vale.type === 'salida' ? 'Salida' : 'Devolución'}`, 15, startY);
   startY += lineHeight;
-  doc.text(`Fecha: ${vale.created_at}`, 15, startY);
+  doc.text(`Fecha: ${formatDate(vale.created_at)}`, 15, startY);
 
   const bodyRows = vale.materials.map(m => {
     const mat = materials.find(ma => ma.codigo === m.material_code);
@@ -723,41 +731,126 @@ async function generateValePDF(vale) {
 
   doc.save(`vale_${vale.vale_id}.pdf`);
 }
+function addFreeFormValeRow() {
+    const tbody = document.getElementById('valeMaterialsTableBody');
+    const tr = document.createElement('tr');
+    tr.classList.add('free-form-row');
+
+    const codeCell = document.createElement('td');
+    const descCell = document.createElement('td');
+    const stockCell = document.createElement('td');
+    const qtyCell = document.createElement('td');
+
+    const codeSelect = document.createElement('select');
+    codeSelect.className = 'form-select form-select-sm vale-material-code';
+    codeSelect.innerHTML = '<option value="" selected disabled>Selecciona...</option>';
+    materials.forEach(m => {
+        codeSelect.add(new Option(`${m.codigo} - ${m.descripcion}`, m.codigo));
+    });
+
+    const descInput = document.createElement('input');
+    descInput.type = 'text';
+    descInput.className = 'form-control form-control-sm';
+    descInput.readOnly = true;
+
+    const stockSpan = document.createElement('span');
+    stockSpan.className = 'vale-material-stock';
+
+    const qtyInput = document.createElement('input');
+    qtyInput.type = 'number';
+    qtyInput.className = 'form-control form-control-sm vale-material-qty';
+    qtyInput.min = "0";
+    qtyInput.step = "0.01";
+    qtyInput.value = "0";
+
+    codeSelect.addEventListener('change', () => {
+        const selectedCode = codeSelect.value;
+        const material = materials.find(m => m.codigo === selectedCode);
+        if (material) {
+            descInput.value = material.descripcion;
+            stockSpan.textContent = `${material.existencia} ${material.unidad}`;
+            qtyInput.dataset.code = material.codigo;
+        } else {
+            descInput.value = '';
+            stockSpan.textContent = '';
+            delete qtyInput.dataset.code;
+        }
+    });
+
+    codeCell.appendChild(codeSelect);
+    descCell.appendChild(descInput);
+    stockCell.appendChild(stockSpan);
+    qtyCell.appendChild(qtyInput);
+
+    tr.append(codeCell, descCell, stockCell, qtyCell);
+    tbody.appendChild(tr);
+}
+
 function generateValePrompt(oid) {
   const ord = productionOrders.find(o => o.order_id === oid);
   document.getElementById('valeOrderId').textContent = oid;
   document.getElementById('valeHiddenOrderId').value = oid;
-  const tbody = document.getElementById('valeMaterialsTableBody'); tbody.innerHTML = '';
-  const allUsed = {};
-  ord.materials_used.forEach(u => allUsed[u.material_code] = (allUsed[u.material_code] || 0) + u.quantity);
-  vales.filter(v => v.order_id === oid).forEach(v => v.materials.forEach(m => allUsed[m.material_code] = (allUsed[m.material_code] || 0) + m.quantity));
-  Object.keys(allUsed).forEach(code => {
-    const m = materials.find(ma => ma.codigo === code);
-    if (!m) return;
-    tbody.insertAdjacentHTML('beforeend', `<tr><td>${m.descripcion}</td><td>${m.existencia} ${m.unidad}</td><td><input type="number" class="form-control form-control-sm" data-code="${code}" min="0" value="0" step="0.01"></td></tr>`);
+  const tbody = document.getElementById('valeMaterialsTableBody');
+  tbody.innerHTML = '';
+
+  const recipeMaterials = new Set(ord.materials_used.map(m => m.material_code));
+  recipeMaterials.forEach(code => {
+      const m = materials.find(ma => ma.codigo === code);
+      if (!m) return;
+      tbody.insertAdjacentHTML('beforeend', `
+          <tr class="existing-material-row">
+              <td><input type="text" class="form-control-plaintext form-control-sm" value="${m.codigo}" readonly></td>
+              <td><input type="text" class="form-control-plaintext form-control-sm" value="${m.descripcion}" readonly></td>
+              <td>${m.existencia} ${m.unidad}</td>
+              <td><input type="number" class="form-control form-control-sm vale-material-qty" data-code="${code}" min="0" value="0" step="0.01"></td>
+          </tr>
+      `);
   });
+
+  tbody.insertAdjacentHTML('beforeend', '<tr><td colspan="4"><hr class="my-2"></td></tr>');
+  addFreeFormValeRow();
+  addFreeFormValeRow();
+
   document.getElementById('valeType').value = 'salida';
   valeModal.show();
 }
+
 document.getElementById('valeForm').addEventListener('submit', async e => {
   e.preventDefault();
   const oid = parseInt(document.getElementById('valeHiddenOrderId').value);
   const type = document.getElementById('valeType').value;
-  const rows = [...document.querySelectorAll('#valeMaterialsTableBody tr')].filter(r => parseFloat(r.querySelector('input').value) > 0);
-  if (!rows.length) return;
-  const mats = rows.map(r => {
-    const code = r.querySelector('input').dataset.code;
-    const qty = parseFloat(r.querySelector('input').value);
+
+  const qtyInputs = [...document.querySelectorAll('.vale-material-qty')].filter(input => parseFloat(input.value) > 0);
+
+  if (!qtyInputs.length) {
+      Toastify({ text: 'No se ingresaron cantidades.' }).showToast();
+      return;
+  }
+
+  const mats = qtyInputs.map(input => {
+    const code = input.dataset.code;
+    const qty = parseFloat(input.value);
+
+    if (!code) return false;
+
     const mIdx = materials.findIndex(m => m.codigo === code);
     if (mIdx === -1) return false;
+
     if (type === 'salida' && materials[mIdx].existencia < qty) {
       Toastify({ text: `No hay suficiente ${materials[mIdx].descripcion}` }).showToast();
       return false;
     }
+
     type === 'salida' ? materials[mIdx].existencia -= qty : materials[mIdx].existencia += qty;
+
     return { material_code: code, quantity: qty };
   }).filter(Boolean);
-  if (!mats.length) return;
+
+  if (!mats.length) {
+    loadMaterials();
+    return;
+  }
+
   const cost = mats.reduce((a, m) => a + m.quantity * materials.find(ma => ma.codigo === m.material_code).costo, 0) * (type === 'salida' ? 1 : -1);
   const orderIdx = productionOrders.findIndex(o => o.order_id === oid);
   productionOrders[orderIdx].cost_extra += cost;
@@ -767,41 +860,127 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
   const newVale = { vale_id: valeId, order_id: oid, type, created_at: new Date().toISOString().slice(0, 10), materials: mats, cost };
   vales.push(newVale);
   await generateValePDF(newVale);
-  saveToLocalStorage(); loadProductionOrders(); loadMaterials();
+  saveToLocalStorage();
+  loadProductionOrders();
+  loadMaterials();
   bootstrap.Modal.getInstance(document.getElementById('valeModal')).hide();
 });
 
 /* ----------  REPORTES  ---------- */
-function loadReports() {
-  document.getElementById('applyReportFilters').addEventListener('click', generateAllReports);
-  generateAllReports();
+function populateReportFilters() {
+    const productFilter = document.getElementById('productFilter');
+    productFilter.innerHTML = '<option value="all">Todos</option>';
+    products.forEach(p => {
+        productFilter.add(new Option(p.descripcion, p.codigo));
+    });
+
+    const operatorFilter = document.getElementById('operatorFilter');
+    operatorFilter.innerHTML = '<option value="all">Todos</option>';
+    operators.forEach(o => {
+        operatorFilter.add(new Option(o.name, o.id));
+    });
 }
+
+function loadReports() {
+  populateReportFilters();
+  document.getElementById('applyReportFilters').addEventListener('click', generateAllReports);
+  generateAllReports(); // Initial load
+}
+
 function generateAllReports() {
   const start = document.getElementById('startDateFilter').value;
   const end = document.getElementById('endDateFilter').value;
-  const filtered = productionOrders.filter(o => {
+  const productId = document.getElementById('productFilter').value;
+  const operatorId = document.getElementById('operatorFilter').value;
+
+  const filteredOrders = productionOrders.filter(o => {
+    // Status filter (currently only completed orders are considered for reports)
     if (o.status !== 'Completada') return false;
-    if (!start || !end) return true;
-    const d = new Date(o.completed_at);
-    return d >= new Date(start) && d <= new Date(end);
+
+    // Date filter
+    if (start && end) {
+        const d = new Date(o.completed_at);
+        if (d < new Date(start) || d > new Date(end)) return false;
+    }
+
+    // Product filter
+    if (productId !== 'all' && o.product_code !== productId) return false;
+
+    // Operator filter
+    if (operatorId !== 'all' && o.operator_id !== operatorId) return false;
+
+    return true;
   });
-  generateOperatorReport(filtered);
-  generateMaterialConsumptionReport(filtered);
+
+  // Generate all report tables with the filtered data
+  generateDetailedOrdersReport(filteredOrders);
+  generateProductPerformanceReport(filteredOrders);
+  generateOperatorReport(filteredOrders);
+  generateMaterialConsumptionReport(filteredOrders);
 }
+
 function generateOperatorReport(orders) {
   const report = {};
   orders.forEach(o => {
     const op = operators.find(op => op.id === o.operator_id);
     const name = op ? op.name : o.operator_id;
-    if (!report[name]) report[name] = { completed: 0, units: 0, cost: 0, over: 0 };
-    report[name].completed += 1; report[name].units += o.quantity_produced; report[name].cost += o.cost_real || 0; report[name].over += o.overcost || 0;
+    if (!report[name]) report[name] = { completed: 0, units: 0, over: 0 };
+    report[name].completed += 1;
+    report[name].units += o.quantity_produced || 0;
+    report[name].over += o.overcost || 0;
   });
   const tbody = document.getElementById('operatorReportTableBody');
-  tbody.innerHTML = Object.keys(report).map(name => {
-    const r = report[name];
-    return `<tr><td>${name}</td><td>${r.completed}</td><td>${r.units}</td><td>$${r.cost.toFixed(2)}</td><td>$${r.over.toFixed(2)}</td></tr>`;
+  tbody.innerHTML = Object.entries(report).map(([name, r]) => {
+    return `<tr><td>${name}</td><td>${r.completed}</td><td>${r.units}</td><td>$${r.over.toFixed(2)}</td></tr>`;
   }).join('');
 }
+
+function generateDetailedOrdersReport(orders) {
+    const tbody = document.getElementById('detailedOrdersTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    orders.forEach(o => {
+        const operator = operators.find(op => op.id === o.operator_id);
+        const overcostColor = (o.overcost || 0) > 0 ? 'text-danger' : ((o.overcost || 0) < 0 ? 'text-success' : '');
+        tbody.insertAdjacentHTML('beforeend', `
+            <tr>
+                <td>${o.order_id}</td>
+                <td>${o.product_name}</td>
+                <td>${operator ? operator.name : 'N/A'}</td>
+                <td>${o.quantity}</td>
+                <td>${o.quantity_produced || 'N/A'}</td>
+                <td>$${(o.cost_real || 0).toFixed(2)}</td>
+                <td class="${overcostColor}">$${(o.overcost || 0).toFixed(2)}</td>
+                <td><span class="badge bg-success">${o.status}</span></td>
+                <td>${formatDate(o.completed_at)}</td>
+            </tr>
+        `);
+    });
+}
+
+function generateProductPerformanceReport(orders) {
+    const tbody = document.getElementById('productReportTableBody');
+    if (!tbody) return;
+    const report = {};
+    orders.forEach(o => {
+        if (!report[o.product_name]) {
+            report[o.product_name] = { completed: 0, units: 0, over: 0 };
+        }
+        report[o.product_name].completed += 1;
+        report[o.product_name].units += o.quantity_produced || 0;
+        report[o.product_name].over += o.overcost || 0;
+    });
+
+    tbody.innerHTML = Object.entries(report).map(([name, r]) => {
+        return `<tr>
+            <td>${name}</td>
+            <td>${r.completed}</td>
+            <td>${r.units}</td>
+            <td>$${r.over.toFixed(2)}</td>
+        </tr>`;
+    }).join('');
+}
+
 function generateMaterialConsumptionReport(orders) {
   const report = {};
   orders.forEach(o => {
