@@ -33,7 +33,13 @@
         <main id="mainContent" class="col-lg-10 col-md-9 ms-sm-auto px-md-4">
             <!-- Dashboard -->
             <div class="page-content" id="dashboardPage">
-                <h1 class="mt-4">Dashboard de Producción (Mes en Curso)</h1>
+                <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">Dashboard de Producción (Mes en Curso)</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="dashboardPdfBtn"><i class="fas fa-file-pdf me-2"></i>Descargar PDF</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="dashboardPrintBtn"><i class="fas fa-print me-2"></i>Imprimir</button>
+                    </div>
+                </div>
                 <div class="row g-4 mt-2">
                     <div class="col-lg-2 col-md-6"><div class="kpi-card h-100"><div class="card-body"><h6 class="kpi-title">ÓRDENES PENDIENTES</h6><p class="kpi-value" id="pendingOrdersCard">0</p><i class="fas fa-spinner kpi-icon"></i></div></div></div>
                     <div class="col-lg-2 col-md-6"><div class="kpi-card h-100"><div class="card-body"><h6 class="kpi-title">ÓRDENES COMPLETADAS</h6><p class="kpi-value" id="completedOrdersCard">0</p><i class="fas fa-check-circle kpi-icon"></i></div></div></div>
@@ -110,7 +116,13 @@
 
             <!-- Reportes -->
             <div class="page-content" id="reportsPage" style="display: none;">
-                <h1 class="mt-4">Centro de Reportes</h1>
+                <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">Centro de Reportes</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="reportsPdfBtn"><i class="fas fa-file-pdf me-2"></i>Descargar PDF</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="reportsPrintBtn"><i class="fas fa-print me-2"></i>Imprimir</button>
+                    </div>
+                </div>
 
                 <!-- Filtros -->
                 <div class="card shadow-sm mt-4">

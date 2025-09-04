@@ -27,6 +27,47 @@ function formatDate(isoDate) {
   return `${day}-${month}-${year}`;
 }
 
+function generatePagePDF(elementId, filename) {
+    const { jsPDF } = window.jspdf;
+    const element = document.getElementById(elementId);
+    if (!element) return;
+
+    const originalDisplay = element.style.display;
+    element.style.display = 'block';
+
+    html2canvas(element, { scale: 2, useCORS: true }).then(canvas => {
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+        const ratio = canvasWidth / canvasHeight;
+        const width = pdfWidth;
+        const height = width / ratio;
+
+        let position = 0;
+        let heightLeft = height;
+
+        pdf.addImage(imgData, 'PNG', 0, position, width, height);
+        heightLeft -= pdfHeight;
+
+        while (heightLeft > 0) {
+            position = heightLeft - height;
+            pdf.addPage();
+            pdf.addImage(imgData, 'PNG', 0, position, width, height);
+            heightLeft -= pdfHeight;
+        }
+
+        pdf.save(filename);
+        element.style.display = originalDisplay;
+    }).catch(err => {
+        console.error('Error generating PDF:', err);
+        Toastify({ text: 'Error al generar el PDF.', backgroundColor: 'var(--danger-color)' }).showToast();
+        element.style.display = originalDisplay;
+    });
+}
+
 function saveToLocalStorage() {
   localStorage.setItem('products', JSON.stringify(products));
   localStorage.setItem('recipes', JSON.stringify(recipes));
@@ -55,6 +96,13 @@ document.addEventListener('DOMContentLoaded', () => {
     else if (pageId === 'settingsPage') { loadOperators(); loadLogo(); }
   }
   navLinks.forEach(l => l.addEventListener('click', e => { e.preventDefault(); showPage(l.dataset.page); }));
+
+  // PDF and Print Buttons
+  document.getElementById('dashboardPdfBtn')?.addEventListener('click', () => generatePagePDF('dashboardPage', 'dashboard.pdf'));
+  document.getElementById('dashboardPrintBtn')?.addEventListener('click', () => window.print());
+  document.getElementById('reportsPdfBtn')?.addEventListener('click', () => generatePagePDF('reportsPage', 'reporte.pdf'));
+  document.getElementById('reportsPrintBtn')?.addEventListener('click', () => window.print());
+
   showPage('dashboardPage');
 });
 
@@ -640,8 +688,17 @@ async function generateOrderPDF(oid) {
 
     let startY = (logoHeight > 0 ? 15 + logoHeight : 25) + 15;
     const lineHeight = 7;
-    doc.setFontSize(12);
 
+    // --- Right-side Info Block ---
+    const rightColX = 140;
+    const valeCount = vales.filter(v => v.order_id === oid).length;
+    doc.setFontSize(10);
+    doc.text(`Fecha Creación: ${formatDate(ord.created_at)}`, rightColX, startY);
+    doc.text(`Fecha Fin: ${formatDate(ord.completed_at)}`, rightColX, startY + lineHeight);
+    doc.text(`Nº Vales: ${valeCount}`, rightColX, startY + (lineHeight * 2));
+
+    // --- Left-side Info Block ---
+    doc.setFontSize(12);
     doc.text(`ID de Orden: ${ord.order_id}`, 15, startY);
     startY += lineHeight;
     doc.text(`Producto: ${ord.product_name}`, 15, startY);
