@@ -217,34 +217,92 @@ function populateRecipeProductSelect() {
 }
 function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'material') {
   const container = document.getElementById(containerId);
-  const div = document.createElement('div'); div.className = 'd-flex mb-2 material-field';
+  const row = document.createElement('div');
+  row.className = 'row g-2 mb-2 align-items-center material-field';
 
-  const typeSelect = document.createElement('select'); typeSelect.className = 'form-select type-select me-2';
+  const allItems = { material: materials, product: products };
+
+  // --- Create elements ---
+  const typeSelect = document.createElement('select');
+  typeSelect.className = 'form-select form-select-sm type-select';
   ['material', 'product'].forEach(opt => {
-    const o = document.createElement('option');
-    o.value = opt; o.text = opt === 'material' ? 'Material' : 'Producto'; o.selected = (opt === type);
-    typeSelect.appendChild(o);
+      const o = new Option(opt === 'material' ? 'Material' : 'Producto', opt, false, opt === type);
+      typeSelect.appendChild(o);
   });
 
-  const codeSelect = document.createElement('select'); codeSelect.className = 'form-select code-select me-2';
-  const fillCodeSelect = () => {
-    codeSelect.innerHTML = '';
-    const list = typeSelect.value === 'material' ? materials : products;
-    list.forEach(item => codeSelect.add(new Option(`${item.codigo} – ${item.descripcion}`, item.codigo)));
-    if (mCode) codeSelect.value = mCode;
-  };
-  typeSelect.addEventListener('change', fillCodeSelect); fillCodeSelect();
+  const codeSelect = document.createElement('select');
+  codeSelect.className = 'form-select form-select-sm code-select';
+
+  const descInput = document.createElement('input');
+  descInput.type = 'text';
+  descInput.className = 'form-control form-control-sm desc-input';
+  descInput.placeholder = 'Descripción';
+  descInput.readOnly = true;
 
   const qtyInput = document.createElement('input');
-  qtyInput.type = 'number'; qtyInput.step = '0.01'; qtyInput.className = 'form-control qty-input me-2';
-  qtyInput.placeholder = 'Cantidad'; qtyInput.value = qty;
+  qtyInput.type = 'number';
+  qtyInput.step = '0.01';
+  qtyInput.className = 'form-control form-control-sm qty-input';
+  qtyInput.placeholder = 'Cantidad';
+  if (qty) qtyInput.value = qty;
 
   const delBtn = document.createElement('button');
-  delBtn.type = 'button'; delBtn.className = 'btn btn-danger remove-material-btn';
-  delBtn.innerHTML = '<i class="fas fa-minus"></i>'; delBtn.onclick = () => div.remove();
+  delBtn.type = 'button';
+  delBtn.className = 'btn btn-sm btn-danger remove-material-btn';
+  delBtn.innerHTML = '<i class="fas fa-trash"></i>';
+  delBtn.onclick = () => row.remove();
 
-  div.append(typeSelect, codeSelect, qtyInput, delBtn);
-  container.appendChild(div);
+  // --- Logic & Event Listeners ---
+  const updateDescription = () => {
+    const currentType = typeSelect.value;
+    const currentCode = codeSelect.value;
+    const item = allItems[currentType].find(i => i.codigo === currentCode);
+    descInput.value = item ? item.descripcion : '';
+  };
+
+  const populateCodeSelect = () => {
+    const currentType = typeSelect.value;
+    const list = allItems[currentType];
+    codeSelect.innerHTML = '<option value="" selected disabled>Selecciona...</option>';
+
+    const recipeProductCode = document.getElementById('editRecipeProductSelect')?.value || document.getElementById('recipeProductSelect')?.value;
+
+    list.forEach(item => {
+      if (currentType === 'product' && item.codigo === recipeProductCode) return;
+
+      const isSelected = item.codigo === mCode;
+      const o = new Option(`${item.codigo} – ${item.descripcion}`, item.codigo, false, isSelected);
+      codeSelect.add(o);
+    });
+
+    if (mCode) updateDescription();
+    else descInput.value = '';
+  };
+
+  typeSelect.addEventListener('change', () => {
+      mCode = '';
+      populateCodeSelect();
+  });
+  codeSelect.addEventListener('change', updateDescription);
+
+  // --- Assemble ---
+  const createCol = (className, element) => {
+      const col = document.createElement('div');
+      col.className = className;
+      col.appendChild(element);
+      return col;
+  };
+
+  row.append(
+    createCol('col-md-2', typeSelect),
+    createCol('col-md-3', codeSelect),
+    createCol('col-md-4', descInput),
+    createCol('col-md-2', qtyInput),
+    createCol('col-md-1 text-center', delBtn)
+  );
+
+  container.appendChild(row);
+  populateCodeSelect();
 }
 document.getElementById('addRecipeForm').addEventListener('submit', e => {
   e.preventDefault();

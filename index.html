@@ -135,7 +135,7 @@
 
 <!-- Modal Añadir Receta -->
 <div class="modal fade" id="addRecipeModal" tabindex="-1" aria-labelledby="addRecipeModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="addRecipeModalLabel">Añadir Receta</h5>
@@ -149,6 +149,13 @@
           </div>
           <div class="mb-3">
             <label class="form-label">Ingredientes</label>
+            <div class="row fw-bold border-bottom pb-2 mb-2 d-none d-md-flex">
+                <div class="col-md-2">Tipo</div>
+                <div class="col-md-3">Código</div>
+                <div class="col-md-4">Descripción</div>
+                <div class="col-md-2">Cantidad</div>
+                <div class="col-md-1"></div>
+            </div>
             <div id="recipeMaterials"></div>
             <button type="button" class="btn btn-sm btn-outline-success" id="addMaterialToRecipeBtn">
               <i class="fas fa-plus"></i> Añadir ingrediente
@@ -166,13 +173,12 @@
 
 <!-- Modal Editar Receta -->
 <div class="modal fade" id="editRecipeModal" tabindex="-1" aria-labelledby="editRecipeModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="editRecipeModalLabel">Editar Receta</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <!-- (…) -->
 	<form id="editRecipeForm">
 	 <div class="modal-body">
 	 <div class="mb-3">
@@ -181,6 +187,13 @@
 	</div>
 	<div class="mb-3">
 	  <label class="form-label">Ingredientes</label>
+          <div class="row fw-bold border-bottom pb-2 mb-2 d-none d-md-flex">
+            <div class="col-md-2">Tipo</div>
+            <div class="col-md-3">Código</div>
+            <div class="col-md-4">Descripción</div>
+            <div class="col-md-2">Cantidad</div>
+            <div class="col-md-1"></div>
+          </div>
 	  <div id="editRecipeMaterials"></div>
 	 <button type="button" class="btn btn-sm btn-outline-success mt-2" id="addMaterialToEditRecipeBtn">
 	   <i class="fas fa-plus"></i> Añadir ingrediente
@@ -192,7 +205,6 @@
 	 <button type="submit" class="btn btn-primary">Guardar Cambios</button>
 	</div>
 	</form>
-<!-- (…) -->
     </div>
   </div>
 </div>
