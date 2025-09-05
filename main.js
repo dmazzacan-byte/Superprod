@@ -9,6 +9,7 @@ let products   = JSON.parse(localStorage.getItem('products'))   || [];
 let recipes    = JSON.parse(localStorage.getItem('recipes'))    || {};
 let productionOrders = JSON.parse(localStorage.getItem('productionOrders')) || [];
 let operators  = JSON.parse(localStorage.getItem('operators'))  || [];
+let equipos    = JSON.parse(localStorage.getItem('equipos'))    || [];
 let materials  = JSON.parse(localStorage.getItem('materials'))  || [];
 let vales      = JSON.parse(localStorage.getItem('vales'))      || [];
 
@@ -45,7 +46,7 @@ function generatePagePDF(elementId, filename) {
         const ratio = canvasWidth / canvasHeight;
         const width = pdfWidth;
         const height = width / ratio;
-        
+
         let position = 0;
         let heightLeft = height;
 
@@ -58,7 +59,7 @@ function generatePagePDF(elementId, filename) {
             pdf.addImage(imgData, 'PNG', 0, position, width, height);
             heightLeft -= pdfHeight;
         }
-       
+
         pdf.save(filename);
         element.style.display = originalDisplay;
     }).catch(err => {
@@ -73,6 +74,7 @@ function saveToLocalStorage() {
   localStorage.setItem('recipes', JSON.stringify(recipes));
   localStorage.setItem('productionOrders', JSON.stringify(productionOrders));
   localStorage.setItem('operators', JSON.stringify(operators));
+  localStorage.setItem('equipos', JSON.stringify(equipos));
   localStorage.setItem('materials', JSON.stringify(materials));
   localStorage.setItem('vales', JSON.stringify(vales));
 }
@@ -93,16 +95,16 @@ document.addEventListener('DOMContentLoaded', () => {
     else if (pageId === 'recipesPage') { loadRecipes(); populateRecipeProductSelect(); }
     else if (pageId === 'productionOrdersPage') { loadProductionOrders(); populateOrderFormSelects(); }
     else if (pageId === 'reportsPage') loadReports();
-    else if (pageId === 'settingsPage') { loadOperators(); loadLogo(); }
+    else if (pageId === 'settingsPage') { loadOperators(); loadEquipos(); loadLogo(); }
   }
   navLinks.forEach(l => l.addEventListener('click', e => { e.preventDefault(); showPage(l.dataset.page); }));
-  
+
   // PDF and Print Buttons
   document.getElementById('dashboardPdfBtn')?.addEventListener('click', () => generatePagePDF('dashboardPage', 'dashboard.pdf'));
   document.getElementById('dashboardPrintBtn')?.addEventListener('click', () => window.print());
   document.getElementById('reportsPdfBtn')?.addEventListener('click', () => generatePagePDF('reportsPage', 'reporte.pdf'));
   document.getElementById('reportsPrintBtn')?.addEventListener('click', () => window.print());
-  
+
   showPage('dashboardPage');
 });
 
@@ -117,7 +119,7 @@ function updateDashboard() {
     const orderDate = new Date(o.completed_at);
     return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
   });
-  
+
   const pending = productionOrders.filter(o => o.status === 'Pendiente');
 
   const totalProduction = completedThisMonth.reduce((acc, o) => acc + (o.quantity_produced || 0), 0);
@@ -129,7 +131,7 @@ function updateDashboard() {
   document.getElementById('totalProductionCard').textContent = totalProduction;
   document.getElementById('totalCostCard').textContent = `$${realCost.toFixed(2)}`;
   document.getElementById('totalOvercostCard').textContent = `$${overCost.toFixed(2)}`;
-  
+
   const operatorStats = {};
   completedThisMonth.forEach(o => {
     const opId = o.operator_id;
@@ -148,6 +150,19 @@ function updateDashboard() {
 
   const overcostRankBody = document.getElementById('operatorOvercostRankBody');
   overcostRankBody.innerHTML = sortedByOvercost.map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>$${op.overcost.toFixed(2)}</td></tr>`).join('');
+
+  const equipoStats = {};
+  completedThisMonth.forEach(o => {
+    const eqId = o.equipo_id;
+    if (!equipoStats[eqId]) {
+      equipoStats[eqId] = { name: equipos.find(eq => eq.id === eqId)?.name || eqId, production: 0 };
+    }
+    equipoStats[eqId].production += o.quantity_produced || 0;
+  });
+
+  const sortedByEquipoProduction = Object.values(equipoStats).sort((a, b) => b.production - a.production);
+  const equipoRankBody = document.getElementById('equipoProductionRankBody');
+  equipoRankBody.innerHTML = sortedByEquipoProduction.map((eq, i) => `<tr><td>${i + 1}</td><td>${eq.name}</td><td>${eq.production}</td></tr>`).join('');
 
   const usedMaterials = new Set();
   Object.values(recipes).flat().forEach(r => usedMaterials.add(r.code));
@@ -320,12 +335,12 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
     }
     const list = allItems[currentType];
     codeSelect.innerHTML = '<option value="" selected disabled>Selecciona...</option>';
-    
+
     const recipeProductCode = document.getElementById('editRecipeProductSelect')?.value || document.getElementById('recipeProductSelect')?.value;
 
     list.forEach(item => {
       if (currentType === 'product' && item.codigo === recipeProductCode) return;
-      
+
       const isSelected = item.codigo === mCode;
       const o = new Option(`${item.codigo} – ${item.descripcion}`, item.codigo, false, isSelected);
       codeSelect.add(o);
@@ -347,7 +362,7 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
       col.appendChild(element);
       return col;
   };
-  
+
   row.append(
     createCol('col-md-2', typeSelect),
     createCol('col-md-3', codeSelect),
@@ -355,7 +370,7 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
     createCol('col-md-2', qtyInput),
     createCol('col-md-1 text-center', delBtn)
   );
-  
+
   container.appendChild(row);
   populateCodeSelect();
 }
@@ -417,9 +432,11 @@ const confirmCloseOrderModal = new bootstrap.Modal(document.getElementById('conf
 
 function populateOrderFormSelects() {
   const psel = document.getElementById('orderProductSelect'); psel.innerHTML = '<option disabled selected>Selecciona...</option>';
-  products.forEach(p => psel.add(new Option(p.descripcion, p.codigo)));
+  products.forEach(p => psel.add(new Option(`${p.codigo} - ${p.descripcion}`, p.codigo)));
   const osel = document.getElementById('orderOperatorSelect'); osel.innerHTML = '<option disabled selected>Selecciona...</option>';
   operators.forEach(o => osel.add(new Option(o.name, o.id)));
+  const esel = document.getElementById('orderEquipoSelect'); esel.innerHTML = '<option disabled selected>Selecciona...</option>';
+  equipos.forEach(e => esel.add(new Option(e.name, e.id)));
 }
 function loadProductionOrders(filter = '') {
   const tbody = document.getElementById('productionOrdersTableBody'); tbody.innerHTML = '';
@@ -489,7 +506,7 @@ function showOrderDetails(oid) {
   document.getElementById('detailQuantityProduced').textContent = ord.quantity_produced ?? 'N/A';
   document.getElementById('detailCreatedDate').textContent = formatDate(ord.created_at);
   document.getElementById('detailCompletedDate').textContent = formatDate(ord.completed_at);
-  
+
   const realQty = ord.quantity_produced || 0;
   const standardCost = (ord.cost_standard_unit || 0) * realQty;
   const extraCost = ord.cost_extra || 0;
@@ -498,7 +515,7 @@ function showOrderDetails(oid) {
   document.getElementById('detailStandardCost').textContent = `$${standardCost.toFixed(2)}`;
   document.getElementById('detailExtraCost').textContent = `$${extraCost.toFixed(2)}`;
   document.getElementById('detailRealCost').textContent = ord.status === 'Completada' ? `$${realTotalCost.toFixed(2)}` : 'N/A';
-  
+
   const displayOvercost = ord.overcost;
   const overcostEl = document.getElementById('detailOvercost');
   overcostEl.textContent = displayOvercost ? `$${displayOvercost.toFixed(2)}` : 'N/A';
@@ -507,7 +524,7 @@ function showOrderDetails(oid) {
 
   const materialsSummary = {};
   const recipeItems = recipes[ord.product_code] || [];
-  
+
   recipeItems.forEach(recipeMat => {
     const m = materials.find(m => m.codigo === recipeMat.code);
     if (m) {
@@ -557,7 +574,7 @@ function showOrderDetails(oid) {
         </tr>
     `);
   }
-  
+
   orderDetailsModal.show();
 }
 
@@ -566,7 +583,8 @@ document.getElementById('productionOrderForm').addEventListener('submit', e => {
   const pCode = document.getElementById('orderProductSelect').value;
   const qty   = parseInt(document.getElementById('orderQuantity').value);
   const opId  = document.getElementById('orderOperatorSelect').value;
-  if (!pCode || !opId) { Toastify({ text: 'Completa producto y operador' }).showToast(); return; }
+  const eqId  = document.getElementById('orderEquipoSelect').value;
+  if (!pCode || !opId || !eqId) { Toastify({ text: 'Completa producto, operador y equipo' }).showToast(); return; }
   const prod = products.find(p => p.codigo === pCode);
   if (!recipes[pCode]) { Toastify({ text: `Sin receta para ${prod.descripcion}` }).showToast(); return; }
   const stdCost = calculateRecipeCost(recipes[pCode]) * qty;
@@ -577,6 +595,7 @@ document.getElementById('productionOrderForm').addEventListener('submit', e => {
     quantity: qty,
     quantity_produced: null,
     operator_id: opId,
+    equipo_id: eqId,
     cost_standard_unit: calculateRecipeCost(recipes[pCode]),
     cost_standard: stdCost,
     cost_extra: 0,
@@ -600,7 +619,7 @@ function completeOrder(oid, realQty) {
   const idx = productionOrders.findIndex(o => o.order_id === oid);
   if (idx === -1) return;
   const ord = productionOrders[idx];
-  
+
   (ord.materials_used || []).forEach(orderMat => {
     if (orderMat.type !== 'material') return;
     const mIdx = materials.findIndex(m => m.codigo === orderMat.material_code);
@@ -614,13 +633,13 @@ function completeOrder(oid, realQty) {
   ord.quantity_produced = realQty;
   ord.status = 'Completada';
   ord.completed_at = new Date().toISOString().slice(0, 10);
-  
+
   ord.cost_real = (ord.cost_standard || 0) + (ord.cost_extra || 0);
   ord.overcost = ord.cost_real - ((ord.cost_standard_unit || 0) * realQty);
 
-  saveToLocalStorage(); 
-  loadProductionOrders(); 
-  loadMaterials(); 
+  saveToLocalStorage();
+  loadProductionOrders();
+  loadMaterials();
   updateDashboard();
 
   Toastify({ text: `Orden ${oid} completada con éxito.`, backgroundColor: 'var(--success-color)' }).showToast();
@@ -656,7 +675,7 @@ async function generateOrderPDF(oid) {
       return;
     }
     const doc = new jsPDF();
-    
+
     let logoHeight = 0;
     const logoData = localStorage.getItem('companyLogo');
     if (logoData) {
@@ -680,7 +699,7 @@ async function generateOrderPDF(oid) {
 
     let startY = (logoHeight > 0 ? 15 + logoHeight : 25) + 15;
     const lineHeight = 7;
-    
+
     const rightColX = 140;
     const valeCount = vales.filter(v => v.order_id === oid).length;
     doc.setFontSize(10);
@@ -712,7 +731,7 @@ async function generateOrderPDF(oid) {
       return [m ? m.descripcion : u.material_code, u.quantity.toFixed(2), (u.quantity * (m ? m.costo : 0)).toFixed(2)];
     });
     doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: startY + 5 });
-    
+
     const pageHeight = doc.internal.pageSize.getHeight();
     const bottomMargin = 20;
     doc.setLineWidth(0.2);
@@ -878,8 +897,8 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
     const code = input.dataset.code;
     const qty = parseFloat(input.value);
 
-    if (!code) return false; 
-    
+    if (!code) return false;
+
     const mIdx = materials.findIndex(m => m.codigo === code);
     if (mIdx === -1) return false;
 
@@ -887,9 +906,9 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
       Toastify({ text: `No hay suficiente ${materials[mIdx].descripcion}` }).showToast();
       return false;
     }
-    
+
     type === 'salida' ? materials[mIdx].existencia -= qty : materials[mIdx].existencia += qty;
-    
+
     return { material_code: code, quantity: qty };
   }).filter(Boolean);
 
@@ -897,7 +916,7 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
     loadMaterials();
     return;
   }
-  
+
   const cost = mats.reduce((a, m) => a + m.quantity * materials.find(ma => ma.codigo === m.material_code).costo, 0) * (type === 'salida' ? 1 : -1);
   const orderIdx = productionOrders.findIndex(o => o.order_id === oid);
   productionOrders[orderIdx].cost_extra += cost;
@@ -939,6 +958,7 @@ function generateAllReports() {
   const end = document.getElementById('endDateFilter').value;
   const productId = document.getElementById('productFilter').value;
   const operatorId = document.getElementById('operatorFilter').value;
+  const equipoId = document.getElementById('equipoFilter').value;
 
   const filteredOrders = productionOrders.filter(o => {
     // Status filter (currently only completed orders are considered for reports)
@@ -949,12 +969,15 @@ function generateAllReports() {
         const d = new Date(o.completed_at);
         if (d < new Date(start) || d > new Date(end)) return false;
     }
-    
+
     // Product filter
     if (productId !== 'all' && o.product_code !== productId) return false;
 
     // Operator filter
     if (operatorId !== 'all' && o.operator_id !== operatorId) return false;
+
+    // Equipo filter
+    if (equipoId !== 'all' && o.equipo_id !== equipoId) return false;
 
     return true;
   });
@@ -1095,6 +1118,47 @@ document.getElementById('operatorModal').addEventListener('hidden.bs.modal', () 
   document.getElementById('operatorModalLabel').textContent = 'Añadir Operador';
 });
 
+let isEditingEquipo = false, currentEquipoId = null;
+const equipoModal = new bootstrap.Modal(document.getElementById('equipoModal'));
+function loadEquipos() {
+  const list = document.getElementById('equiposList'); list.innerHTML = '';
+  equipos.forEach(eq => list.insertAdjacentHTML('beforeend', `<li class="list-group-item d-flex justify-content-between align-items-center"><span><strong>ID:</strong> ${eq.id} - ${eq.name}</span><div><button class="btn btn-sm btn-warning edit-equipo-btn me-2" data-id="${eq.id}"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-equipo-btn" data-id="${eq.id}"><i class="fas fa-trash"></i></button></div></li>`));
+}
+document.getElementById('equipoForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const id   = document.getElementById('equipoId').value.trim();
+  const name = document.getElementById('equipoName').value.trim();
+  if (!id || !name) return;
+  if (isEditingEquipo) {
+    const idx = equipos.findIndex(eq => eq.id === currentEquipoId);
+    equipos[idx] = { id, name };
+  } else {
+    if (equipos.some(eq => eq.id === id)) { Toastify({ text: 'ID duplicado', backgroundColor: 'var(--danger-color)' }).showToast(); return; }
+    equipos.push({ id, name });
+  }
+  saveToLocalStorage(); loadEquipos(); populateOrderFormSelects(); equipoModal.hide();
+});
+document.getElementById('equiposList').addEventListener('click', e => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    const id = btn.dataset.id;
+    if (btn.classList.contains('delete-equipo-btn')) { equipos = equipos.filter(eq => eq.id !== id); saveToLocalStorage(); loadEquipos(); populateOrderFormSelects(); }
+    if (btn.classList.contains('edit-equipo-btn')) {
+        isEditingEquipo = true; currentEquipoId = id;
+        const eq = equipos.find(eq => eq.id === id);
+        document.getElementById('equipoId').value = eq.id;
+        document.getElementById('equipoName').value = eq.name;
+        document.getElementById('equipoId').disabled = true;
+        document.getElementById('equipoModalLabel').textContent = 'Editar Equipo';
+        equipoModal.show();
+    }
+});
+document.getElementById('equipoModal').addEventListener('hidden.bs.modal', () => {
+    isEditingEquipo = false;
+    document.getElementById('equipoForm').reset();
+    document.getElementById('equipoId').disabled = false;
+    document.getElementById('equipoModalLabel').textContent = 'Añadir Equipo';
+});
+
 /* ----------  LOGO  ---------- */
 function loadLogo() {
   const logo = localStorage.getItem('companyLogo');
@@ -1232,11 +1296,11 @@ function initCharts() {
     const topCost = Object.entries(costMap).map(([name, cost]) => ({ name, cost }))
       .sort((a, b) => b.cost - a.cost).slice(0, 5);
 
-    costChartInstance = new Chart(ctxCost, { 
-      type: 'bar', 
-      data: { 
-        labels: topCost.map(x => x.name), 
-        datasets: [{ label: 'Costo', data: topCost.map(x => x.cost), backgroundColor: '#3498db' }] 
+    costChartInstance = new Chart(ctxCost, {
+      type: 'bar',
+      data: {
+        labels: topCost.map(x => x.name),
+        datasets: [{ label: 'Costo', data: topCost.map(x => x.cost), backgroundColor: '#3498db' }]
       },
       options: { plugins: { datalabels: { anchor: 'end', align: 'top', formatter: (value, context) => `$${value.toFixed(2)}` } } }
     });
@@ -1251,12 +1315,12 @@ function initCharts() {
     });
     const topProd = Object.entries(prodMap).map(([name, qty]) => ({ name, qty }))
       .sort((a, b) => b.qty - a.qty).slice(0, 5);
-      
-    productionChartInstance = new Chart(ctxProd, { 
-      type: 'bar', 
-      data: { 
-        labels: topProd.map(x => x.name), 
-        datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }] 
+
+    productionChartInstance = new Chart(ctxProd, {
+      type: 'bar',
+      data: {
+        labels: topProd.map(x => x.name),
+        datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }]
       },
       options: { plugins: { datalabels: { anchor: 'end', align: 'top' } } }
     });
