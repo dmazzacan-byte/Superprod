@@ -293,7 +293,7 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
 
   const qtyInput = document.createElement('input');
   qtyInput.type = 'number';
-  qtyInput.step = '0.001';
+  qtyInput.step = '0.01';
   qtyInput.className = 'form-control form-control-sm qty-input';
   qtyInput.placeholder = 'Cantidad';
   if (qty) qtyInput.value = qty;
@@ -643,12 +643,7 @@ function reopenOrder(oid) {
       if (mIdx !== -1) materials[mIdx].existencia += (v.type === 'salida' ? 1 : -1) * m.quantity;
     });
   });
-  ord.status = 'Pendiente';
-  ord.completed_at = null;
-  ord.quantity_produced = null;
-  ord.cost_real = null;
-  ord.cost_extra = 0;
-  ord.overcost = 0;
+  ord.status = 'Pendiente'; ord.completed_at = null; ord.quantity_produced = null; ord.cost_real = null; ord.overcost = null;
   saveToLocalStorage(); loadProductionOrders(); loadMaterials(); updateDashboard();
 }
 async function generateOrderPDF(oid) {
@@ -905,7 +900,6 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
   const cost = mats.reduce((a, m) => a + m.quantity * materials.find(ma => ma.codigo === m.material_code).costo, 0) * (type === 'salida' ? 1 : -1);
   const orderIdx = productionOrders.findIndex(o => o.order_id === oid);
   productionOrders[orderIdx].cost_extra += cost;
-  productionOrders[orderIdx].overcost = productionOrders[orderIdx].cost_extra;
   const lastVale = vales.filter(v => v.order_id === oid).pop();
   const seq = lastVale ? parseInt(lastVale.vale_id.split('-')[1]) + 1 : 1;
   const valeId = `${oid}-${seq}`;
@@ -1172,7 +1166,8 @@ document.getElementById('recipeFile').addEventListener('change', e => {
     json.forEach(r => {
       const prod = r.producto || r.Producto;
       if (!recipes[prod]) recipes[prod] = [];
-      const tipo = (String(r.tipo || r.Tipo || 'material')).trim().toLowerCase();
+      let tipo = (String(r.tipo || r.Tipo || 'material')).trim().toLowerCase();
+      if (tipo === 'producto') tipo = 'product';
       recipes[prod].push({ type: tipo, code: r.codigo || r.Código, quantity: parseFloat(r.cantidad || r.Cantidad) });
     });
     saveToLocalStorage(); loadRecipes(); populateRecipeProductSelect();
