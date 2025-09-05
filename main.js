@@ -19,6 +19,55 @@ function generateSequentialOrderId() {
   const nums = productionOrders.map(o => Number(o.order_id)).filter(n => !isNaN(n));
   return nums.length ? Math.max(...nums) + 1 : 1;
 }
+function formatDate(isoDate) {
+  if (!isoDate || typeof isoDate !== 'string') return 'N/A';
+  const parts = isoDate.split('-');
+  if (parts.length !== 3) return isoDate;
+  const [year, month, day] = parts;
+  return `${day}-${month}-${year}`;
+}
+
+function generatePagePDF(elementId, filename) {
+    const { jsPDF } = window.jspdf;
+    const element = document.getElementById(elementId);
+    if (!element) return;
+
+    const originalDisplay = element.style.display;
+    element.style.display = 'block';
+
+    html2canvas(element, { scale: 2, useCORS: true }).then(canvas => {
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+        const ratio = canvasWidth / canvasHeight;
+        const width = pdfWidth;
+        const height = width / ratio;
+        
+        let position = 0;
+        let heightLeft = height;
+
+        pdf.addImage(imgData, 'PNG', 0, position, width, height);
+        heightLeft -= pdfHeight;
+
+        while (heightLeft > 0) {
+            position = heightLeft - height;
+            pdf.addPage();
+            pdf.addImage(imgData, 'PNG', 0, position, width, height);
+            heightLeft -= pdfHeight;
+        }
+       
+        pdf.save(filename);
+        element.style.display = originalDisplay;
+    }).catch(err => {
+        console.error('Error generating PDF:', err);
+        Toastify({ text: 'Error al generar el PDF.', backgroundColor: 'var(--danger-color)' }).showToast();
+        element.style.display = originalDisplay;
+    });
+}
+
 function saveToLocalStorage() {
   localStorage.setItem('products', JSON.stringify(products));
   localStorage.setItem('recipes', JSON.stringify(recipes));
@@ -47,27 +96,64 @@ document.addEventListener('DOMContentLoaded', () => {
     else if (pageId === 'settingsPage') { loadOperators(); loadLogo(); }
   }
   navLinks.forEach(l => l.addEventListener('click', e => { e.preventDefault(); showPage(l.dataset.page); }));
+  
+  // PDF and Print Buttons
+  document.getElementById('dashboardPdfBtn')?.addEventListener('click', () => generatePagePDF('dashboardPage', 'dashboard.pdf'));
+  document.getElementById('dashboardPrintBtn')?.addEventListener('click', () => window.print());
+  document.getElementById('reportsPdfBtn')?.addEventListener('click', () => generatePagePDF('reportsPage', 'reporte.pdf'));
+  document.getElementById('reportsPrintBtn')?.addEventListener('click', () => window.print());
+  
   showPage('dashboardPage');
 });
 
 /* ----------  DASHBOARD  ---------- */
 function updateDashboard() {
-  const completed = productionOrders.filter(o => o.status === 'Completada');
-  const pending   = productionOrders.filter(o => o.status === 'Pendiente');
-  const realCost  = completed.reduce((a, o) => a + (o.cost_real || 0), 0);
-  const overCost  = completed.reduce((a, o) => a + (o.overcost || 0), 0);
-  const invValue  = materials.reduce((a, m) => a + m.existencia * m.costo, 0);
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
 
-  document.getElementById('pendingOrdersCard').textContent   = pending.length;
-  document.getElementById('totalCostCard').textContent       = `$${realCost.toFixed(2)}`;
-  document.getElementById('inventoryValueCard').textContent  = `$${invValue.toFixed(2)}`;
-  document.getElementById('totalOvercostCard').textContent   = `$${overCost.toFixed(2)}`;
+  const completedThisMonth = productionOrders.filter(o => {
+    if (o.status !== 'Completada' || !o.completed_at) return false;
+    const orderDate = new Date(o.completed_at);
+    return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
+  });
+  
+  const pending = productionOrders.filter(o => o.status === 'Pendiente');
+
+  const totalProduction = completedThisMonth.reduce((acc, o) => acc + (o.quantity_produced || 0), 0);
+  const realCost = completedThisMonth.reduce((acc, o) => acc + (o.cost_real || 0), 0);
+  const overCost = completedThisMonth.reduce((acc, o) => acc + (o.overcost || 0), 0);
+
+  document.getElementById('pendingOrdersCard').textContent = pending.length;
+  document.getElementById('completedOrdersCard').textContent = completedThisMonth.length;
+  document.getElementById('totalProductionCard').textContent = totalProduction;
+  document.getElementById('totalCostCard').textContent = `$${realCost.toFixed(2)}`;
+  document.getElementById('totalOvercostCard').textContent = `$${overCost.toFixed(2)}`;
+  
+  const operatorStats = {};
+  completedThisMonth.forEach(o => {
+    const opId = o.operator_id;
+    if (!operatorStats[opId]) {
+      operatorStats[opId] = { name: operators.find(op => op.id === opId)?.name || opId, production: 0, overcost: 0 };
+    }
+    operatorStats[opId].production += o.quantity_produced || 0;
+    operatorStats[opId].overcost += o.overcost || 0;
+  });
+
+  const sortedByProduction = Object.values(operatorStats).sort((a, b) => b.production - a.production);
+  const sortedByOvercost = Object.values(operatorStats).sort((a, b) => a.overcost - b.overcost);
+
+  const prodRankBody = document.getElementById('operatorProductionRankBody');
+  prodRankBody.innerHTML = sortedByProduction.map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>${op.production}</td></tr>`).join('');
+
+  const overcostRankBody = document.getElementById('operatorOvercostRankBody');
+  overcostRankBody.innerHTML = sortedByOvercost.map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>$${op.overcost.toFixed(2)}</td></tr>`).join('');
 
   const usedMaterials = new Set();
   Object.values(recipes).flat().forEach(r => usedMaterials.add(r.code));
   const low = materials.filter(m => m.existencia < 10 && usedMaterials.has(m.codigo));
-  const tbody = document.getElementById('lowStockTableBody');
-  tbody.innerHTML = low.length
+  const lowStockTbody = document.getElementById('lowStockTableBody');
+  lowStockTbody.innerHTML = low.length
     ? low.map(m => `<tr><td>${m.descripcion}</td><td>${m.existencia}</td><td>${m.unidad}</td></tr>`).join('')
     : '<tr><td colspan="3" class="text-center">Sin alertas</td></tr>';
 }
@@ -79,19 +165,23 @@ function loadProducts(filter = '') {
   const tbody = document.getElementById('productsTableBody'); tbody.innerHTML = '';
   products.sort((a, b) => a.codigo.localeCompare(b.codigo));
   products.filter(p => !filter || p.codigo.includes(filter) || p.descripcion.toLowerCase().includes(filter.toLowerCase()))
-    .forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td>${p.codigo}</td><td>${p.descripcion}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${p.codigo}"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${p.codigo}"><i class="fas fa-trash"></i></button></td></tr>`));
+    .forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td>${p.codigo}</td><td>${p.descripcion}</td><td>${p.unidad || ''}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${p.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${p.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`));
 }
 document.getElementById('productForm').addEventListener('submit', e => {
   e.preventDefault();
   const code = document.getElementById('productCode').value.trim();
   const desc = document.getElementById('productDescription').value.trim();
+  const unit = document.getElementById('productUnit').value.trim();
   if (!code || !desc) return;
   if (isEditingProduct) {
     const idx = products.findIndex(p => p.codigo === currentProductCode);
-    products[idx].descripcion = desc;
+    if (idx !== -1) {
+      products[idx].descripcion = desc;
+      products[idx].unidad = unit;
+    }
   } else {
     if (products.some(p => p.codigo === code)) { Toastify({ text: 'Código duplicado', backgroundColor: 'var(--danger-color)' }).showToast(); return; }
-    products.push({ codigo: code, descripcion: desc });
+    products.push({ codigo: code, descripcion: desc, unidad: unit });
   }
   saveToLocalStorage(); loadProducts(); productModal.hide();
 });
@@ -99,7 +189,7 @@ document.getElementById('productsTableBody').addEventListener('click', e => {
   const btn = e.target.closest('button'); if (!btn) return;
   const code = btn.dataset.code;
   if (btn.classList.contains('delete-btn')) { products = products.filter(p => p.codigo !== code); saveToLocalStorage(); loadProducts(); }
-  if (btn.classList.contains('edit-btn')) { isEditingProduct = true; currentProductCode = code; const p = products.find(p => p.codigo === code); document.getElementById('productCode').value = p.codigo; document.getElementById('productDescription').value = p.descripcion; document.getElementById('productCode').disabled = true; document.getElementById('productModalLabel').textContent = 'Editar Producto'; productModal.show(); }
+  if (btn.classList.contains('edit-btn')) { isEditingProduct = true; currentProductCode = code; const p = products.find(p => p.codigo === code); document.getElementById('productCode').value = p.codigo; document.getElementById('productDescription').value = p.descripcion; document.getElementById('productUnit').value = p.unidad || ''; document.getElementById('productCode').disabled = true; document.getElementById('productModalLabel').textContent = 'Editar Producto'; productModal.show(); }
 });
 document.getElementById('productModal').addEventListener('hidden.bs.modal', () => { isEditingProduct = false; document.getElementById('productForm').reset(); document.getElementById('productCode').disabled = false; document.getElementById('productModalLabel').textContent = 'Añadir Producto'; });
 document.getElementById('searchProduct').addEventListener('input', e => loadProducts(e.target.value));
@@ -111,7 +201,7 @@ function loadMaterials(filter = '') {
   const tbody = document.getElementById('materialsTableBody'); tbody.innerHTML = '';
   materials.sort((a, b) => a.codigo.localeCompare(b.codigo));
   materials.filter(m => !filter || m.codigo.includes(filter) || m.descripcion.toLowerCase().includes(filter.toLowerCase()))
-    .forEach(m => tbody.insertAdjacentHTML('beforeend', `<tr><td>${m.codigo}</td><td>${m.descripcion}</td><td>${m.unidad}</td><td>${m.existencia}</td><td>$${m.costo.toFixed(2)}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${m.codigo}"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${m.codigo}"><i class="fas fa-trash"></i></button></td></tr>`));
+    .forEach(m => tbody.insertAdjacentHTML('beforeend', `<tr><td>${m.codigo}</td><td>${m.descripcion}</td><td>${m.unidad}</td><td>${m.existencia}</td><td>$${m.costo.toFixed(2)}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${m.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${m.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`));
 }
 document.getElementById('materialForm').addEventListener('submit', e => {
   e.preventDefault();
@@ -158,8 +248,8 @@ function loadRecipes() {
         <td>${recipes[pid].length}</td>
         <td>$${cost.toFixed(2)}</td>
         <td>
-          <button class="btn btn-sm btn-warning edit-btn me-2" data-product-id="${pid}"><i class="fas fa-edit"></i></button>
-          <button class="btn btn-sm btn-danger delete-btn" data-product-id="${pid}"><i class="fas fa-trash"></i></button>
+          <button class="btn btn-sm btn-warning edit-btn me-2" data-product-id="${pid}" title="Editar"><i class="fas fa-edit"></i></button>
+          <button class="btn btn-sm btn-danger delete-btn" data-product-id="${pid}" title="Eliminar"><i class="fas fa-trash"></i></button>
         </td>
       </tr>`);
   });
@@ -179,34 +269,94 @@ function populateRecipeProductSelect() {
 }
 function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'material') {
   const container = document.getElementById(containerId);
-  const div = document.createElement('div'); div.className = 'd-flex mb-2 material-field';
+  const row = document.createElement('div');
+  row.className = 'row g-2 mb-2 align-items-center material-field';
 
-  const typeSelect = document.createElement('select'); typeSelect.className = 'form-select type-select me-2';
+  const allItems = { material: materials, product: products };
+
+  const typeSelect = document.createElement('select');
+  typeSelect.className = 'form-select form-select-sm type-select';
   ['material', 'product'].forEach(opt => {
-    const o = document.createElement('option');
-    o.value = opt; o.text = opt === 'material' ? 'Material' : 'Producto'; o.selected = (opt === type);
-    typeSelect.appendChild(o);
+      const o = new Option(opt === 'material' ? 'Material' : 'Producto', opt);
+      typeSelect.appendChild(o);
   });
+  typeSelect.value = type;
 
-  const codeSelect = document.createElement('select'); codeSelect.className = 'form-select code-select me-2';
-  const fillCodeSelect = () => {
-    codeSelect.innerHTML = '';
-    const list = typeSelect.value === 'material' ? materials : products;
-    list.forEach(item => codeSelect.add(new Option(`${item.codigo} – ${item.descripcion}`, item.codigo)));
-    if (mCode) codeSelect.value = mCode;
-  };
-  typeSelect.addEventListener('change', fillCodeSelect); fillCodeSelect();
+  const codeSelect = document.createElement('select');
+  codeSelect.className = 'form-select form-select-sm code-select';
+
+  const descInput = document.createElement('input');
+  descInput.type = 'text';
+  descInput.className = 'form-control form-control-sm desc-input';
+  descInput.placeholder = 'Descripción';
+  descInput.readOnly = true;
 
   const qtyInput = document.createElement('input');
-  qtyInput.type = 'number'; qtyInput.step = '0.01'; qtyInput.className = 'form-control qty-input me-2';
-  qtyInput.placeholder = 'Cantidad'; qtyInput.value = qty;
+  qtyInput.type = 'number';
+  qtyInput.step = '0.01';
+  qtyInput.className = 'form-control form-control-sm qty-input';
+  qtyInput.placeholder = 'Cantidad';
+  if (qty) qtyInput.value = qty;
 
   const delBtn = document.createElement('button');
-  delBtn.type = 'button'; delBtn.className = 'btn btn-danger remove-material-btn';
-  delBtn.innerHTML = '<i class="fas fa-minus"></i>'; delBtn.onclick = () => div.remove();
+  delBtn.type = 'button';
+  delBtn.className = 'btn btn-sm btn-danger remove-material-btn';
+  delBtn.innerHTML = '<i class="fas fa-trash"></i>';
+  delBtn.onclick = () => row.remove();
 
-  div.append(typeSelect, codeSelect, qtyInput, delBtn);
-  container.appendChild(div);
+  const updateDescription = () => {
+    const currentType = typeSelect.value;
+    const currentCode = codeSelect.value;
+    const item = allItems[currentType].find(i => i.codigo === currentCode);
+    descInput.value = item ? item.descripcion : '';
+  };
+
+  const populateCodeSelect = () => {
+    let currentType = typeSelect.value;
+    if (!allItems[currentType]) {
+        currentType = 'material';
+        typeSelect.value = 'material';
+    }
+    const list = allItems[currentType];
+    codeSelect.innerHTML = '<option value="" selected disabled>Selecciona...</option>';
+    
+    const recipeProductCode = document.getElementById('editRecipeProductSelect')?.value || document.getElementById('recipeProductSelect')?.value;
+
+    list.forEach(item => {
+      if (currentType === 'product' && item.codigo === recipeProductCode) return;
+      
+      const isSelected = item.codigo === mCode;
+      const o = new Option(`${item.codigo} – ${item.descripcion}`, item.codigo, false, isSelected);
+      codeSelect.add(o);
+    });
+
+    if (mCode) updateDescription();
+    else descInput.value = '';
+  };
+
+  typeSelect.addEventListener('change', () => {
+      mCode = '';
+      populateCodeSelect();
+  });
+  codeSelect.addEventListener('change', updateDescription);
+
+  const createCol = (className, element) => {
+      const col = document.createElement('div');
+      col.className = className;
+      col.appendChild(element);
+      return col;
+  };
+  
+  row.append(
+    createCol('col-md-2', typeSelect),
+    createCol('col-md-3', codeSelect),
+    createCol('col-md-4', descInput),
+    createCol('col-md-2', qtyInput),
+    createCol('col-md-1 text-center', delBtn)
+  );
+  
+  container.appendChild(row);
+  populateCodeSelect();
 }
 document.getElementById('addRecipeForm').addEventListener('submit', e => {
   e.preventDefault();
@@ -218,7 +368,6 @@ document.getElementById('addRecipeForm').addEventListener('submit', e => {
   recipes[pid] = items;
   saveToLocalStorage(); loadRecipes(); addRecipeModal.hide();
 });
-// --- Recipe Edit Save ---
 document.getElementById('editRecipeForm').addEventListener('submit', e => {
   e.preventDefault();
   const pid = document.getElementById('editRecipeProductSelect').value;
@@ -238,11 +387,20 @@ document.getElementById('recipesTableBody').addEventListener('click', e => {
   const pid = btn.dataset.productId;
   if (btn.classList.contains('delete-btn')) { delete recipes[pid]; saveToLocalStorage(); loadRecipes(); }
   if (btn.classList.contains('edit-btn')) {
-    const prod = products.find(p => p.codigo === pid);
-    document.getElementById('editRecipeProductSelect').innerHTML = `<option value="${pid}">${prod.descripcion}</option>`;
-    const cont = document.getElementById('editRecipeMaterials'); cont.innerHTML = '';
-    recipes[pid].forEach(i => addRecipeMaterialField('editRecipeMaterials', i.code, i.quantity, i.type));
-    editRecipeModal.show();
+    try {
+        const prod = products.find(p => p.codigo === pid);
+        if (!prod) {
+            Toastify({ text: `Error: El producto para esta receta (código: ${pid}) ya no existe. Por favor, elimine esta receta.`, duration: 5000, backgroundColor: 'var(--danger-color)' }).showToast();
+            return;
+        }
+        document.getElementById('editRecipeProductSelect').innerHTML = `<option value="${pid}">${prod.descripcion}</option>`;
+        const cont = document.getElementById('editRecipeMaterials'); cont.innerHTML = '';
+        recipes[pid].forEach(i => addRecipeMaterialField('editRecipeMaterials', i.code, i.quantity, i.type));
+        editRecipeModal.show();
+    } catch (error) {
+        console.error("Error al abrir el modal de editar receta:", error);
+        Toastify({ text: `Se produjo un error inesperado al intentar editar la receta. Detalles: ${error.message}`, duration: 5000, backgroundColor: 'var(--danger-color)' }).showToast();
+    }
   }
 });
 document.addEventListener('click', e => {
@@ -289,13 +447,14 @@ function loadProductionOrders(filter = '') {
         </tr>`);
     });
 
-  // Delegated listeners
-  tbody.addEventListener('click', e => {
+  tbody.addEventListener('click', async e => {
     const btn = e.target.closest('button'); if (!btn) return;
     const oid = parseInt(btn.dataset.orderId);
-    if (btn.classList.contains('view-details-btn')) showOrderDetails(oid);
-    else if (btn.classList.contains('pdf-btn')) generateOrderPDF(oid);
-    else if (btn.classList.contains('delete-order-btn')) {
+    if (btn.classList.contains('view-details-btn')) {
+      showOrderDetails(oid);
+    } else if (btn.classList.contains('pdf-btn')) {
+      await generateOrderPDF(oid);
+    } else if (btn.classList.contains('delete-order-btn')) {
       if (confirm(`¿Eliminar orden ${oid}?`)) {
         productionOrders = productionOrders.filter(o => o.order_id !== oid);
         saveToLocalStorage(); loadProductionOrders(); updateDashboard();
@@ -305,7 +464,9 @@ function loadProductionOrders(filter = '') {
       document.getElementById('closeHiddenOrderId').value = oid;
       document.getElementById('realQuantityInput').value = ord.quantity;
       confirmCloseOrderModal.show();
-    } else if (btn.classList.contains('reopen-order-btn')) reopenOrder(oid);
+    } else if (btn.classList.contains('reopen-order-btn')) {
+      reopenOrder(oid);
+    }
   });
 }
 
@@ -320,42 +481,82 @@ function showOrderDetails(oid) {
   document.getElementById('detailProductName').textContent = ord.product_name;
   const operator = operators.find(op => op.id === ord.operator_id);
   document.getElementById('detailOperatorName').textContent = operator ? operator.name : 'N/A';
-
   const statusBadge = document.getElementById('detailStatus');
   statusBadge.textContent = ord.status;
   statusBadge.className = `badge ${ord.status === 'Completada' ? 'bg-success' : 'bg-warning'}`;
-
   document.getElementById('detailQuantityPlanned').textContent = ord.quantity;
   document.getElementById('detailQuantityProduced').textContent = ord.quantity_produced ?? 'N/A';
-  document.getElementById('detailCreatedDate').textContent = ord.created_at;
-  document.getElementById('detailCompletedDate').textContent = ord.completed_at ?? 'N/A';
+  document.getElementById('detailCreatedDate').textContent = formatDate(ord.created_at);
+  document.getElementById('detailCompletedDate').textContent = formatDate(ord.completed_at);
+  
+  const realQty = ord.quantity_produced || 0;
+  const standardCost = (ord.cost_standard_unit || 0) * realQty;
+  const extraCost = ord.cost_extra || 0;
+  const realTotalCost = standardCost + extraCost;
 
-  document.getElementById('detailStandardCost').textContent = `$${(ord.cost_standard || 0).toFixed(2)}`;
-  document.getElementById('detailExtraCost').textContent = `$${(ord.cost_extra || 0).toFixed(2)}`;
-  document.getElementById('detailRealCost').textContent = ord.cost_real ? `$${ord.cost_real.toFixed(2)}` : 'N/A';
-
+  document.getElementById('detailStandardCost').textContent = `$${standardCost.toFixed(2)}`;
+  document.getElementById('detailExtraCost').textContent = `$${extraCost.toFixed(2)}`;
+  document.getElementById('detailRealCost').textContent = ord.status === 'Completada' ? `$${realTotalCost.toFixed(2)}` : 'N/A';
+  
+  const displayOvercost = ord.overcost;
   const overcostEl = document.getElementById('detailOvercost');
-  const oc = ord.overcost;
-  overcostEl.textContent = oc ? `$${oc.toFixed(2)}` : 'N/A';
-  const ocValue = oc || 0;
+  overcostEl.textContent = displayOvercost ? `$${displayOvercost.toFixed(2)}` : 'N/A';
+  const ocValue = displayOvercost || 0;
   overcostEl.className = 'h5 ' + (ocValue > 0 ? 'text-danger' : ocValue < 0 ? 'text-success' : '');
+
+  const materialsSummary = {};
+  const recipeItems = recipes[ord.product_code] || [];
+  
+  recipeItems.forEach(recipeMat => {
+    const m = materials.find(m => m.codigo === recipeMat.code);
+    if (m) {
+      const plannedQty = recipeMat.quantity * ord.quantity;
+      materialsSummary[recipeMat.code] = {
+        descripcion: m.descripcion,
+        costo_unit: m.costo,
+        qty_plan: plannedQty,
+        qty_real: ord.status === 'Completada' ? (recipeMat.quantity * (ord.quantity_produced || 0)) : 0,
+        cost_plan: plannedQty * m.costo,
+      };
+    }
+  });
+
+  if (ord.status === 'Completada') {
+    vales.filter(v => v.order_id === oid).forEach(vale => {
+      vale.materials.forEach(valeMat => {
+        const adjust = vale.type === 'salida' ? valeMat.quantity : -valeMat.quantity;
+        if (materialsSummary[valeMat.material_code]) {
+          materialsSummary[valeMat.material_code].qty_real += adjust;
+        } else {
+          const m = materials.find(m => m.codigo === valeMat.material_code);
+          if (m) {
+            materialsSummary[valeMat.material_code] = {
+              descripcion: m.descripcion,
+              costo_unit: m.costo,
+              qty_plan: 0,
+              qty_real: adjust,
+              cost_plan: 0,
+            };
+          }
+        }
+      });
+    });
+  }
 
   const materialsTbody = document.getElementById('detailMaterialsTableBody');
   materialsTbody.innerHTML = '';
-  // NOTE: This table shows planned materials. Real consumption is not tracked per item.
-  ord.materials_used.forEach(u => {
-    const m = materials.find(ma => ma.codigo === u.material_code);
-    const cost = m ? m.costo * u.quantity : 0;
+  for (const [code, mat] of Object.entries(materialsSummary)) {
+    const cost_real = mat.qty_real * mat.costo_unit;
     materialsTbody.insertAdjacentHTML('beforeend', `
         <tr>
-            <td>${u.material_code}</td>
-            <td>${m ? m.descripcion : 'N/A'}</td>
-            <td>${u.quantity.toFixed(2)}</td>
-            <td>$${cost.toFixed(2)}</td>
+            <td>${code}</td>
+            <td>${mat.descripcion}</td>
+            <td>${mat.qty_plan.toFixed(2)} / <strong class="ms-1">${mat.qty_real.toFixed(2)}</strong></td>
+            <td>$${mat.cost_plan.toFixed(2)} / <strong class="ms-1">$${cost_real.toFixed(2)}</strong></td>
         </tr>
     `);
-  });
-
+  }
+  
   orderDetailsModal.show();
 }
 
@@ -399,36 +600,42 @@ function completeOrder(oid, realQty) {
   if (idx === -1) return;
   const ord = productionOrders[idx];
   
-  // NOTE: This logic deducts all planned materials regardless of the real quantity produced.
-  ord.materials_used.filter(u => u.type === 'material').forEach(u => {
-    const mIdx = materials.findIndex(m => m.codigo === u.material_code);
-    if (mIdx !== -1) materials[mIdx].existencia -= u.quantity;
+  (ord.materials_used || []).forEach(orderMat => {
+    if (orderMat.type !== 'material') return;
+    const mIdx = materials.findIndex(m => m.codigo === orderMat.material_code);
+    if (mIdx !== -1) {
+      const perUnitQty = (ord.quantity > 0) ? (orderMat.quantity / ord.quantity) : 0;
+      const consumedQty = perUnitQty * realQty;
+      materials[mIdx].existencia -= consumedQty;
+    }
   });
 
   ord.quantity_produced = realQty;
   ord.status = 'Completada';
   ord.completed_at = new Date().toISOString().slice(0, 10);
   
-  // Calculate costs based on the provided logic
   ord.cost_real = (ord.cost_standard || 0) + (ord.cost_extra || 0);
   ord.overcost = ord.cost_real - ((ord.cost_standard_unit || 0) * realQty);
 
-  // Save changes and refresh UI
   saveToLocalStorage(); 
   loadProductionOrders(); 
   loadMaterials(); 
   updateDashboard();
 
-  // Provide user feedback
   Toastify({ text: `Orden ${oid} completada con éxito.`, backgroundColor: 'var(--success-color)' }).showToast();
 }
 function reopenOrder(oid) {
   const idx = productionOrders.findIndex(o => o.order_id === oid);
   if (idx === -1) return;
   const ord = productionOrders[idx];
-  ord.materials_used.filter(u => u.type === 'material').forEach(u => {
-    const mIdx = materials.findIndex(m => m.codigo === u.material_code);
-    if (mIdx !== -1) materials[mIdx].existencia += u.quantity;
+  (ord.materials_used || []).forEach(orderMat => {
+    if (orderMat.type !== 'material') return;
+    const mIdx = materials.findIndex(m => m.codigo === orderMat.material_code);
+    if (mIdx !== -1) {
+      const perUnitQty = (ord.quantity > 0) ? (orderMat.quantity / ord.quantity) : 0;
+      const consumedQty = perUnitQty * (ord.quantity_produced || 0);
+      materials[mIdx].existencia += consumedQty;
+    }
   });
   vales.filter(v => v.order_id === oid).forEach(v => {
     v.materials.forEach(m => {
@@ -439,7 +646,7 @@ function reopenOrder(oid) {
   ord.status = 'Pendiente'; ord.completed_at = null; ord.quantity_produced = null; ord.cost_real = null; ord.overcost = null;
   saveToLocalStorage(); loadProductionOrders(); loadMaterials(); updateDashboard();
 }
-function generateOrderPDF(oid) {
+async function generateOrderPDF(oid) {
   try {
     const { jsPDF } = window.jspdf;
     const ord = productionOrders.find(o => o.order_id === oid);
@@ -448,85 +655,248 @@ function generateOrderPDF(oid) {
       return;
     }
     const doc = new jsPDF();
-    const logo = localStorage.getItem('companyLogo');
-    if (logo) doc.addImage(logo, 'PNG', 15, 10, 40, 15);
+    
+    let logoHeight = 0;
+    const logoData = localStorage.getItem('companyLogo');
+    if (logoData) {
+        const getImageDimensions = (dataUrl) => new Promise(resolve => {
+            const img = new Image();
+            img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+            img.src = dataUrl;
+        });
+        const dims = await getImageDimensions(logoData);
+        const maxWidth = 40;
+        const maxHeight = 20;
+        const ratio = Math.min(maxWidth / dims.width, maxHeight / dims.height);
+        const w = dims.width * ratio;
+        const h = dims.height * ratio;
+        doc.addImage(logoData, 'PNG', 15, 10, w, h);
+        logoHeight = h;
+    }
+
     doc.setFontSize(20);
-    doc.text('Orden de Producción', 105, 20, null, null, 'center');
+    doc.text('Orden de Producción', 105, logoHeight > 0 ? 15 + logoHeight : 25, null, null, 'center');
+
+    let startY = (logoHeight > 0 ? 15 + logoHeight : 25) + 15;
+    const lineHeight = 7;
+    
+    const rightColX = 140;
+    const valeCount = vales.filter(v => v.order_id === oid).length;
+    doc.setFontSize(10);
+    doc.text(`Fecha Creación: ${formatDate(ord.created_at)}`, rightColX, startY);
+    doc.text(`Fecha Fin: ${formatDate(ord.completed_at)}`, rightColX, startY + lineHeight);
+    doc.text(`Nº Vales: ${valeCount}`, rightColX, startY + (lineHeight * 2));
+
     doc.setFontSize(12);
-    doc.text(`ID de Orden: ${ord.order_id}`, 15, 30);
-    doc.text(`Producto: ${ord.product_name}`, 15, 35);
-    doc.text(`Operador: ${operators.find(op => op.id === ord.operator_id)?.name || 'N/A'}`, 15, 40);
-    doc.text(`Cantidad Planificada: ${ord.quantity}`, 15, 45);
-    doc.text(`Cantidad Real Producida: ${ord.quantity_produced || 'N/A'}`, 15, 50);
-    doc.text(`Costo Estándar: $${(ord.cost_standard || 0).toFixed(2)}`, 15, 55);
-    doc.text(`Costo Extra: $${(ord.cost_extra || 0).toFixed(2)}`, 15, 60);
-    doc.text(`Costo Real Total: $${ord.cost_real ? ord.cost_real.toFixed(2) : 'N/A'}`, 15, 65);
-    doc.text(`Sobrecosto: $${(ord.overcost || 0).toFixed(2)}`, 15, 70);
+    doc.text(`ID de Orden: ${ord.order_id}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Producto: ${ord.product_name}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Operador: ${operators.find(op => op.id === ord.operator_id)?.name || 'N/A'}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Cantidad Planificada: ${ord.quantity}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Cantidad Real Producida: ${ord.quantity_produced || 'N/A'}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Costo Estándar: $${(ord.cost_standard || 0).toFixed(2)}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Costo Extra: $${(ord.cost_extra || 0).toFixed(2)}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Costo Real Total: $${ord.cost_real ? ord.cost_real.toFixed(2) : 'N/A'}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Sobrecosto: $${(ord.overcost || 0).toFixed(2)}`, 15, startY);
+
     const bodyRows = ord.materials_used.map(u => {
       const m = materials.find(ma => ma.codigo === u.material_code);
-      return [m ? m.descripcion : u.material_code, u.quantity, (u.quantity * (m ? m.costo : 0)).toFixed(2)];
+      return [m ? m.descripcion : u.material_code, u.quantity.toFixed(2), (u.quantity * (m ? m.costo : 0)).toFixed(2)];
     });
-    doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: 80 });
+    doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: startY + 5 });
+    
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const bottomMargin = 20;
+    doc.setLineWidth(0.2);
+    doc.line(60, pageHeight - bottomMargin, 150, pageHeight - bottomMargin);
+    doc.setFontSize(10);
+    doc.text('Autorizado por:', 105, pageHeight - bottomMargin + 5, null, null, 'center');
+
     doc.save(`orden_${ord.order_id}.pdf`);
   } catch (error) {
     console.error(`Error al generar PDF para orden ${oid}:`, error);
     Toastify({ text: 'No se pudo generar el PDF.', backgroundColor: 'var(--danger-color)' }).showToast();
   }
 }
-function generateValePDF(vale) {
+async function generateValePDF(vale) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  const logo = localStorage.getItem('companyLogo');
-  if (logo) doc.addImage(logo, 'PNG', 15, 10, 40, 15);
+
+  let logoHeight = 0;
+  const logoData = localStorage.getItem('companyLogo');
+  if (logoData) {
+      const getImageDimensions = (dataUrl) => new Promise(resolve => {
+          const img = new Image();
+          img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+          img.src = dataUrl;
+      });
+      const dims = await getImageDimensions(logoData);
+      const maxWidth = 40;
+      const maxHeight = 20;
+      const ratio = Math.min(maxWidth / dims.width, maxHeight / dims.height);
+      const w = dims.width * ratio;
+      const h = dims.height * ratio;
+      doc.addImage(logoData, 'PNG', 15, 10, w, h);
+      logoHeight = h;
+  }
+
   doc.setFontSize(18);
-  doc.text('Vale de Almacén', 105, 25, null, null, 'center');
+  doc.text('Vale de Almacén', 105, logoHeight > 0 ? 15 + logoHeight : 25, null, null, 'center');
+
+  let startY = (logoHeight > 0 ? 15 + logoHeight : 25) + 15;
+  const lineHeight = 7;
   doc.setFontSize(11);
-  doc.text(`Vale ID: ${vale.vale_id}`, 15, 40);
-  doc.text(`Orden: ${vale.order_id}`, 15, 47);
-  doc.text(`Tipo: ${vale.type === 'salida' ? 'Salida' : 'Devolución'}`, 15, 54);
-  doc.text(`Fecha: ${vale.created_at}`, 15, 61);
+
+  doc.text(`Vale ID: ${vale.vale_id}`, 15, startY);
+  startY += lineHeight;
+  doc.text(`Orden: ${vale.order_id}`, 15, startY);
+  startY += lineHeight;
+  doc.text(`Tipo: ${vale.type === 'salida' ? 'Salida' : 'Devolución'}`, 15, startY);
+  startY += lineHeight;
+  doc.text(`Fecha: ${formatDate(vale.created_at)}`, 15, startY);
+
   const bodyRows = vale.materials.map(m => {
     const mat = materials.find(ma => ma.codigo === m.material_code);
-    return [mat ? mat.descripcion : m.material_code, m.quantity, (m.quantity * (mat ? mat.costo : 0)).toFixed(2)];
+    return [mat ? mat.descripcion : m.material_code, m.quantity.toFixed(2), (m.quantity * (mat ? mat.costo : 0)).toFixed(2)];
   });
-  doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: 75 });
+  doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: startY + 5 });
+
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const bottomMargin = 20;
+  doc.setLineWidth(0.2);
+  doc.line(60, pageHeight - bottomMargin, 150, pageHeight - bottomMargin);
+  doc.setFontSize(10);
+  doc.text('Autorizado por:', 105, pageHeight - bottomMargin + 5, null, null, 'center');
+
   doc.save(`vale_${vale.vale_id}.pdf`);
 }
+function addFreeFormValeRow() {
+    const tbody = document.getElementById('valeMaterialsTableBody');
+    const tr = document.createElement('tr');
+    tr.classList.add('free-form-row');
+
+    const codeCell = document.createElement('td');
+    const descCell = document.createElement('td');
+    const stockCell = document.createElement('td');
+    const qtyCell = document.createElement('td');
+
+    const codeSelect = document.createElement('select');
+    codeSelect.className = 'form-select form-select-sm vale-material-code';
+    codeSelect.innerHTML = '<option value="" selected disabled>Selecciona...</option>';
+    materials.forEach(m => {
+        codeSelect.add(new Option(`${m.codigo} - ${m.descripcion}`, m.codigo));
+    });
+
+    const descInput = document.createElement('input');
+    descInput.type = 'text';
+    descInput.className = 'form-control form-control-sm';
+    descInput.readOnly = true;
+
+    const stockSpan = document.createElement('span');
+    stockSpan.className = 'vale-material-stock';
+
+    const qtyInput = document.createElement('input');
+    qtyInput.type = 'number';
+    qtyInput.className = 'form-control form-control-sm vale-material-qty';
+    qtyInput.min = "0";
+    qtyInput.step = "0.01";
+    qtyInput.value = "0";
+
+    codeSelect.addEventListener('change', () => {
+        const selectedCode = codeSelect.value;
+        const material = materials.find(m => m.codigo === selectedCode);
+        if (material) {
+            descInput.value = material.descripcion;
+            stockSpan.textContent = `${material.existencia} ${material.unidad}`;
+            qtyInput.dataset.code = material.codigo;
+        } else {
+            descInput.value = '';
+            stockSpan.textContent = '';
+            delete qtyInput.dataset.code;
+        }
+    });
+
+    codeCell.appendChild(codeSelect);
+    descCell.appendChild(descInput);
+    stockCell.appendChild(stockSpan);
+    qtyCell.appendChild(qtyInput);
+
+    tr.append(codeCell, descCell, stockCell, qtyCell);
+    tbody.appendChild(tr);
+}
+
 function generateValePrompt(oid) {
   const ord = productionOrders.find(o => o.order_id === oid);
   document.getElementById('valeOrderId').textContent = oid;
   document.getElementById('valeHiddenOrderId').value = oid;
-  const tbody = document.getElementById('valeMaterialsTableBody'); tbody.innerHTML = '';
-  const allUsed = {};
-  ord.materials_used.forEach(u => allUsed[u.material_code] = (allUsed[u.material_code] || 0) + u.quantity);
-  vales.filter(v => v.order_id === oid).forEach(v => v.materials.forEach(m => allUsed[m.material_code] = (allUsed[m.material_code] || 0) + m.quantity));
-  Object.keys(allUsed).forEach(code => {
-    const m = materials.find(ma => ma.codigo === code);
-    if (!m) return;
-    tbody.insertAdjacentHTML('beforeend', `<tr><td>${m.descripcion}</td><td>${m.existencia} ${m.unidad}</td><td><input type="number" class="form-control form-control-sm" data-code="${code}" min="0" value="0" step="0.01"></td></tr>`);
+  const tbody = document.getElementById('valeMaterialsTableBody');
+  tbody.innerHTML = '';
+
+  const recipeMaterials = new Set(ord.materials_used.map(m => m.material_code));
+  recipeMaterials.forEach(code => {
+      const m = materials.find(ma => ma.codigo === code);
+      if (!m) return;
+      tbody.insertAdjacentHTML('beforeend', `
+          <tr class="existing-material-row">
+              <td><input type="text" class="form-control-plaintext form-control-sm" value="${m.codigo}" readonly></td>
+              <td><input type="text" class="form-control-plaintext form-control-sm" value="${m.descripcion}" readonly></td>
+              <td>${m.existencia} ${m.unidad}</td>
+              <td><input type="number" class="form-control form-control-sm vale-material-qty" data-code="${code}" min="0" value="0" step="0.01"></td>
+          </tr>
+      `);
   });
+
+  tbody.insertAdjacentHTML('beforeend', '<tr><td colspan="4"><hr class="my-2"></td></tr>');
+  addFreeFormValeRow();
+  addFreeFormValeRow();
+
   document.getElementById('valeType').value = 'salida';
   valeModal.show();
 }
-document.getElementById('valeForm').addEventListener('submit', e => {
+
+document.getElementById('valeForm').addEventListener('submit', async e => {
   e.preventDefault();
   const oid = parseInt(document.getElementById('valeHiddenOrderId').value);
   const type = document.getElementById('valeType').value;
-  const rows = [...document.querySelectorAll('#valeMaterialsTableBody tr')].filter(r => parseFloat(r.querySelector('input').value) > 0);
-  if (!rows.length) return;
-  const mats = rows.map(r => {
-    const code = r.querySelector('input').dataset.code;
-    const qty = parseFloat(r.querySelector('input').value);
+
+  const qtyInputs = [...document.querySelectorAll('.vale-material-qty')].filter(input => parseFloat(input.value) > 0);
+
+  if (!qtyInputs.length) {
+      Toastify({ text: 'No se ingresaron cantidades.' }).showToast();
+      return;
+  }
+
+  const mats = qtyInputs.map(input => {
+    const code = input.dataset.code;
+    const qty = parseFloat(input.value);
+
+    if (!code) return false; 
+    
     const mIdx = materials.findIndex(m => m.codigo === code);
     if (mIdx === -1) return false;
+
     if (type === 'salida' && materials[mIdx].existencia < qty) {
       Toastify({ text: `No hay suficiente ${materials[mIdx].descripcion}` }).showToast();
       return false;
     }
+    
     type === 'salida' ? materials[mIdx].existencia -= qty : materials[mIdx].existencia += qty;
+    
     return { material_code: code, quantity: qty };
   }).filter(Boolean);
-  if (!mats.length) return;
+
+  if (!mats.length) {
+    loadMaterials();
+    return;
+  }
+  
   const cost = mats.reduce((a, m) => a + m.quantity * materials.find(ma => ma.codigo === m.material_code).costo, 0) * (type === 'salida' ? 1 : -1);
   const orderIdx = productionOrders.findIndex(o => o.order_id === oid);
   productionOrders[orderIdx].cost_extra += cost;
@@ -535,42 +905,128 @@ document.getElementById('valeForm').addEventListener('submit', e => {
   const valeId = `${oid}-${seq}`;
   const newVale = { vale_id: valeId, order_id: oid, type, created_at: new Date().toISOString().slice(0, 10), materials: mats, cost };
   vales.push(newVale);
-  generateValePDF(newVale);
-  saveToLocalStorage(); loadProductionOrders(); loadMaterials();
+  await generateValePDF(newVale);
+  saveToLocalStorage();
+  loadProductionOrders();
+  loadMaterials();
   bootstrap.Modal.getInstance(document.getElementById('valeModal')).hide();
 });
 
 /* ----------  REPORTES  ---------- */
-function loadReports() {
-  document.getElementById('applyReportFilters').addEventListener('click', generateAllReports);
-  generateAllReports();
+function populateReportFilters() {
+    const productFilter = document.getElementById('productFilter');
+    productFilter.innerHTML = '<option value="all">Todos</option>';
+    products.forEach(p => {
+        productFilter.add(new Option(p.descripcion, p.codigo));
+    });
+
+    const operatorFilter = document.getElementById('operatorFilter');
+    operatorFilter.innerHTML = '<option value="all">Todos</option>';
+    operators.forEach(o => {
+        operatorFilter.add(new Option(o.name, o.id));
+    });
 }
+
+function loadReports() {
+  populateReportFilters();
+  document.getElementById('applyReportFilters').addEventListener('click', generateAllReports);
+  generateAllReports(); // Initial load
+}
+
 function generateAllReports() {
   const start = document.getElementById('startDateFilter').value;
   const end = document.getElementById('endDateFilter').value;
-  const filtered = productionOrders.filter(o => {
+  const productId = document.getElementById('productFilter').value;
+  const operatorId = document.getElementById('operatorFilter').value;
+
+  const filteredOrders = productionOrders.filter(o => {
+    // Status filter (currently only completed orders are considered for reports)
     if (o.status !== 'Completada') return false;
-    if (!start || !end) return true;
-    const d = new Date(o.completed_at);
-    return d >= new Date(start) && d <= new Date(end);
+
+    // Date filter
+    if (start && end) {
+        const d = new Date(o.completed_at);
+        if (d < new Date(start) || d > new Date(end)) return false;
+    }
+    
+    // Product filter
+    if (productId !== 'all' && o.product_code !== productId) return false;
+
+    // Operator filter
+    if (operatorId !== 'all' && o.operator_id !== operatorId) return false;
+
+    return true;
   });
-  generateOperatorReport(filtered);
-  generateMaterialConsumptionReport(filtered);
+
+  // Generate all report tables with the filtered data
+  generateDetailedOrdersReport(filteredOrders);
+  generateProductPerformanceReport(filteredOrders);
+  generateOperatorReport(filteredOrders);
+  generateMaterialConsumptionReport(filteredOrders);
 }
+
 function generateOperatorReport(orders) {
   const report = {};
   orders.forEach(o => {
     const op = operators.find(op => op.id === o.operator_id);
     const name = op ? op.name : o.operator_id;
-    if (!report[name]) report[name] = { completed: 0, units: 0, cost: 0, over: 0 };
-    report[name].completed += 1; report[name].units += o.quantity_produced; report[name].cost += o.cost_real || 0; report[name].over += o.overcost || 0;
+    if (!report[name]) report[name] = { completed: 0, units: 0, over: 0 };
+    report[name].completed += 1;
+    report[name].units += o.quantity_produced || 0;
+    report[name].over += o.overcost || 0;
   });
   const tbody = document.getElementById('operatorReportTableBody');
-  tbody.innerHTML = Object.keys(report).map(name => {
-    const r = report[name];
-    return `<tr><td>${name}</td><td>${r.completed}</td><td>${r.units}</td><td>$${r.cost.toFixed(2)}</td><td>$${r.over.toFixed(2)}</td></tr>`;
+  tbody.innerHTML = Object.entries(report).map(([name, r]) => {
+    return `<tr><td>${name}</td><td>${r.completed}</td><td>${r.units}</td><td>$${r.over.toFixed(2)}</td></tr>`;
   }).join('');
 }
+
+function generateDetailedOrdersReport(orders) {
+    const tbody = document.getElementById('detailedOrdersTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    orders.forEach(o => {
+        const operator = operators.find(op => op.id === o.operator_id);
+        const overcostColor = (o.overcost || 0) > 0 ? 'text-danger' : ((o.overcost || 0) < 0 ? 'text-success' : '');
+        tbody.insertAdjacentHTML('beforeend', `
+            <tr>
+                <td>${o.order_id}</td>
+                <td>${o.product_name}</td>
+                <td>${operator ? operator.name : 'N/A'}</td>
+                <td>${o.quantity}</td>
+                <td>${o.quantity_produced || 'N/A'}</td>
+                <td>$${(o.cost_real || 0).toFixed(2)}</td>
+                <td class="${overcostColor}">$${(o.overcost || 0).toFixed(2)}</td>
+                <td><span class="badge bg-success">${o.status}</span></td>
+                <td>${formatDate(o.completed_at)}</td>
+            </tr>
+        `);
+    });
+}
+
+function generateProductPerformanceReport(orders) {
+    const tbody = document.getElementById('productReportTableBody');
+    if (!tbody) return;
+    const report = {};
+    orders.forEach(o => {
+        if (!report[o.product_name]) {
+            report[o.product_name] = { completed: 0, units: 0, over: 0 };
+        }
+        report[o.product_name].completed += 1;
+        report[o.product_name].units += o.quantity_produced || 0;
+        report[o.product_name].over += o.overcost || 0;
+    });
+
+    tbody.innerHTML = Object.entries(report).map(([name, r]) => {
+        return `<tr>
+            <td>${name}</td>
+            <td>${r.completed}</td>
+            <td>${r.units}</td>
+            <td>$${r.over.toFixed(2)}</td>
+        </tr>`;
+    }).join('');
+}
+
 function generateMaterialConsumptionReport(orders) {
   const report = {};
   orders.forEach(o => {
@@ -672,7 +1128,7 @@ document.getElementById('productFile').addEventListener('change', e => {
   reader.onload = ev => {
     const wb = XLSX.read(ev.target.result, { type: 'binary' });
     const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-    products = json.map(r => ({ codigo: r.codigo || r.Código, descripcion: r.descripcion || r.Descripción }));
+    products = json.map(r => ({ codigo: r.codigo || r.Código, descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad || '' }));
     saveToLocalStorage(); loadProducts();
     Toastify({ text: 'Productos importados', backgroundColor: 'var(--success-color)' }).showToast();
   };
@@ -710,7 +1166,8 @@ document.getElementById('recipeFile').addEventListener('change', e => {
     json.forEach(r => {
       const prod = r.producto || r.Producto;
       if (!recipes[prod]) recipes[prod] = [];
-      recipes[prod].push({ type: r.tipo || r.Tipo, code: r.codigo || r.Código, quantity: parseFloat(r.cantidad || r.Cantidad) });
+      const tipo = (r.tipo || r.Tipo || 'material').toLowerCase();
+      recipes[prod].push({ type: tipo, code: r.codigo || r.Código, quantity: parseFloat(r.cantidad || r.Cantidad) });
     });
     saveToLocalStorage(); loadRecipes(); populateRecipeProductSelect();
     Toastify({ text: 'Recetas importadas', backgroundColor: 'var(--success-color)' }).showToast();
@@ -751,25 +1208,60 @@ document.getElementById('importBackupFile').addEventListener('change', e => {
 
 /* ----------  CHARTS  ---------- */
 function initCharts() {
-  // Cost Chart (Top 5 products)
+  if (costChartInstance) costChartInstance.destroy();
+  if (productionChartInstance) productionChartInstance.destroy();
+
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+
+  const completedThisMonth = productionOrders.filter(o => {
+    if (o.status !== 'Completada' || !o.completed_at) return false;
+    const orderDate = new Date(o.completed_at);
+    return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
+  });
+
+  // Cost Chart (Top 5 products this month)
   const ctxCost = document.getElementById('costChart');
   if (ctxCost) {
-    const top = Object.keys(recipes)
-      .map(pid => ({ product: products.find(p => p.codigo === pid)?.descripcion || pid, cost: calculateRecipeCost(recipes[pid]) }))
+    const costMap = {};
+    completedThisMonth.forEach(o => {
+        costMap[o.product_name] = (costMap[o.product_name] || 0) + (o.cost_real || 0);
+    });
+    const topCost = Object.entries(costMap).map(([name, cost]) => ({ name, cost }))
       .sort((a, b) => b.cost - a.cost).slice(0, 5);
-    new Chart(ctxCost, { type: 'bar', data: { labels: top.map(x => x.product), datasets: [{ label: 'Costo', data: top.map(x => x.cost), backgroundColor: '#3498db' }] } });
+
+    costChartInstance = new Chart(ctxCost, { 
+      type: 'bar', 
+      data: { 
+        labels: topCost.map(x => x.name), 
+        datasets: [{ label: 'Costo', data: topCost.map(x => x.cost), backgroundColor: '#3498db' }] 
+      },
+      options: { plugins: { datalabels: { anchor: 'end', align: 'top', formatter: (value, context) => `$${value.toFixed(2)}` } } }
+    });
   }
 
-  // Production chart (Top 5 products)
+  // Production chart (Top 5 products this month)
   const ctxProd = document.getElementById('productionChart');
   if (ctxProd) {
     const prodMap = {};
-    productionOrders.filter(o => o.status === 'Completada').forEach(o => {
+    completedThisMonth.forEach(o => {
       prodMap[o.product_name] = (prodMap[o.product_name] || 0) + (o.quantity_produced || 0);
     });
     const topProd = Object.entries(prodMap).map(([name, qty]) => ({ name, qty }))
       .sort((a, b) => b.qty - a.qty).slice(0, 5);
-    new Chart(ctxProd, { type: 'bar', data: { labels: topProd.map(x => x.name), datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }] } });
+      
+    productionChartInstance = new Chart(ctxProd, { 
+      type: 'bar', 
+      data: { 
+        labels: topProd.map(x => x.name), 
+        datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }] 
+      },
+      options: { plugins: { datalabels: { anchor: 'end', align: 'top' } } }
+    });
   }
 }
-document.addEventListener('DOMContentLoaded', initCharts);
+document.addEventListener('DOMContentLoaded', () => {
+    Chart.register(ChartDataLabels);
+    initCharts();
+});
