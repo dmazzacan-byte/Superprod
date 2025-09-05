@@ -120,3 +120,38 @@ body {
 .text-center .small {
   display: block;
 }
+
+.th-multiline {
+  text-align: center;
+  vertical-align: middle;
+}
+
+@media print {
+    body {
+        font-size: 10pt;
+        background-color: #fff !important;
+    }
+    #sidebar, .btn-toolbar, .btn, .kpi-icon, .form-control, .form-select, label[for="startDateFilter"], label[for="endDateFilter"], label[for="productFilter"], label[for="operatorFilter"] {
+        display: none !important;
+    }
+    main {
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    .page-content {
+        display: block !important; /* Ensure the current page is visible */
+    }
+    .card {
+        box-shadow: none !important;
+        border: 1px solid #dee2e6 !important;
+        page-break-inside: avoid;
+    }
+    .row {
+        page-break-inside: avoid;
+    }
+    a {
+        text-decoration: none;
+        color: inherit;
+    }
+}
