@@ -28,6 +28,28 @@ function formatDate(isoDate) {
   return `${day}-${month}-${year}`;
 }
 
+function updateTimestamps() {
+  const now = new Date();
+  const options = { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' };
+  const formattedDate = now.toLocaleString('es-ES', options);
+  document.querySelectorAll('.report-timestamp').forEach(span => {
+    span.textContent = formattedDate;
+  });
+}
+
+function printPage(pageId) {
+    const page = document.getElementById(pageId);
+    if (!page) return;
+
+    window.onafterprint = () => {
+        page.classList.remove('printable-page');
+        window.onafterprint = null; // Clean up handler
+    };
+
+    page.classList.add('printable-page');
+    window.print();
+}
+
 function generatePagePDF(elementId, filename) {
     const { jsPDF } = window.jspdf;
     const element = document.getElementById(elementId);
@@ -89,21 +111,35 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById(pageId).style.display = 'block';
     navLinks.forEach(l => l.classList.remove('active'));
     document.querySelector(`[data-page="${pageId}"]`).classList.add('active');
-    if (pageId === 'dashboardPage') updateDashboard();
-    else if (pageId === 'productsPage') loadProducts();
-    else if (pageId === 'materialsPage') loadMaterials();
-    else if (pageId === 'recipesPage') { loadRecipes(); populateRecipeProductSelect(); }
-    else if (pageId === 'productionOrdersPage') { loadProductionOrders(); populateOrderFormSelects(); }
-    else if (pageId === 'reportsPage') loadReports();
-    else if (pageId === 'settingsPage') { loadOperators(); loadEquipos(); loadLogo(); }
+    if (pageId === 'dashboardPage') {
+        updateDashboard();
+        updateTimestamps();
+    } else if (pageId === 'productsPage') {
+        loadProducts();
+    } else if (pageId === 'materialsPage') {
+        loadMaterials();
+    } else if (pageId === 'recipesPage') {
+        loadRecipes();
+        populateRecipeProductSelect();
+    } else if (pageId === 'productionOrdersPage') {
+        loadProductionOrders();
+        populateOrderFormSelects();
+    } else if (pageId === 'reportsPage') {
+        loadReports();
+        updateTimestamps();
+    } else if (pageId === 'settingsPage') {
+        loadOperators();
+        loadEquipos();
+        loadLogo();
+    }
   }
   navLinks.forEach(l => l.addEventListener('click', e => { e.preventDefault(); showPage(l.dataset.page); }));
 
   // PDF and Print Buttons
   document.getElementById('dashboardPdfBtn')?.addEventListener('click', () => generatePagePDF('dashboardPage', 'dashboard.pdf'));
-  document.getElementById('dashboardPrintBtn')?.addEventListener('click', () => window.print());
+  document.getElementById('dashboardPrintBtn')?.addEventListener('click', () => printPage('dashboardPage'));
   document.getElementById('reportsPdfBtn')?.addEventListener('click', () => generatePagePDF('reportsPage', 'reporte.pdf'));
-  document.getElementById('reportsPrintBtn')?.addEventListener('click', () => window.print());
+  document.getElementById('reportsPrintBtn')?.addEventListener('click', () => printPage('reportsPage'));
 
   showPage('dashboardPage');
 });

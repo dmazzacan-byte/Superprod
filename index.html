@@ -11,6 +11,36 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+    <style>
+      @media print {
+        /* Hide sidebar, modals, and other non-essential elements */
+        #sidebar, .modal, .modal-backdrop {
+          display: none !important;
+        }
+
+        /* By default, hide all pages from printing */
+        .page-content {
+          display: none !important;
+        }
+
+        /* Only show the page that has been explicitly marked for printing */
+        .page-content.printable-page {
+          display: block !important;
+        }
+
+        /* Inside the printable page, hide the header that contains the print/pdf buttons */
+        .printable-page .d-flex.justify-content-between.align-items-center {
+            display: none !important;
+        }
+
+        /* Ensure the main content area expands to fill the page */
+        #mainContent {
+          width: 100% !important;
+          margin: 0 !important;
+          padding: 1rem !important;
+        }
+      }
+    </style>
 </head>
 <body>
 <div class="container-fluid">
@@ -34,7 +64,10 @@
             <!-- Dashboard -->
             <div class="page-content" id="dashboardPage">
                 <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom">
-                    <h1 class="h2">Dashboard de Producción (Mes en Curso)</h1>
+                    <div>
+                        <h1 class="h2">Dashboard de Producción (Mes en Curso)</h1>
+                        <p class="text-muted mb-0">Fecha de generación: <span class="report-timestamp"></span></p>
+                    </div>
                     <div class="btn-toolbar mb-2 mb-md-0">
                         <button type="button" class="btn btn-sm btn-outline-secondary" id="dashboardPdfBtn"><i class="fas fa-file-pdf me-2"></i>Descargar PDF</button>
                         <button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="dashboardPrintBtn"><i class="fas fa-print me-2"></i>Imprimir</button>
@@ -117,7 +150,10 @@
             <!-- Reportes -->
             <div class="page-content" id="reportsPage" style="display: none;">
                 <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom">
-                    <h1 class="h2">Centro de Reportes</h1>
+                    <div>
+                        <h1 class="h2">Centro de Reportes</h1>
+                        <p class="text-muted mb-0">Fecha de generación: <span class="report-timestamp"></span></p>
+                    </div>
                     <div class="btn-toolbar mb-2 mb-md-0">
                         <button type="button" class="btn btn-sm btn-outline-secondary" id="reportsPdfBtn"><i class="fas fa-file-pdf me-2"></i>Descargar PDF</button>
                         <button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="reportsPrintBtn"><i class="fas fa-print me-2"></i>Imprimir</button>
