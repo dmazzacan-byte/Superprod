@@ -293,7 +293,7 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
 
   const qtyInput = document.createElement('input');
   qtyInput.type = 'number';
-  qtyInput.step = '0.01';
+  qtyInput.step = '0.001';
   qtyInput.className = 'form-control form-control-sm qty-input';
   qtyInput.placeholder = 'Cantidad';
   if (qty) qtyInput.value = qty;
