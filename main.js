@@ -175,6 +175,16 @@ function updateDashboard() {
   document.getElementById('totalCostCard').textContent = `$${realCost.toFixed(2)}`;
   document.getElementById('totalOvercostCard').textContent = `$${overCost.toFixed(2)}`;
 
+  const efficiencies = completedThisMonth
+    .map(o => o.efficiency)
+    .filter(e => typeof e === 'number');
+
+  const avgEfficiency = efficiencies.length > 0
+    ? efficiencies.reduce((a, b) => a + b, 0) / efficiencies.length
+    : 0;
+
+  document.getElementById('avgEfficiencyCard').textContent = `${avgEfficiency.toFixed(2)}%`;
+
   const operatorStats = {};
   completedThisMonth.forEach(o => {
     const opId = o.operator_id;
@@ -556,6 +566,7 @@ function showOrderDetails(oid) {
   statusBadge.className = `badge ${ord.status === 'Completada' ? 'bg-success' : 'bg-warning'}`;
   document.getElementById('detailQuantityPlanned').textContent = ord.quantity;
   document.getElementById('detailQuantityProduced').textContent = ord.quantity_produced ?? 'N/A';
+  document.getElementById('detailEfficiency').textContent = typeof ord.efficiency === 'number' ? `${ord.efficiency.toFixed(2)}%` : 'N/A';
   document.getElementById('detailCreatedDate').textContent = formatDate(ord.created_at);
   document.getElementById('detailCompletedDate').textContent = formatDate(ord.completed_at);
 
@@ -699,6 +710,7 @@ function completeOrder(oid, realQty) {
   });
 
   ord.quantity_produced = realQty;
+  ord.efficiency = (ord.quantity > 0) ? (realQty / ord.quantity) * 100 : 0;
   ord.status = 'Completada';
   ord.completed_at = new Date().toISOString().slice(0, 10);
 
@@ -1107,6 +1119,7 @@ function generateDetailedOrdersReport(orders) {
                 <td>${operator ? operator.name : 'N/A'}</td>
                 <td>${o.quantity}</td>
                 <td>${o.quantity_produced || 'N/A'}</td>
+                <td>${typeof o.efficiency === 'number' ? o.efficiency.toFixed(2) + '%' : 'N/A'}</td>
                 <td>$${(o.cost_real || 0).toFixed(2)}</td>
                 <td class="${overcostColor}">$${(o.overcost || 0).toFixed(2)}</td>
                 <td><span class="badge bg-success">${o.status}</span></td>
