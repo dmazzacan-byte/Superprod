@@ -141,6 +141,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('reportsPdfBtn')?.addEventListener('click', () => generatePagePDF('reportsPage', 'reporte.pdf'));
   document.getElementById('reportsPrintBtn')?.addEventListener('click', () => printPage('reportsPage'));
 
+  document.getElementById('toggleOrderSortBtn')?.addEventListener('click', () => {
+    orderSortDirection = orderSortDirection === 'asc' ? 'desc' : 'asc';
+    const icon = document.querySelector('#toggleOrderSortBtn i');
+    icon.className = orderSortDirection === 'asc' ? 'fas fa-sort-amount-up-alt' : 'fas fa-sort-amount-down-alt';
+    loadProductionOrders(document.getElementById('searchOrder').value);
+  });
+
   showPage('dashboardPage');
 });
 
@@ -465,6 +472,7 @@ const productionOrderModal = new bootstrap.Modal(document.getElementById('produc
 const orderDetailsModal    = new bootstrap.Modal(document.getElementById('orderDetailsModal'));
 const valeModal            = new bootstrap.Modal(document.getElementById('valeModal'));
 const confirmCloseOrderModal = new bootstrap.Modal(document.getElementById('confirmCloseOrderModal'));
+let orderSortDirection = 'desc'; // 'asc' or 'desc'
 
 function populateOrderFormSelects() {
   const psel = document.getElementById('orderProductSelect'); psel.innerHTML = '<option disabled selected>Selecciona...</option>';
@@ -476,7 +484,13 @@ function populateOrderFormSelects() {
 }
 function loadProductionOrders(filter = '') {
   const tbody = document.getElementById('productionOrdersTableBody'); tbody.innerHTML = '';
-  productionOrders
+
+  const sortedOrders = [...productionOrders].sort((a, b) => {
+    if (orderSortDirection === 'asc') return a.order_id - b.order_id;
+    return b.order_id - a.order_id;
+  });
+
+  sortedOrders
     .filter(o => !filter || o.order_id.toString().includes(filter) || (o.product_name || '').toLowerCase().includes(filter.toLowerCase()))
     .forEach(o => {
       const oc = o.overcost || 0;
@@ -535,6 +549,8 @@ function showOrderDetails(oid) {
   document.getElementById('detailProductName').textContent = ord.product_name;
   const operator = operators.find(op => op.id === ord.operator_id);
   document.getElementById('detailOperatorName').textContent = operator ? operator.name : 'N/A';
+  const equipo = equipos.find(eq => eq.id === ord.equipo_id);
+  document.getElementById('detailEquipoName').textContent = equipo ? equipo.name : 'N/A';
   const statusBadge = document.getElementById('detailStatus');
   statusBadge.textContent = ord.status;
   statusBadge.className = `badge ${ord.status === 'Completada' ? 'bg-success' : 'bg-warning'}`;
@@ -765,6 +781,8 @@ async function generateOrderPDF(oid) {
     doc.text(`Producto: ${ord.product_name}`, 15, startY);
     startY += lineHeight;
     doc.text(`Operador: ${operators.find(op => op.id === ord.operator_id)?.name || 'N/A'}`, 15, startY);
+    startY += lineHeight;
+    doc.text(`Equipo: ${equipos.find(eq => eq.id === ord.equipo_id)?.name || 'N/A'}`, 15, startY);
     startY += lineHeight;
     doc.text(`Cantidad Planificada: ${ord.quantity}`, 15, startY);
     startY += lineHeight;
@@ -1008,6 +1026,12 @@ function populateReportFilters() {
     operatorFilter.innerHTML = '<option value="all">Todos</option>';
     operators.forEach(o => {
         operatorFilter.add(new Option(o.name, o.id));
+    });
+
+    const equipoFilter = document.getElementById('equipoFilter');
+    equipoFilter.innerHTML = '<option value="all">Todos</option>';
+    equipos.forEach(e => {
+        equipoFilter.add(new Option(e.name, e.id));
     });
 }
 
