@@ -206,12 +206,20 @@ function updateDashboard() {
 
   const equipoStats = {};
   completedThisMonth.forEach(o => {
-    const eqId = o.equipo_id;
+    const eqId = o.equipo_id || 'unassigned'; // Default to a key for unassigned
+    const equipo = equipos.find(eq => eq.id === eqId);
+    const name = equipo ? equipo.name : (eqId === 'unassigned' ? 'No Asignado' : eqId);
+
     if (!equipoStats[eqId]) {
-      equipoStats[eqId] = { name: equipos.find(eq => eq.id === eqId)?.name || eqId, production: 0 };
+      equipoStats[eqId] = { name: name, production: 0 };
     }
     equipoStats[eqId].production += o.quantity_produced || 0;
   });
+
+  // Remove the unassigned category if it's empty and there are other teams
+  if (equipoStats.unassigned && equipoStats.unassigned.production === 0 && Object.keys(equipoStats).length > 1) {
+    delete equipoStats.unassigned;
+  }
 
   const sortedByEquipoProduction = Object.values(equipoStats).sort((a, b) => b.production - a.production);
   const equipoRankBody = document.getElementById('equipoProductionRankBody');
@@ -288,7 +296,7 @@ document.getElementById('materialForm').addEventListener('submit', e => {
     materials[idx].existencia = exist;
     materials[idx].costo = cost;
   }
-  saveToLocalStorage(); loadMaterials(); materialModal.hide();
+  saveToLocalStorage(); loadMaterials(); materialModal.hide(); updateDashboard();
 });
 document.getElementById('materialsTableBody').addEventListener('click', e => {
   const btn = e.target.closest('button'); if (!btn) return;
@@ -435,7 +443,7 @@ document.getElementById('addRecipeForm').addEventListener('submit', e => {
     .filter(i => i.code && !isNaN(i.quantity));
   if (!items.length) { Toastify({ text: 'Agrega al menos un ingrediente' }).showToast(); return; }
   recipes[pid] = items;
-  saveToLocalStorage(); loadRecipes(); addRecipeModal.hide();
+  saveToLocalStorage(); loadRecipes(); addRecipeModal.hide(); updateDashboard();
 });
 document.getElementById('editRecipeForm').addEventListener('submit', e => {
   e.preventDefault();
@@ -449,12 +457,12 @@ document.getElementById('editRecipeForm').addEventListener('submit', e => {
     .filter(i => i.code && !isNaN(i.quantity));
   if (!items.length) { Toastify({ text: 'Agrega al menos un ingrediente' }).showToast(); return; }
   recipes[pid] = items;
-  saveToLocalStorage(); loadRecipes(); editRecipeModal.hide();
+  saveToLocalStorage(); loadRecipes(); editRecipeModal.hide(); updateDashboard();
 });
 document.getElementById('recipesTableBody').addEventListener('click', e => {
   const btn = e.target.closest('button'); if (!btn) return;
   const pid = btn.dataset.productId;
-  if (btn.classList.contains('delete-btn')) { delete recipes[pid]; saveToLocalStorage(); loadRecipes(); }
+  if (btn.classList.contains('delete-btn')) { delete recipes[pid]; saveToLocalStorage(); loadRecipes(); updateDashboard(); }
   if (btn.classList.contains('edit-btn')) {
     try {
         const prod = products.find(p => p.codigo === pid);
@@ -692,7 +700,7 @@ document.getElementById('confirmCloseOrderForm').addEventListener('submit', e =>
   const oid = parseInt(document.getElementById('closeHiddenOrderId').value);
   const realQty = parseFloat(document.getElementById('realQuantityInput').value);
   completeOrder(oid, realQty);
-  bootstrap.Modal.getInstance(document.getElementById('confirmCloseOrderModal')).hide();
+  confirmCloseOrderModal.hide();
 });
 function completeOrder(oid, realQty) {
   const idx = productionOrders.findIndex(o => o.order_id === oid);
@@ -743,7 +751,7 @@ function reopenOrder(oid) {
       if (mIdx !== -1) materials[mIdx].existencia += (v.type === 'salida' ? 1 : -1) * m.quantity;
     });
   });
-  ord.status = 'Pendiente'; ord.completed_at = null; ord.quantity_produced = null; ord.cost_real = null; ord.overcost = null;
+  ord.status = 'Pendiente'; ord.completed_at = null; ord.quantity_produced = null; ord.cost_real = null; ord.overcost = 0; ord.cost_extra = 0;
   saveToLocalStorage(); loadProductionOrders(); loadMaterials(); updateDashboard();
 }
 async function generateOrderPDF(oid) {
@@ -1014,6 +1022,7 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
   const cost = mats.reduce((a, m) => a + m.quantity * materials.find(ma => ma.codigo === m.material_code).costo, 0) * (type === 'salida' ? 1 : -1);
   const orderIdx = productionOrders.findIndex(o => o.order_id === oid);
   productionOrders[orderIdx].cost_extra += cost;
+  productionOrders[orderIdx].overcost = productionOrders[orderIdx].cost_extra;
   const lastVale = vales.filter(v => v.order_id === oid).pop();
   const seq = lastVale ? parseInt(lastVale.vale_id.split('-')[1]) + 1 : 1;
   const valeId = `${oid}-${seq}`;
@@ -1023,7 +1032,8 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
   saveToLocalStorage();
   loadProductionOrders();
   loadMaterials();
-  bootstrap.Modal.getInstance(document.getElementById('valeModal')).hide();
+  updateDashboard();
+  valeModal.hide();
 });
 
 /* ----------  REPORTES  ---------- */
