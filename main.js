@@ -309,7 +309,7 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
 
   const qtyInput = document.createElement('input');
   qtyInput.type = 'number';
-  qtyInput.step = '0.01';
+  qtyInput.step = '0.001';
   qtyInput.className = 'form-control form-control-sm qty-input';
   qtyInput.placeholder = 'Cantidad';
   if (qty) qtyInput.value = qty;
@@ -526,17 +526,33 @@ function showOrderDetails(oid) {
   const recipeItems = recipes[ord.product_code] || [];
 
   recipeItems.forEach(recipeMat => {
-    const m = materials.find(m => m.codigo === recipeMat.code);
-    if (m) {
-      const plannedQty = recipeMat.quantity * ord.quantity;
-      materialsSummary[recipeMat.code] = {
-        descripcion: m.descripcion,
-        costo_unit: m.costo,
-        qty_plan: plannedQty,
-        qty_real: ord.status === 'Completada' ? (recipeMat.quantity * (ord.quantity_produced || 0)) : 0,
-        cost_plan: plannedQty * m.costo,
-      };
+    let itemInfo = {
+        descripcion: 'N/A',
+        costo_unit: 0
+    };
+
+    if (recipeMat.type === 'product') {
+        const p = products.find(prod => prod.codigo === recipeMat.code);
+        if (p) {
+            itemInfo.descripcion = p.descripcion;
+        }
+        itemInfo.costo_unit = calculateRecipeCost(recipes[recipeMat.code] || []);
+    } else { // 'material'
+        const m = materials.find(mat => mat.codigo === recipeMat.code);
+        if (m) {
+            itemInfo.descripcion = m.descripcion;
+            itemInfo.costo_unit = m.costo;
+        }
     }
+
+    const plannedQty = recipeMat.quantity * ord.quantity;
+    materialsSummary[recipeMat.code] = {
+      descripcion: itemInfo.descripcion,
+      costo_unit: itemInfo.costo_unit,
+      qty_plan: plannedQty,
+      qty_real: ord.status === 'Completada' ? (recipeMat.quantity * (ord.quantity_produced || 0)) : 0,
+      cost_plan: plannedQty * itemInfo.costo_unit,
+    };
   });
 
   if (ord.status === 'Completada') {
@@ -727,10 +743,22 @@ async function generateOrderPDF(oid) {
     doc.text(`Sobrecosto: $${(ord.overcost || 0).toFixed(2)}`, 15, startY);
 
     const bodyRows = ord.materials_used.map(u => {
-      const m = materials.find(ma => ma.codigo === u.material_code);
-      return [m ? m.descripcion : u.material_code, u.quantity.toFixed(2), (u.quantity * (m ? m.costo : 0)).toFixed(2)];
+      let desc = u.material_code;
+      let cost = 0;
+      if (u.type === 'product') {
+          const p = products.find(prod => prod.codigo === u.material_code);
+          if (p) desc = p.descripcion;
+          cost = calculateRecipeCost(recipes[u.material_code] || []);
+      } else {
+          const m = materials.find(mat => mat.codigo === u.material_code);
+          if (m) {
+              desc = m.descripcion;
+              cost = m.costo;
+          }
+      }
+      return [desc, u.quantity.toFixed(2), (u.quantity * cost).toFixed(2)];
     });
-    doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: startY + 5 });
+    doc.autoTable({ head: [['Material', 'Cantidad Plan.', 'Costo Plan.']], body: bodyRows, startY: startY + 5 });
 
     const pageHeight = doc.internal.pageSize.getHeight();
     const bottomMargin = 20;
