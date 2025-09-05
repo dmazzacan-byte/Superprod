@@ -244,6 +244,7 @@ function loadRecipes() {
     const cost = calculateRecipeCost(recipes[pid]);
     tbody.insertAdjacentHTML('beforeend', `
       <tr>
+        <td>${prod.codigo}</td>
         <td>${prod.descripcion}</td>
         <td>${recipes[pid].length}</td>
         <td>$${cost.toFixed(2)}</td>
@@ -1166,8 +1167,7 @@ document.getElementById('recipeFile').addEventListener('change', e => {
     json.forEach(r => {
       const prod = r.producto || r.Producto;
       if (!recipes[prod]) recipes[prod] = [];
-      let tipo = (String(r.tipo || r.Tipo || 'material')).trim().toLowerCase();
-      if (tipo === 'producto') tipo = 'product';
+      const tipo = (r.tipo || r.Tipo || 'material').toLowerCase();
       recipes[prod].push({ type: tipo, code: r.codigo || r.Código, quantity: parseFloat(r.cantidad || r.Cantidad) });
     });
     saveToLocalStorage(); loadRecipes(); populateRecipeProductSelect();
