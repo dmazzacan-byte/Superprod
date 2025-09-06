@@ -9,6 +9,7 @@ let products   = JSON.parse(localStorage.getItem('products'))   || [];
 let recipes    = JSON.parse(localStorage.getItem('recipes'))    || {};
 let productionOrders = JSON.parse(localStorage.getItem('productionOrders')) || [];
 let operators  = JSON.parse(localStorage.getItem('operators'))  || [];
+let equipos    = JSON.parse(localStorage.getItem('equipos'))    || [];
 let materials  = JSON.parse(localStorage.getItem('materials'))  || [];
 let vales      = JSON.parse(localStorage.getItem('vales'))      || [];
 
@@ -25,6 +26,28 @@ function formatDate(isoDate) {
   if (parts.length !== 3) return isoDate;
   const [year, month, day] = parts;
   return `${day}-${month}-${year}`;
+}
+
+function updateTimestamps() {
+  const now = new Date();
+  const options = { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' };
+  const formattedDate = now.toLocaleString('es-ES', options);
+  document.querySelectorAll('.report-timestamp').forEach(span => {
+    span.textContent = formattedDate;
+  });
+}
+
+function printPage(pageId) {
+    const page = document.getElementById(pageId);
+    if (!page) return;
+
+    window.onafterprint = () => {
+        page.classList.remove('printable-page');
+        window.onafterprint = null; // Clean up handler
+    };
+    
+    page.classList.add('printable-page');
+    window.print();
 }
 
 function generatePagePDF(elementId, filename) {
@@ -73,6 +96,7 @@ function saveToLocalStorage() {
   localStorage.setItem('recipes', JSON.stringify(recipes));
   localStorage.setItem('productionOrders', JSON.stringify(productionOrders));
   localStorage.setItem('operators', JSON.stringify(operators));
+  localStorage.setItem('equipos', JSON.stringify(equipos));
   localStorage.setItem('materials', JSON.stringify(materials));
   localStorage.setItem('vales', JSON.stringify(vales));
 }
@@ -87,22 +111,43 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById(pageId).style.display = 'block';
     navLinks.forEach(l => l.classList.remove('active'));
     document.querySelector(`[data-page="${pageId}"]`).classList.add('active');
-    if (pageId === 'dashboardPage') updateDashboard();
-    else if (pageId === 'productsPage') loadProducts();
-    else if (pageId === 'materialsPage') loadMaterials();
-    else if (pageId === 'recipesPage') { loadRecipes(); populateRecipeProductSelect(); }
-    else if (pageId === 'productionOrdersPage') { loadProductionOrders(); populateOrderFormSelects(); }
-    else if (pageId === 'reportsPage') loadReports();
-    else if (pageId === 'settingsPage') { loadOperators(); loadLogo(); }
+    if (pageId === 'dashboardPage') {
+        updateDashboard();
+        updateTimestamps();
+    } else if (pageId === 'productsPage') {
+        loadProducts();
+    } else if (pageId === 'materialsPage') {
+        loadMaterials();
+    } else if (pageId === 'recipesPage') {
+        loadRecipes();
+        populateRecipeProductSelect();
+    } else if (pageId === 'productionOrdersPage') {
+        loadProductionOrders();
+        populateOrderFormSelects();
+    } else if (pageId === 'reportsPage') {
+        loadReports();
+        updateTimestamps();
+    } else if (pageId === 'settingsPage') {
+        loadOperators();
+        loadEquipos();
+        loadLogo();
+    }
   }
   navLinks.forEach(l => l.addEventListener('click', e => { e.preventDefault(); showPage(l.dataset.page); }));
   
   // PDF and Print Buttons
   document.getElementById('dashboardPdfBtn')?.addEventListener('click', () => generatePagePDF('dashboardPage', 'dashboard.pdf'));
-  document.getElementById('dashboardPrintBtn')?.addEventListener('click', () => window.print());
+  document.getElementById('dashboardPrintBtn')?.addEventListener('click', () => printPage('dashboardPage'));
   document.getElementById('reportsPdfBtn')?.addEventListener('click', () => generatePagePDF('reportsPage', 'reporte.pdf'));
-  document.getElementById('reportsPrintBtn')?.addEventListener('click', () => window.print());
+  document.getElementById('reportsPrintBtn')?.addEventListener('click', () => printPage('reportsPage'));
   
+  document.getElementById('toggleOrderSortBtn')?.addEventListener('click', () => {
+    orderSortDirection = orderSortDirection === 'asc' ? 'desc' : 'asc';
+    const icon = document.querySelector('#toggleOrderSortBtn i');
+    icon.className = orderSortDirection === 'asc' ? 'fas fa-sort-amount-up-alt' : 'fas fa-sort-amount-down-alt';
+    loadProductionOrders(document.getElementById('searchOrder').value);
+  });
+
   showPage('dashboardPage');
 });
 
@@ -148,6 +193,19 @@ function updateDashboard() {
 
   const overcostRankBody = document.getElementById('operatorOvercostRankBody');
   overcostRankBody.innerHTML = sortedByOvercost.map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>$${op.overcost.toFixed(2)}</td></tr>`).join('');
+
+  const equipoStats = {};
+  completedThisMonth.forEach(o => {
+    const eqId = o.equipo_id;
+    if (!equipoStats[eqId]) {
+      equipoStats[eqId] = { name: equipos.find(eq => eq.id === eqId)?.name || eqId, production: 0 };
+    }
+    equipoStats[eqId].production += o.quantity_produced || 0;
+  });
+
+  const sortedByEquipoProduction = Object.values(equipoStats).sort((a, b) => b.production - a.production);
+  const equipoRankBody = document.getElementById('equipoProductionRankBody');
+  equipoRankBody.innerHTML = sortedByEquipoProduction.map((eq, i) => `<tr><td>${i + 1}</td><td>${eq.name}</td><td>${eq.production}</td></tr>`).join('');
 
   const usedMaterials = new Set();
   Object.values(recipes).flat().forEach(r => usedMaterials.add(r.code));
@@ -244,6 +302,7 @@ function loadRecipes() {
     const cost = calculateRecipeCost(recipes[pid]);
     tbody.insertAdjacentHTML('beforeend', `
       <tr>
+        <td>${prod.codigo}</td>
         <td>${prod.descripcion}</td>
         <td>${recipes[pid].length}</td>
         <td>$${cost.toFixed(2)}</td>
@@ -293,7 +352,7 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
 
   const qtyInput = document.createElement('input');
   qtyInput.type = 'number';
-  qtyInput.step = '0.01';
+  qtyInput.step = '0.001';
   qtyInput.className = 'form-control form-control-sm qty-input';
   qtyInput.placeholder = 'Cantidad';
   if (qty) qtyInput.value = qty;
@@ -413,16 +472,25 @@ const productionOrderModal = new bootstrap.Modal(document.getElementById('produc
 const orderDetailsModal    = new bootstrap.Modal(document.getElementById('orderDetailsModal'));
 const valeModal            = new bootstrap.Modal(document.getElementById('valeModal'));
 const confirmCloseOrderModal = new bootstrap.Modal(document.getElementById('confirmCloseOrderModal'));
+let orderSortDirection = 'desc'; // 'asc' or 'desc'
 
 function populateOrderFormSelects() {
   const psel = document.getElementById('orderProductSelect'); psel.innerHTML = '<option disabled selected>Selecciona...</option>';
-  products.forEach(p => psel.add(new Option(p.descripcion, p.codigo)));
+  products.forEach(p => psel.add(new Option(`${p.codigo} - ${p.descripcion}`, p.codigo)));
   const osel = document.getElementById('orderOperatorSelect'); osel.innerHTML = '<option disabled selected>Selecciona...</option>';
   operators.forEach(o => osel.add(new Option(o.name, o.id)));
+  const esel = document.getElementById('orderEquipoSelect'); esel.innerHTML = '<option disabled selected>Selecciona...</option>';
+  equipos.forEach(e => esel.add(new Option(e.name, e.id)));
 }
 function loadProductionOrders(filter = '') {
   const tbody = document.getElementById('productionOrdersTableBody'); tbody.innerHTML = '';
-  productionOrders
+  
+  const sortedOrders = [...productionOrders].sort((a, b) => {
+    if (orderSortDirection === 'asc') return a.order_id - b.order_id;
+    return b.order_id - a.order_id;
+  });
+
+  sortedOrders
     .filter(o => !filter || o.order_id.toString().includes(filter) || (o.product_name || '').toLowerCase().includes(filter.toLowerCase()))
     .forEach(o => {
       const oc = o.overcost || 0;
@@ -481,6 +549,8 @@ function showOrderDetails(oid) {
   document.getElementById('detailProductName').textContent = ord.product_name;
   const operator = operators.find(op => op.id === ord.operator_id);
   document.getElementById('detailOperatorName').textContent = operator ? operator.name : 'N/A';
+  const equipo = equipos.find(eq => eq.id === ord.equipo_id);
+  document.getElementById('detailEquipoName').textContent = equipo ? equipo.name : 'N/A';
   const statusBadge = document.getElementById('detailStatus');
   statusBadge.textContent = ord.status;
   statusBadge.className = `badge ${ord.status === 'Completada' ? 'bg-success' : 'bg-warning'}`;
@@ -508,17 +578,33 @@ function showOrderDetails(oid) {
   const recipeItems = recipes[ord.product_code] || [];
   
   recipeItems.forEach(recipeMat => {
-    const m = materials.find(m => m.codigo === recipeMat.code);
-    if (m) {
-      const plannedQty = recipeMat.quantity * ord.quantity;
-      materialsSummary[recipeMat.code] = {
-        descripcion: m.descripcion,
-        costo_unit: m.costo,
-        qty_plan: plannedQty,
-        qty_real: ord.status === 'Completada' ? (recipeMat.quantity * (ord.quantity_produced || 0)) : 0,
-        cost_plan: plannedQty * m.costo,
-      };
+    let itemInfo = {
+        descripcion: 'N/A',
+        costo_unit: 0
+    };
+
+    if (recipeMat.type === 'product') {
+        const p = products.find(prod => prod.codigo === recipeMat.code);
+        if (p) {
+            itemInfo.descripcion = p.descripcion;
+        }
+        itemInfo.costo_unit = calculateRecipeCost(recipes[recipeMat.code] || []);
+    } else { // 'material'
+        const m = materials.find(mat => mat.codigo === recipeMat.code);
+        if (m) {
+            itemInfo.descripcion = m.descripcion;
+            itemInfo.costo_unit = m.costo;
+        }
     }
+
+    const plannedQty = recipeMat.quantity * ord.quantity;
+    materialsSummary[recipeMat.code] = {
+      descripcion: itemInfo.descripcion,
+      costo_unit: itemInfo.costo_unit,
+      qty_plan: plannedQty,
+      qty_real: ord.status === 'Completada' ? (recipeMat.quantity * (ord.quantity_produced || 0)) : 0,
+      cost_plan: plannedQty * itemInfo.costo_unit,
+    };
   });
 
   if (ord.status === 'Completada') {
@@ -565,7 +651,8 @@ document.getElementById('productionOrderForm').addEventListener('submit', e => {
   const pCode = document.getElementById('orderProductSelect').value;
   const qty   = parseInt(document.getElementById('orderQuantity').value);
   const opId  = document.getElementById('orderOperatorSelect').value;
-  if (!pCode || !opId) { Toastify({ text: 'Completa producto y operador' }).showToast(); return; }
+  const eqId  = document.getElementById('orderEquipoSelect').value;
+  if (!pCode || !opId || !eqId) { Toastify({ text: 'Completa producto, operador y equipo' }).showToast(); return; }
   const prod = products.find(p => p.codigo === pCode);
   if (!recipes[pCode]) { Toastify({ text: `Sin receta para ${prod.descripcion}` }).showToast(); return; }
   const stdCost = calculateRecipeCost(recipes[pCode]) * qty;
@@ -576,6 +663,7 @@ document.getElementById('productionOrderForm').addEventListener('submit', e => {
     quantity: qty,
     quantity_produced: null,
     operator_id: opId,
+    equipo_id: eqId,
     cost_standard_unit: calculateRecipeCost(recipes[pCode]),
     cost_standard: stdCost,
     cost_extra: 0,
@@ -694,6 +782,8 @@ async function generateOrderPDF(oid) {
     startY += lineHeight;
     doc.text(`Operador: ${operators.find(op => op.id === ord.operator_id)?.name || 'N/A'}`, 15, startY);
     startY += lineHeight;
+    doc.text(`Equipo: ${equipos.find(eq => eq.id === ord.equipo_id)?.name || 'N/A'}`, 15, startY);
+    startY += lineHeight;
     doc.text(`Cantidad Planificada: ${ord.quantity}`, 15, startY);
     startY += lineHeight;
     doc.text(`Cantidad Real Producida: ${ord.quantity_produced || 'N/A'}`, 15, startY);
@@ -707,10 +797,22 @@ async function generateOrderPDF(oid) {
     doc.text(`Sobrecosto: $${(ord.overcost || 0).toFixed(2)}`, 15, startY);
 
     const bodyRows = ord.materials_used.map(u => {
-      const m = materials.find(ma => ma.codigo === u.material_code);
-      return [m ? m.descripcion : u.material_code, u.quantity.toFixed(2), (u.quantity * (m ? m.costo : 0)).toFixed(2)];
+      let desc = u.material_code;
+      let cost = 0;
+      if (u.type === 'product') {
+          const p = products.find(prod => prod.codigo === u.material_code);
+          if (p) desc = p.descripcion;
+          cost = calculateRecipeCost(recipes[u.material_code] || []);
+      } else {
+          const m = materials.find(mat => mat.codigo === u.material_code);
+          if (m) {
+              desc = m.descripcion;
+              cost = m.costo;
+          }
+      }
+      return [desc, u.quantity.toFixed(2), (u.quantity * cost).toFixed(2)];
     });
-    doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: startY + 5 });
+    doc.autoTable({ head: [['Material', 'Cantidad Plan.', 'Costo Plan.']], body: bodyRows, startY: startY + 5 });
     
     const pageHeight = doc.internal.pageSize.getHeight();
     const bottomMargin = 20;
@@ -925,6 +1027,12 @@ function populateReportFilters() {
     operators.forEach(o => {
         operatorFilter.add(new Option(o.name, o.id));
     });
+
+    const equipoFilter = document.getElementById('equipoFilter');
+    equipoFilter.innerHTML = '<option value="all">Todos</option>';
+    equipos.forEach(e => {
+        equipoFilter.add(new Option(e.name, e.id));
+    });
 }
 
 function loadReports() {
@@ -938,6 +1046,7 @@ function generateAllReports() {
   const end = document.getElementById('endDateFilter').value;
   const productId = document.getElementById('productFilter').value;
   const operatorId = document.getElementById('operatorFilter').value;
+  const equipoId = document.getElementById('equipoFilter').value;
 
   const filteredOrders = productionOrders.filter(o => {
     // Status filter (currently only completed orders are considered for reports)
@@ -954,6 +1063,9 @@ function generateAllReports() {
 
     // Operator filter
     if (operatorId !== 'all' && o.operator_id !== operatorId) return false;
+
+    // Equipo filter
+    if (equipoId !== 'all' && o.equipo_id !== equipoId) return false;
 
     return true;
   });
@@ -1092,6 +1204,47 @@ document.getElementById('operatorModal').addEventListener('hidden.bs.modal', () 
   document.getElementById('operatorForm').reset();
   document.getElementById('operatorId').disabled = false;
   document.getElementById('operatorModalLabel').textContent = 'Añadir Operador';
+});
+
+let isEditingEquipo = false, currentEquipoId = null;
+const equipoModal = new bootstrap.Modal(document.getElementById('equipoModal'));
+function loadEquipos() {
+  const list = document.getElementById('equiposList'); list.innerHTML = '';
+  equipos.forEach(eq => list.insertAdjacentHTML('beforeend', `<li class="list-group-item d-flex justify-content-between align-items-center"><span><strong>ID:</strong> ${eq.id} - ${eq.name}</span><div><button class="btn btn-sm btn-warning edit-equipo-btn me-2" data-id="${eq.id}"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-equipo-btn" data-id="${eq.id}"><i class="fas fa-trash"></i></button></div></li>`));
+}
+document.getElementById('equipoForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const id   = document.getElementById('equipoId').value.trim();
+  const name = document.getElementById('equipoName').value.trim();
+  if (!id || !name) return;
+  if (isEditingEquipo) {
+    const idx = equipos.findIndex(eq => eq.id === currentEquipoId);
+    equipos[idx] = { id, name };
+  } else {
+    if (equipos.some(eq => eq.id === id)) { Toastify({ text: 'ID duplicado', backgroundColor: 'var(--danger-color)' }).showToast(); return; }
+    equipos.push({ id, name });
+  }
+  saveToLocalStorage(); loadEquipos(); populateOrderFormSelects(); equipoModal.hide();
+});
+document.getElementById('equiposList').addEventListener('click', e => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    const id = btn.dataset.id;
+    if (btn.classList.contains('delete-equipo-btn')) { equipos = equipos.filter(eq => eq.id !== id); saveToLocalStorage(); loadEquipos(); populateOrderFormSelects(); }
+    if (btn.classList.contains('edit-equipo-btn')) {
+        isEditingEquipo = true; currentEquipoId = id;
+        const eq = equipos.find(eq => eq.id === id);
+        document.getElementById('equipoId').value = eq.id;
+        document.getElementById('equipoName').value = eq.name;
+        document.getElementById('equipoId').disabled = true;
+        document.getElementById('equipoModalLabel').textContent = 'Editar Equipo';
+        equipoModal.show();
+    }
+});
+document.getElementById('equipoModal').addEventListener('hidden.bs.modal', () => {
+    isEditingEquipo = false;
+    document.getElementById('equipoForm').reset();
+    document.getElementById('equipoId').disabled = false;
+    document.getElementById('equipoModalLabel').textContent = 'Añadir Equipo';
 });
 
 /* ----------  LOGO  ---------- */
