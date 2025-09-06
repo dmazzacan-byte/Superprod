@@ -148,6 +148,37 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProductionOrders(document.getElementById('searchOrder').value);
   });
 
+  // Event Delegation for Production Orders Table
+  document.getElementById('productionOrdersTableBody').addEventListener('click', async e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+
+    const oid = parseInt(btn.dataset.orderId);
+    if (isNaN(oid)) return;
+
+    if (btn.classList.contains('view-details-btn')) {
+      showOrderDetails(oid);
+    } else if (btn.classList.contains('pdf-btn')) {
+      await generateOrderPDF(oid);
+    } else if (btn.classList.contains('delete-order-btn')) {
+      if (confirm(`¿Está seguro que desea eliminar la orden de producción ${oid}?`)) {
+        productionOrders = productionOrders.filter(o => o.order_id !== oid);
+        saveToLocalStorage();
+        loadProductionOrders();
+        updateDashboard();
+      }
+    } else if (btn.classList.contains('complete-order-btn')) {
+      const ord = productionOrders.find(o => o.order_id === oid);
+      if (ord) {
+        document.getElementById('closeHiddenOrderId').value = oid;
+        document.getElementById('realQuantityInput').value = ord.quantity;
+        confirmCloseOrderModal.show();
+      }
+    } else if (btn.classList.contains('reopen-order-btn')) {
+      reopenOrder(oid);
+    }
+  });
+
   showPage('dashboardPage');
 });
 
@@ -534,27 +565,6 @@ function loadProductionOrders(filter = '') {
         </tr>`);
     });
 
-  tbody.addEventListener('click', async e => {
-    const btn = e.target.closest('button'); if (!btn) return;
-    const oid = parseInt(btn.dataset.orderId);
-    if (btn.classList.contains('view-details-btn')) {
-      showOrderDetails(oid);
-    } else if (btn.classList.contains('pdf-btn')) {
-      await generateOrderPDF(oid);
-    } else if (btn.classList.contains('delete-order-btn')) {
-      if (confirm(`¿Eliminar orden ${oid}?`)) {
-        productionOrders = productionOrders.filter(o => o.order_id !== oid);
-        saveToLocalStorage(); loadProductionOrders(); updateDashboard();
-      }
-    } else if (btn.classList.contains('complete-order-btn')) {
-      const ord = productionOrders.find(o => o.order_id === oid);
-      document.getElementById('closeHiddenOrderId').value = oid;
-      document.getElementById('realQuantityInput').value = ord.quantity;
-      confirmCloseOrderModal.show();
-    } else if (btn.classList.contains('reopen-order-btn')) {
-      reopenOrder(oid);
-    }
-  });
 }
 
 function showOrderDetails(oid) {
@@ -579,12 +589,12 @@ function showOrderDetails(oid) {
   document.getElementById('detailCreatedDate').textContent = formatDate(ord.created_at);
   document.getElementById('detailCompletedDate').textContent = formatDate(ord.completed_at);
 
-  const realQty = ord.quantity_produced || 0;
-  const standardCost = (ord.cost_standard_unit || 0) * realQty;
+  const plannedCost = ord.cost_standard || 0;
   const extraCost = ord.cost_extra || 0;
-  const realTotalCost = standardCost + extraCost;
+  const realTotalCost = (ord.cost_real === null) ? 'N/A' : `$${ord.cost_real.toFixed(2)}`;
 
-  document.getElementById('detailStandardCost').textContent = `$${standardCost.toFixed(2)}`;
+
+  document.getElementById('detailStandardCost').textContent = `$${plannedCost.toFixed(2)}`;
   document.getElementById('detailExtraCost').textContent = `$${extraCost.toFixed(2)}`;
   document.getElementById('detailRealCost').textContent = ord.status === 'Completada' ? `$${realTotalCost.toFixed(2)}` : 'N/A';
 
@@ -752,8 +762,17 @@ function reopenOrder(oid) {
       if (mIdx !== -1) materials[mIdx].existencia += (v.type === 'salida' ? 1 : -1) * m.quantity;
     });
   });
-  ord.status = 'Pendiente'; ord.completed_at = null; ord.quantity_produced = null; ord.cost_real = null; ord.overcost = 0; ord.cost_extra = 0;
-  saveToLocalStorage(); loadProductionOrders(); loadMaterials(); updateDashboard();
+  ord.status = 'Pendiente';
+  ord.completed_at = null;
+  ord.quantity_produced = null;
+  ord.cost_real = null;
+  // Mantener ord.cost_extra y recalcular sobrecosto como el costo extra actual
+  ord.overcost = ord.cost_extra;
+
+  saveToLocalStorage();
+  loadProductionOrders();
+  loadMaterials();
+  updateDashboard();
 }
 async function generateOrderPDF(oid) {
   try {
