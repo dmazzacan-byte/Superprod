@@ -206,14 +206,15 @@ function updateDashboard() {
 
   const equipoStats = {};
   completedThisMonth.forEach(o => {
-    const eqId = o.equipo_id || 'unassigned'; // Default to a key for unassigned
-    const equipo = equipos.find(eq => eq.id === eqId);
-    const name = equipo ? equipo.name : (eqId === 'unassigned' ? 'No Asignado' : eqId);
+    const eqId = o.equipo_id;
+    const equipo = equipos.find(eq => eq.id == eqId);
+    const name = equipo ? equipo.name : (eqId ? `ID Desconocido (${eqId})` : 'No Asignado');
+    const statId = eqId || 'unassigned';
 
-    if (!equipoStats[eqId]) {
-      equipoStats[eqId] = { name: name, production: 0 };
+    if (!equipoStats[statId]) {
+      equipoStats[statId] = { name: name, production: 0 };
     }
-    equipoStats[eqId].production += o.quantity_produced || 0;
+    equipoStats[statId].production += o.quantity_produced || 0;
   });
 
   // Remove the unassigned category if it's empty and there are other teams
@@ -495,9 +496,9 @@ let orderSortDirection = 'desc'; // 'asc' or 'desc'
 function populateOrderFormSelects() {
   const psel = document.getElementById('orderProductSelect'); psel.innerHTML = '<option disabled selected>Selecciona...</option>';
   products.forEach(p => psel.add(new Option(`${p.codigo} - ${p.descripcion}`, p.codigo)));
-  const osel = document.getElementById('orderOperatorSelect'); osel.innerHTML = '<option disabled selected>Selecciona...</option>';
+  const osel = document.getElementById('orderOperatorSelect'); osel.innerHTML = '<option value="" disabled selected>Selecciona...</option>';
   operators.forEach(o => osel.add(new Option(o.name, o.id)));
-  const esel = document.getElementById('orderEquipoSelect'); esel.innerHTML = '<option disabled selected>Selecciona...</option>';
+  const esel = document.getElementById('orderEquipoSelect'); esel.innerHTML = '<option value="" disabled selected>Selecciona...</option>';
   equipos.forEach(e => esel.add(new Option(e.name, e.id)));
 }
 function loadProductionOrders(filter = '') {
@@ -565,9 +566,9 @@ function showOrderDetails(oid) {
 
   document.getElementById('detailOrderId').textContent = ord.order_id;
   document.getElementById('detailProductName').textContent = ord.product_name;
-  const operator = operators.find(op => op.id === ord.operator_id);
+  const operator = operators.find(op => op.id == ord.operator_id);
   document.getElementById('detailOperatorName').textContent = operator ? operator.name : 'N/A';
-  const equipo = equipos.find(eq => eq.id === ord.equipo_id);
+  const equipo = equipos.find(eq => eq.id == ord.equipo_id);
   document.getElementById('detailEquipoName').textContent = equipo ? equipo.name : 'N/A';
   const statusBadge = document.getElementById('detailStatus');
   statusBadge.textContent = ord.status;
@@ -800,9 +801,9 @@ async function generateOrderPDF(oid) {
     startY += lineHeight;
     doc.text(`Producto: ${ord.product_name}`, 15, startY);
     startY += lineHeight;
-    doc.text(`Operador: ${operators.find(op => op.id === ord.operator_id)?.name || 'N/A'}`, 15, startY);
+    doc.text(`Operador: ${operators.find(op => op.id == ord.operator_id)?.name || 'N/A'}`, 15, startY);
     startY += lineHeight;
-    doc.text(`Equipo: ${equipos.find(eq => eq.id === ord.equipo_id)?.name || 'N/A'}`, 15, startY);
+    doc.text(`Equipo: ${equipos.find(eq => eq.id == ord.equipo_id)?.name || 'N/A'}`, 15, startY);
     startY += lineHeight;
     doc.text(`Cantidad Planificada: ${ord.quantity}`, 15, startY);
     startY += lineHeight;
@@ -1076,6 +1077,7 @@ function generateAllReports() {
 
     // Date filter
     if (start && end) {
+        if (!o.completed_at) return false;
         const d = new Date(o.completed_at);
         if (d < new Date(start) || d > new Date(end)) return false;
     }
@@ -1084,10 +1086,10 @@ function generateAllReports() {
     if (productId !== 'all' && o.product_code !== productId) return false;
 
     // Operator filter
-    if (operatorId !== 'all' && o.operator_id !== operatorId) return false;
+    if (operatorId !== 'all' && o.operator_id != operatorId) return false;
 
     // Equipo filter
-    if (equipoId !== 'all' && o.equipo_id !== equipoId) return false;
+    if (equipoId !== 'all' && o.equipo_id != equipoId) return false;
 
     return true;
   });
@@ -1096,14 +1098,15 @@ function generateAllReports() {
   generateDetailedOrdersReport(filteredOrders);
   generateProductPerformanceReport(filteredOrders);
   generateOperatorReport(filteredOrders);
+  generateEquipoReport(filteredOrders);
   generateMaterialConsumptionReport(filteredOrders);
 }
 
 function generateOperatorReport(orders) {
   const report = {};
   orders.forEach(o => {
-    const op = operators.find(op => op.id === o.operator_id);
-    const name = op ? op.name : o.operator_id;
+    const op = operators.find(op => op.id == o.operator_id);
+    const name = op ? op.name : (o.operator_id ? `ID Desconocido (${o.operator_id})` : 'No Asignado');
     if (!report[name]) report[name] = { completed: 0, units: 0, over: 0 };
     report[name].completed += 1;
     report[name].units += o.quantity_produced || 0;
@@ -1116,12 +1119,31 @@ function generateOperatorReport(orders) {
 }
 
 function generateDetailedOrdersReport(orders) {
-    const tbody = document.getElementById('detailedOrdersTableBody');
-    if (!tbody) return;
+    const table = document.getElementById('detailedOrdersTable');
+    if (!table) return;
+    const tbody = table.querySelector('tbody');
     tbody.innerHTML = '';
+
+    let totalPlanned = 0;
+    let totalProduced = 0;
+    let totalRealCost = 0;
+    let totalOvercost = 0;
+    let totalEfficiencySum = 0;
+    let efficiencyCount = 0;
+
     orders.forEach(o => {
-        const operator = operators.find(op => op.id === o.operator_id);
+        const operator = operators.find(op => op.id == o.operator_id);
         const overcostColor = (o.overcost || 0) > 0 ? 'text-danger' : ((o.overcost || 0) < 0 ? 'text-success' : '');
+
+        totalPlanned += o.quantity || 0;
+        totalProduced += o.quantity_produced || 0;
+        totalRealCost += o.cost_real || 0;
+        totalOvercost += o.overcost || 0;
+        if (typeof o.efficiency === 'number') {
+            totalEfficiencySum += o.efficiency;
+            efficiencyCount++;
+        }
+
         tbody.insertAdjacentHTML('beforeend', `
             <tr>
                 <td>${o.order_id}</td>
@@ -1137,6 +1159,26 @@ function generateDetailedOrdersReport(orders) {
             </tr>
         `);
     });
+
+    const avgEfficiency = efficiencyCount > 0 ? (totalEfficiencySum / efficiencyCount).toFixed(2) + '%' : 'N/A';
+    const overcostTotalColor = totalOvercost > 0 ? 'text-danger' : (totalOvercost < 0 ? 'text-success' : '');
+
+    let tfoot = table.querySelector('tfoot');
+    if (!tfoot) {
+        tfoot = document.createElement('tfoot');
+        table.appendChild(tfoot);
+    }
+    tfoot.innerHTML = `
+        <tr class="table-group-divider fw-bold">
+            <td colspan="3">Totales:</td>
+            <td>${totalPlanned}</td>
+            <td>${totalProduced}</td>
+            <td>${avgEfficiency}</td>
+            <td>$${totalRealCost.toFixed(2)}</td>
+            <td class="${overcostTotalColor}">$${totalOvercost.toFixed(2)}</td>
+            <td colspan="2"></td>
+        </tr>
+    `;
 }
 
 function generateProductPerformanceReport(orders) {
@@ -1162,29 +1204,94 @@ function generateProductPerformanceReport(orders) {
     }).join('');
 }
 
-function generateMaterialConsumptionReport(orders) {
+function generateEquipoReport(orders) {
+  const tbody = document.getElementById('equipoReportTableBody');
+  if (!tbody) return;
   const report = {};
   orders.forEach(o => {
-    o.materials_used.forEach(u => {
-      if (u.type !== 'material') return;
-      if (!report[u.material_code]) report[u.material_code] = { qty: 0, cost: 0 };
-      report[u.material_code].qty += u.quantity;
-      const m = materials.find(ma => ma.codigo === u.material_code);
-      report[u.material_code].cost += u.quantity * (m ? m.costo : 0);
-    });
-    vales.filter(v => v.order_id === o.order_id).forEach(v => v.materials.forEach(m => {
-      if (!report[m.material_code]) report[m.material_code] = { qty: 0, cost: 0 };
-      report[m.material_code].qty += m.quantity;
-      const mat = materials.find(ma => ma.codigo === m.material_code);
-      report[m.material_code].cost += m.quantity * (mat ? mat.costo : 0);
-    }));
+    const eq = equipos.find(eq => eq.id == o.equipo_id);
+    const name = eq ? eq.name : (o.equipo_id ? `ID Desconocido (${o.equipo_id})` : 'No Asignado');
+    if (!report[name]) {
+        report[name] = { completed: 0, units: 0, over: 0, efficiencySum: 0, efficiencyCount: 0 };
+    }
+    report[name].completed += 1;
+    report[name].units += o.quantity_produced || 0;
+    report[name].over += o.overcost || 0;
+    if (typeof o.efficiency === 'number') {
+        report[name].efficiencySum += o.efficiency;
+        report[name].efficiencyCount += 1;
+    }
   });
-  const tbody = document.getElementById('materialReportTableBody');
-  tbody.innerHTML = Object.keys(report).map(code => {
-    const m = materials.find(ma => ma.codigo === code);
-    const r = report[code];
-    return `<tr><td>${m ? m.descripcion : code}</td><td>${r.qty.toFixed(2)}</td><td>$${r.cost.toFixed(2)}</td></tr>`;
+
+  tbody.innerHTML = Object.entries(report).map(([name, r]) => {
+    const avgEfficiency = r.efficiencyCount > 0 ? (r.efficiencySum / r.efficiencyCount).toFixed(2) : 'N/A';
+    return `<tr><td>${name}</td><td>${r.completed}</td><td>${r.units}</td><td>$${r.over.toFixed(2)}</td><td>${avgEfficiency}%</td></tr>`;
   }).join('');
+}
+
+function generateMaterialConsumptionReport(orders) {
+    const report = {};
+
+    orders.forEach(order => {
+        if (order.status !== 'Completada' || !order.quantity_produced) return;
+
+        // 1. Calculate standard consumption based on recipe and actual production
+        const recipe = recipes[order.product_code] || [];
+        recipe.forEach(item => {
+            if (item.type !== 'material') return; // Only count raw materials here
+
+            const mat = materials.find(m => m.codigo == item.code);
+            if (!mat) return;
+
+            if (!report[item.code]) {
+                report[item.code] = { desc: mat.descripcion, qty: 0, cost: 0 };
+            }
+            // Standard consumption for what was actually produced
+            const standardConsumedQty = (item.quantity / order.quantity) * order.quantity_produced;
+            report[item.code].qty += standardConsumedQty;
+            report[item.code].cost += standardConsumedQty * mat.costo;
+        });
+
+        // 2. Adjust for extra materials from vales
+        vales.filter(v => v.order_id == order.order_id).forEach(vale => {
+            vale.materials.forEach(valeMat => {
+                const mat = materials.find(m => m.codigo == valeMat.material_code);
+                if (!mat) return;
+
+                if (!report[valeMat.material_code]) {
+                    report[valeMat.material_code] = { desc: mat.descripcion, qty: 0, cost: 0 };
+                }
+                const signedQty = vale.type === 'salida' ? valeMat.quantity : -valeMat.quantity;
+                report[valeMat.material_code].qty += signedQty;
+                report[valeMat.material_code].cost += signedQty * mat.costo;
+            });
+        });
+    });
+
+    const table = document.getElementById('materialReportTable');
+    if (!table) return;
+    const tbody = table.querySelector('tbody');
+    tbody.innerHTML = '';
+
+    let totalCost = 0;
+
+    tbody.innerHTML = Object.values(report).map(r => {
+        if (r.qty <= 0) return ''; // Don't show materials with zero or negative net movement (returns)
+        totalCost += r.cost;
+        return `<tr><td>${r.desc}</td><td>${r.qty.toFixed(2)}</td><td>$${r.cost.toFixed(2)}</td></tr>`;
+    }).join('');
+
+    let tfoot = table.querySelector('tfoot');
+    if (!tfoot) {
+        tfoot = document.createElement('tfoot');
+        table.appendChild(tfoot);
+    }
+    tfoot.innerHTML = `
+        <tr class="table-group-divider fw-bold">
+            <td colspan="2">Costo Total de Consumo:</td>
+            <td>$${totalCost.toFixed(2)}</td>
+        </tr>
+    `;
 }
 
 /* ----------  OPERADORES / LOGO / BACKUP  ---------- */
@@ -1211,7 +1318,7 @@ document.getElementById('operatorForm').addEventListener('submit', e => {
 document.getElementById('operatorsList').addEventListener('click', e => {
   const btn = e.target.closest('button'); if (!btn) return;
   const id = btn.dataset.id;
-  if (btn.classList.contains('delete-operator-btn')) { operators = operators.filter(op => op.id !== id); saveToLocalStorage(); loadOperators(); populateOrderFormSelects(); }
+  if (btn.classList.contains('delete-btn')) { operators = operators.filter(op => op.id !== id); saveToLocalStorage(); loadOperators(); populateOrderFormSelects(); }
   if (btn.classList.contains('edit-operator-btn')) {
     isEditingOperator = true; currentOperatorId = id;
     const op = operators.find(op => op.id === id);
@@ -1397,23 +1504,60 @@ function initCharts() {
     return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
   });
 
-  // Cost Chart (Top 5 products this month)
+  // Cost Chart (Top 5 products this month by UNIT cost)
   const ctxCost = document.getElementById('costChart');
   if (ctxCost) {
     const costMap = {};
     completedThisMonth.forEach(o => {
-        costMap[o.product_name] = (costMap[o.product_name] || 0) + (o.cost_real || 0);
+        if (!o.product_name || !o.quantity_produced || o.quantity_produced === 0) return;
+        if (!costMap[o.product_name]) {
+            costMap[o.product_name] = { totalCost: 0, totalQty: 0 };
+        }
+        costMap[o.product_name].totalCost += o.cost_real || 0;
+        costMap[o.product_name].totalQty += o.quantity_produced;
     });
-    const topCost = Object.entries(costMap).map(([name, cost]) => ({ name, cost }))
-      .sort((a, b) => b.cost - a.cost).slice(0, 5);
+
+    const unitCosts = Object.entries(costMap).map(([name, data]) => ({
+        name,
+        unitCost: data.totalQty > 0 ? data.totalCost / data.totalQty : 0
+    }));
+
+    const topCost = unitCosts.sort((a, b) => b.unitCost - a.unitCost).slice(0, 5);
 
     costChartInstance = new Chart(ctxCost, {
       type: 'bar',
       data: {
         labels: topCost.map(x => x.name),
-        datasets: [{ label: 'Costo', data: topCost.map(x => x.cost), backgroundColor: '#3498db' }]
+        datasets: [{ label: 'Costo Unitario', data: topCost.map(x => x.unitCost), backgroundColor: '#3498db' }]
       },
-      options: { plugins: { datalabels: { anchor: 'end', align: 'top', formatter: (value, context) => `$${value.toFixed(2)}` } } }
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          title: {
+            display: true,
+            text: 'Costo Unitario por Producto (Top 5 del Mes)'
+          },
+          legend: {
+            display: false
+          },
+          datalabels: {
+            anchor: 'end',
+            align: 'top',
+            formatter: (value) => `$${value.toFixed(2)}`
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function(value) {
+                return '$' + value.toFixed(2);
+              }
+            }
+          }
+        }
+      }
     });
   }
 
@@ -1433,7 +1577,28 @@ function initCharts() {
         labels: topProd.map(x => x.name),
         datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }]
       },
-      options: { plugins: { datalabels: { anchor: 'end', align: 'top' } } }
+       options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          title: {
+            display: true,
+            text: 'Unidades Producidas (Top 5 del Mes)'
+          },
+          legend: {
+            display: false
+          },
+          datalabels: {
+            anchor: 'end',
+            align: 'top'
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true
+          }
+        }
+      }
     });
   }
 }
