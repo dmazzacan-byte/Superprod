@@ -137,9 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // PDF and Print Buttons
   document.getElementById('dashboardPdfBtn')?.addEventListener('click', () => generatePagePDF('dashboardPage', 'dashboard.pdf'));
-  document.getElementById('dashboardPrintBtn')?.addEventListener('click', () => printPage('dashboardPage'));
   document.getElementById('reportsPdfBtn')?.addEventListener('click', () => generatePagePDF('reportsPage', 'reporte.pdf'));
-  document.getElementById('reportsPrintBtn')?.addEventListener('click', () => printPage('reportsPage'));
   
   document.getElementById('toggleOrderSortBtn')?.addEventListener('click', () => {
     orderSortDirection = orderSortDirection === 'asc' ? 'desc' : 'asc';
@@ -192,7 +190,9 @@ function updateDashboard() {
   prodRankBody.innerHTML = sortedByProduction.map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>${op.production}</td></tr>`).join('');
 
   const overcostRankBody = document.getElementById('operatorOvercostRankBody');
-  overcostRankBody.innerHTML = sortedByOvercost.map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>$${op.overcost.toFixed(2)}</td></tr>`).join('');
+  if(overcostRankBody) {
+    overcostRankBody.innerHTML = sortedByOvercost.map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>$${op.overcost.toFixed(2)}</td></tr>`).join('');
+  }
 
   const equipoStats = {};
   completedThisMonth.forEach(o => {
@@ -207,13 +207,18 @@ function updateDashboard() {
   const equipoRankBody = document.getElementById('equipoProductionRankBody');
   equipoRankBody.innerHTML = sortedByEquipoProduction.map((eq, i) => `<tr><td>${i + 1}</td><td>${eq.name}</td><td>${eq.production}</td></tr>`).join('');
 
-  const usedMaterials = new Set();
-  Object.values(recipes).flat().forEach(r => usedMaterials.add(r.code));
-  const low = materials.filter(m => m.existencia < 10 && usedMaterials.has(m.codigo));
+  const allRecipeMaterials = new Set();
+  Object.keys(recipes).forEach(productCode => {
+    const baseMaterials = getBaseMaterials(productCode, 1);
+    baseMaterials.forEach(m => allRecipeMaterials.add(m.code));
+  });
+  const low = materials.filter(m => m.existencia < 10 && allRecipeMaterials.has(m.codigo));
   const lowStockTbody = document.getElementById('lowStockTableBody');
   lowStockTbody.innerHTML = low.length
     ? low.map(m => `<tr><td>${m.descripcion}</td><td>${m.existencia}</td><td>${m.unidad}</td></tr>`).join('')
     : '<tr><td colspan="3" class="text-center">Sin alertas</td></tr>';
+  
+  initCharts();
 }
 
 /* ----------  PRODUCTOS  ---------- */
@@ -483,7 +488,8 @@ function populateOrderFormSelects() {
   equipos.forEach(e => esel.add(new Option(e.name, e.id)));
 }
 function loadProductionOrders(filter = '') {
-  const tbody = document.getElementById('productionOrdersTableBody'); tbody.innerHTML = '';
+  const tbody = document.getElementById('productionOrdersTableBody');
+  tbody.innerHTML = '';
   
   const sortedOrders = [...productionOrders].sort((a, b) => {
     if (orderSortDirection === 'asc') return a.order_id - b.order_id;
@@ -493,7 +499,7 @@ function loadProductionOrders(filter = '') {
   sortedOrders
     .filter(o => !filter || o.order_id.toString().includes(filter) || (o.product_name || '').toLowerCase().includes(filter.toLowerCase()))
     .forEach(o => {
-      const oc = o.overcost || 0;
+      const oc = (o.status === 'Pendiente' ? o.cost_extra : o.overcost) || 0;
       const ocColor = oc > 0 ? 'text-danger' : oc < 0 ? 'text-success' : '';
       tbody.insertAdjacentHTML('beforeend', `
         <tr>
@@ -514,8 +520,9 @@ function loadProductionOrders(filter = '') {
           </td>
         </tr>`);
     });
+}
 
-  tbody.addEventListener('click', async e => {
+document.getElementById('productionOrdersTableBody').addEventListener('click', async e => {
     const btn = e.target.closest('button'); if (!btn) return;
     const oid = parseInt(btn.dataset.orderId);
     if (btn.classList.contains('view-details-btn')) {
@@ -535,8 +542,7 @@ function loadProductionOrders(filter = '') {
     } else if (btn.classList.contains('reopen-order-btn')) {
       reopenOrder(oid);
     }
-  });
-}
+});
 
 function showOrderDetails(oid) {
   const ord = productionOrders.find(o => o.order_id === oid);
@@ -1041,6 +1047,16 @@ function loadReports() {
   generateAllReports(); // Initial load
 }
 
+function getIntermediateProductCodes() {
+    const intermediateProducts = new Set();
+    Object.values(recipes).flat().forEach(ing => {
+        if (ing.type === 'product') {
+            intermediateProducts.add(ing.code);
+        }
+    });
+    return intermediateProducts;
+}
+
 function generateAllReports() {
   const start = document.getElementById('startDateFilter').value;
   const end = document.getElementById('endDateFilter').value;
@@ -1049,35 +1065,31 @@ function generateAllReports() {
   const equipoId = document.getElementById('equipoFilter').value;
 
   const filteredOrders = productionOrders.filter(o => {
-    // Status filter (currently only completed orders are considered for reports)
     if (o.status !== 'Completada') return false;
-
-    // Date filter
     if (start && end) {
         const d = new Date(o.completed_at);
         if (d < new Date(start) || d > new Date(end)) return false;
     }
-    
-    // Product filter
     if (productId !== 'all' && o.product_code !== productId) return false;
-
-    // Operator filter
     if (operatorId !== 'all' && o.operator_id !== operatorId) return false;
-
-    // Equipo filter
     if (equipoId !== 'all' && o.equipo_id !== equipoId) return false;
-
     return true;
   });
 
-  // Generate all report tables with the filtered data
+  const intermediateProducts = getIntermediateProductCodes();
+  const finalOrders = filteredOrders.filter(o => !intermediateProducts.has(o.product_code));
+  const intermediateOrders = filteredOrders.filter(o => intermediateProducts.has(o.product_code));
+  
   generateDetailedOrdersReport(filteredOrders);
-  generateProductPerformanceReport(filteredOrders);
-  generateOperatorReport(filteredOrders);
+  generateOperatorReport(finalOrders, 'operatorReportTableBodyFinal');
+  generateProductPerformanceReport(finalOrders, 'productReportTableBodyFinal');
+  generateOperatorReport(intermediateOrders, 'operatorReportTableBodyIntermediate');
+  generateProductPerformanceReport(intermediateOrders, 'productReportTableBodyIntermediate');
+  generateEquipoReport(filteredOrders);
   generateMaterialConsumptionReport(filteredOrders);
 }
 
-function generateOperatorReport(orders) {
+function generateOperatorReport(orders, tableBodyId) {
   const report = {};
   orders.forEach(o => {
     const op = operators.find(op => op.id === o.operator_id);
@@ -1087,7 +1099,8 @@ function generateOperatorReport(orders) {
     report[name].units += o.quantity_produced || 0;
     report[name].over += o.overcost || 0;
   });
-  const tbody = document.getElementById('operatorReportTableBody');
+  
+  const tbody = document.getElementById(tableBodyId);
   tbody.innerHTML = Object.entries(report).map(([name, r]) => {
     return `<tr><td>${name}</td><td>${r.completed}</td><td>${r.units}</td><td>$${r.over.toFixed(2)}</td></tr>`;
   }).join('');
@@ -1097,9 +1110,14 @@ function generateDetailedOrdersReport(orders) {
     const tbody = document.getElementById('detailedOrdersTableBody');
     if (!tbody) return;
     tbody.innerHTML = '';
+    let totalRealCost = 0;
+    let totalOvercost = 0;
+
     orders.forEach(o => {
         const operator = operators.find(op => op.id === o.operator_id);
         const overcostColor = (o.overcost || 0) > 0 ? 'text-danger' : ((o.overcost || 0) < 0 ? 'text-success' : '');
+        totalRealCost += o.cost_real || 0;
+        totalOvercost += o.overcost || 0;
         tbody.insertAdjacentHTML('beforeend', `
             <tr>
                 <td>${o.order_id}</td>
@@ -1114,10 +1132,22 @@ function generateDetailedOrdersReport(orders) {
             </tr>
         `);
     });
+
+    if (orders.length > 0) {
+        const overcostTotalColor = totalOvercost > 0 ? 'text-danger' : totalOvercost < 0 ? 'text-success' : '';
+        tbody.insertAdjacentHTML('beforeend', `
+            <tr class="table-group-divider fw-bold">
+                <td colspan="5" class="text-end">TOTALES:</td>
+                <td>$${totalRealCost.toFixed(2)}</td>
+                <td class="${overcostTotalColor}">$${totalOvercost.toFixed(2)}</td>
+                <td colspan="2"></td>
+            </tr>
+        `);
+    }
 }
 
-function generateProductPerformanceReport(orders) {
-    const tbody = document.getElementById('productReportTableBody');
+function generateProductPerformanceReport(orders, tableBodyId) {
+    const tbody = document.getElementById(tableBodyId);
     if (!tbody) return;
     const report = {};
     orders.forEach(o => {
@@ -1139,29 +1169,92 @@ function generateProductPerformanceReport(orders) {
     }).join('');
 }
 
-function generateMaterialConsumptionReport(orders) {
+function generateEquipoReport(orders) {
   const report = {};
   orders.forEach(o => {
-    o.materials_used.forEach(u => {
-      if (u.type !== 'material') return;
-      if (!report[u.material_code]) report[u.material_code] = { qty: 0, cost: 0 };
-      report[u.material_code].qty += u.quantity;
-      const m = materials.find(ma => ma.codigo === u.material_code);
-      report[u.material_code].cost += u.quantity * (m ? m.costo : 0);
-    });
-    vales.filter(v => v.order_id === o.order_id).forEach(v => v.materials.forEach(m => {
-      if (!report[m.material_code]) report[m.material_code] = { qty: 0, cost: 0 };
-      report[m.material_code].qty += m.quantity;
-      const mat = materials.find(ma => ma.codigo === m.material_code);
-      report[m.material_code].cost += m.quantity * (mat ? mat.costo : 0);
-    }));
+    const eq = equipos.find(eq => eq.id === o.equipo_id);
+    const name = eq ? eq.name : o.equipo_id;
+    if (!report[name]) report[name] = { completed: 0, units: 0, over: 0 };
+    report[name].completed += 1;
+    report[name].units += o.quantity_produced || 0;
+    report[name].over += o.overcost || 0;
   });
-  const tbody = document.getElementById('materialReportTableBody');
-  tbody.innerHTML = Object.keys(report).map(code => {
-    const m = materials.find(ma => ma.codigo === code);
-    const r = report[code];
-    return `<tr><td>${m ? m.descripcion : code}</td><td>${r.qty.toFixed(2)}</td><td>$${r.cost.toFixed(2)}</td></tr>`;
+  
+  const tbody = document.getElementById('equipoReportTableBody');
+  tbody.innerHTML = Object.entries(report).map(([name, r]) => {
+    return `<tr><td>${name}</td><td>${r.completed}</td><td>${r.units}</td><td>$${r.over.toFixed(2)}</td></tr>`;
   }).join('');
+}
+
+function getBaseMaterials(productCode, requiredQty) {
+    const baseMaterials = {};
+    const recipe = recipes[productCode];
+
+    if (!recipe) return [];
+
+    recipe.forEach(ingredient => {
+        const ingredientQty = ingredient.quantity * requiredQty;
+        if (ingredient.type === 'product') {
+            const subMaterials = getBaseMaterials(ingredient.code, ingredientQty);
+            subMaterials.forEach(subMat => {
+                baseMaterials[subMat.code] = (baseMaterials[subMat.code] || 0) + subMat.quantity;
+            });
+        } else {
+            baseMaterials[ingredient.code] = (baseMaterials[ingredient.code] || 0) + ingredientQty;
+        }
+    });
+    
+    return Object.entries(baseMaterials).map(([code, quantity]) => ({ code, quantity }));
+}
+
+function generateMaterialConsumptionReport(orders) {
+  const report = {};
+
+  function addMaterialToReport(materialCode, quantity) {
+      const material = materials.find(m => m.codigo === materialCode);
+      if (!material) return; 
+
+      if (!report[materialCode]) {
+          report[materialCode] = { qty: 0, cost: 0, desc: material.descripcion };
+      }
+      report[materialCode].qty += quantity;
+      report[materialCode].cost += quantity * material.costo;
+  }
+
+  orders.forEach(o => {
+      // Get all base materials based on the actual quantity produced
+      const baseMaterials = getBaseMaterials(o.product_code, o.quantity_produced || 0);
+      baseMaterials.forEach(bm => {
+          addMaterialToReport(bm.code, bm.quantity);
+      });
+
+      // Adjust with vales
+      vales.filter(v => v.order_id === o.order_id).forEach(vale => {
+          const multiplier = vale.type === 'salida' ? 1 : -1;
+          vale.materials.forEach(m => {
+              addMaterialToReport(m.material_code, m.quantity * multiplier);
+          });
+      });
+  });
+
+  const tbody = document.getElementById('materialReportTableBody');
+  let totalCost = 0;
+  
+  const rows = Object.values(report).map(r => {
+    totalCost += r.cost;
+    return `<tr><td>${r.desc}</td><td>${r.qty.toFixed(2)}</td><td>$${r.cost.toFixed(2)}</td></tr>`;
+  });
+
+  tbody.innerHTML = rows.join('');
+
+  if (rows.length > 0) {
+    tbody.insertAdjacentHTML('beforeend', `
+        <tr class="table-group-divider fw-bold">
+            <td colspan="2" class="text-end">TOTAL:</td>
+            <td>$${totalCost.toFixed(2)}</td>
+        </tr>
+    `);
+  }
 }
 
 /* ----------  OPERADORES / LOGO / BACKUP  ---------- */
@@ -1319,7 +1412,8 @@ document.getElementById('recipeFile').addEventListener('change', e => {
     json.forEach(r => {
       const prod = r.producto || r.Producto;
       if (!recipes[prod]) recipes[prod] = [];
-      const tipo = (r.tipo || r.Tipo || 'material').toLowerCase();
+      const tipoExcel = (r.tipo || r.Tipo || 'material').toLowerCase();
+      const tipo = tipoExcel === 'producto' ? 'product' : 'material';
       recipes[prod].push({ type: tipo, code: r.codigo || r.Código, quantity: parseFloat(r.cantidad || r.Cantidad) });
     });
     saveToLocalStorage(); loadRecipes(); populateRecipeProductSelect();
@@ -1374,23 +1468,48 @@ function initCharts() {
     return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
   });
 
-  // Cost Chart (Top 5 products this month)
+  // Cost Chart (Top 5 products this month by Unit Cost)
   const ctxCost = document.getElementById('costChart');
   if (ctxCost) {
     const costMap = {};
     completedThisMonth.forEach(o => {
-        costMap[o.product_name] = (costMap[o.product_name] || 0) + (o.cost_real || 0);
+        if (!costMap[o.product_name]) {
+            costMap[o.product_name] = { total_cost: 0, total_qty: 0 };
+        }
+        costMap[o.product_name].total_cost += o.cost_real || 0;
+        costMap[o.product_name].total_qty += o.quantity_produced || 0;
     });
-    const topCost = Object.entries(costMap).map(([name, cost]) => ({ name, cost }))
-      .sort((a, b) => b.cost - a.cost).slice(0, 5);
+
+    const topUnitCost = Object.entries(costMap).map(([name, data]) => ({
+      name,
+      unit_cost: data.total_qty > 0 ? data.total_cost / data.total_qty : 0
+    })).sort((a, b) => b.unit_cost - a.unit_cost).slice(0, 5);
 
     costChartInstance = new Chart(ctxCost, { 
       type: 'bar', 
       data: { 
-        labels: topCost.map(x => x.name), 
-        datasets: [{ label: 'Costo', data: topCost.map(x => x.cost), backgroundColor: '#3498db' }] 
+        labels: topUnitCost.map(x => x.name), 
+        datasets: [{ label: 'Costo Unitario', data: topUnitCost.map(x => x.unit_cost), backgroundColor: '#3498db' }] 
       },
-      options: { plugins: { datalabels: { anchor: 'end', align: 'top', formatter: (value, context) => `$${value.toFixed(2)}` } } }
+      options: { 
+        plugins: { 
+          datalabels: { 
+            anchor: 'end', 
+            align: 'top', 
+            formatter: (value) => `$${value.toFixed(2)}` 
+          } 
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function(value) {
+                return '$' + value.toFixed(2);
+              }
+            }
+          }
+        }
+      }
     });
   }
 
@@ -1416,5 +1535,5 @@ function initCharts() {
 }
 document.addEventListener('DOMContentLoaded', () => {
     Chart.register(ChartDataLabels);
-    initCharts();
+    // initCharts() is now called from updateDashboard()
 });
