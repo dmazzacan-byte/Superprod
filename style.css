@@ -87,26 +87,17 @@ body {
 
 .kpi-card .card-body { padding: 1.5rem; }
 .kpi-title {
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     font-weight: 600;
     color: var(--light-text-color);
     text-transform: uppercase;
     margin-bottom: 0.5rem;
 }
 .kpi-value {
-    font-size: 2.2rem;
+    font-size: 2.0rem;
     font-weight: 700;
     color: var(--primary-color);
     margin-bottom: 0;
-}
-.kpi-icon {
-    position: absolute;
-    right: 20px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 3rem;
-    color: var(--border-color);
-    opacity: 0.8;
 }
 /* Centrar encabezados de tabla en modales */
 .modal-body .row.fw-bold {
