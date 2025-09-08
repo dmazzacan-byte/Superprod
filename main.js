@@ -467,12 +467,14 @@ function loadRecipes() {
   sorted.forEach(pid => {
     const prod = products.find(p => p.codigo === pid);
     if (!prod) return;
-    const cost = calculateRecipeCost(recipes[pid]);
+    const recipe = recipes[pid];
+    if (!recipe) return;
+    const cost = calculateRecipeCost(recipe);
     tbody.insertAdjacentHTML('beforeend', `
       <tr>
         <td>${prod.codigo}</td>
         <td>${prod.descripcion}</td>
-        <td>${recipes[pid].length}</td>
+        <td>${recipe.length}</td>
         <td>$${cost.toFixed(2)}</td>
         <td>
           <button class="btn btn-sm btn-warning edit-btn me-2" data-product-id="${pid}" title="Editar"><i class="fas fa-edit"></i></button>
