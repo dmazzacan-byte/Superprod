@@ -153,7 +153,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const navLinks = document.querySelectorAll('.nav-link');
   const pages    = document.querySelectorAll('.page-content');
 
-  function showPage(pageId) {
+  async function showPage(pageId) {
     pages.forEach(p => p.style.display = 'none');
     document.getElementById(pageId).style.display = 'block';
     navLinks.forEach(l => l.classList.remove('active'));
@@ -177,10 +177,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else if (pageId === 'settingsPage') {
         loadOperators();
         loadEquipos();
-        loadLogo();
+        await loadLogo();
     }
   }
-  navLinks.forEach(l => l.addEventListener('click', e => { e.preventDefault(); showPage(l.dataset.page); }));
+  navLinks.forEach(l => l.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await showPage(l.dataset.page);
+  }));
 
   // PDF and Print Buttons
   document.getElementById('dashboardPdfBtn')?.addEventListener('click', () => generatePagePDF('dashboardPage', 'dashboard.pdf'));
@@ -193,7 +196,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadProductionOrders(document.getElementById('searchOrder').value);
   });
 
-  showPage('dashboardPage');
+  await showPage('dashboardPage');
 });
 
 /* ----------  DASHBOARD  ---------- */
