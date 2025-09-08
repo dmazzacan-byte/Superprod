@@ -1692,30 +1692,48 @@ function downloadExcel(filename, sheetName, data) {
 // Productos
 document.getElementById('exportProductsBtn').addEventListener('click', () => downloadExcel('productos.xlsx', 'Productos', products));
 document.getElementById('importProductsBtn').addEventListener('click', () => document.getElementById('productFile').click());
-document.getElementById('productFile').addEventListener('change', e => {
+document.getElementById('productFile').addEventListener('change', async (e) => {
   const file = e.target.files[0]; if (!file) return;
   const reader = new FileReader();
-  reader.onload = ev => {
+  reader.onload = async (ev) => {
     const wb = XLSX.read(ev.target.result, { type: 'binary' });
     const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-    products = json.map(r => ({ codigo: r.codigo || r.Código, descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad || '' }));
+    const importedProducts = json.map(r => ({ codigo: r.codigo || r.Código, descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad || '' }));
+
+    for (const product of importedProducts) {
+        await setDoc(doc(db, "products", product.codigo), {
+            descripcion: product.descripcion,
+            unidad: product.unidad
+        });
+    }
+    products = await loadCollection('products', 'codigo');
     loadProducts();
-    Toastify({ text: 'Productos importados', backgroundColor: 'var(--success-color)' }).showToast();
+    Toastify({ text: 'Productos importados y guardados en la nube', backgroundColor: 'var(--success-color)' }).showToast();
   };
   reader.readAsBinaryString(file);
 });
 // Materiales
 document.getElementById('exportMaterialsBtn').addEventListener('click', () => downloadExcel('materiales.xlsx', 'Materiales', materials));
 document.getElementById('importMaterialsBtn').addEventListener('click', () => document.getElementById('materialFile').click());
-document.getElementById('materialFile').addEventListener('change', e => {
+document.getElementById('materialFile').addEventListener('change', async (e) => {
   const file = e.target.files[0]; if (!file) return;
   const reader = new FileReader();
-  reader.onload = ev => {
+  reader.onload = async (ev) => {
     const wb = XLSX.read(ev.target.result, { type: 'binary' });
     const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-    materials = json.map(r => ({ codigo: r.codigo || r.Código, descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad, existencia: parseFloat(r.existencia || r.Existencia || 0), costo: parseFloat(r.costo || r.Costo || 0) }));
+    const importedMaterials = json.map(r => ({ codigo: r.codigo || r.Código, descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad, existencia: parseFloat(r.existencia || r.Existencia || 0), costo: parseFloat(r.costo || r.Costo || 0) }));
+
+    for (const material of importedMaterials) {
+        await setDoc(doc(db, "materials", material.codigo), {
+            descripcion: material.descripcion,
+            unidad: material.unidad,
+            existencia: material.existencia,
+            costo: material.costo
+        });
+    }
+    materials = await loadCollection('materials', 'codigo');
     loadMaterials();
-    Toastify({ text: 'Materiales importados', backgroundColor: 'var(--success-color)' }).showToast();
+    Toastify({ text: 'Materiales importados y guardados en la nube', backgroundColor: 'var(--success-color)' }).showToast();
   };
   reader.readAsBinaryString(file);
 });
@@ -1726,22 +1744,28 @@ document.getElementById('exportRecipesBtn').addEventListener('click', () => {
   downloadExcel('recetas.xlsx', 'Recetas', flat);
 });
 document.getElementById('importRecipesBtn').addEventListener('click', () => document.getElementById('recipeFile').click());
-document.getElementById('recipeFile').addEventListener('change', e => {
+document.getElementById('recipeFile').addEventListener('change', async (e) => {
   const file = e.target.files[0]; if (!file) return;
   const reader = new FileReader();
-  reader.onload = ev => {
+  reader.onload = async (ev) => {
     const wb = XLSX.read(ev.target.result, { type: 'binary' });
     const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-    recipes = {};
+    const importedRecipes = {};
     json.forEach(r => {
       const prod = r.producto || r.Producto;
-      if (!recipes[prod]) recipes[prod] = [];
+      if (!importedRecipes[prod]) importedRecipes[prod] = [];
       const tipoExcel = (r.tipo || r.Tipo || 'material').toLowerCase();
       const tipo = tipoExcel === 'producto' ? 'product' : 'material';
-      recipes[prod].push({ type: tipo, code: r.codigo || r.Código, quantity: parseFloat(r.cantidad || r.Cantidad) });
+      importedRecipes[prod].push({ type: tipo, code: r.codigo || r.Código, quantity: parseFloat(r.cantidad || r.Cantidad) });
     });
-    loadRecipes(); populateRecipeProductSelect();
-    Toastify({ text: 'Recetas importadas', backgroundColor: 'var(--success-color)' }).showToast();
+
+    for (const [productId, recipeItems] of Object.entries(importedRecipes)) {
+        await setDoc(doc(db, 'recipes', productId), { items: recipeItems });
+    }
+    recipes = await loadRecipesCollection();
+    loadRecipes();
+    populateRecipeProductSelect();
+    Toastify({ text: 'Recetas importadas y guardadas en la nube', backgroundColor: 'var(--success-color)' }).showToast();
   };
   reader.readAsBinaryString(file);
 });
@@ -1834,22 +1858,61 @@ async function migrateDataToFirestore() {
 
 document.getElementById('migrateBtn').addEventListener('click', migrateDataToFirestore);
 
-document.getElementById('importBackupFile').addEventListener('change', e => {
+document.getElementById('importBackupFile').addEventListener('change', async (e) => {
   const file = e.target.files[0]; if (!file) return;
   const reader = new FileReader();
-  reader.onload = ev => {
+  reader.onload = async (ev) => {
     try {
       const data = JSON.parse(ev.target.result);
-      products = data.products || [];
-      materials = data.materials || [];
-      recipes = data.recipes || {};
-      productionOrders = data.productionOrders || [];
-      operators = data.operators || [];
-      vales = data.vales || [];
-      Toastify({ text: 'Datos restaurados', backgroundColor: 'var(--success-color)' }).showToast();
-      location.reload();
-    } catch {
-      Toastify({ text: 'Archivo JSON inválido', backgroundColor: 'var(--danger-color)' }).showToast();
+
+      const promises = [];
+
+      (data.products || []).forEach(product => {
+        promises.push(setDoc(doc(db, 'products', product.codigo), {
+            descripcion: product.descripcion,
+            unidad: product.unidad
+        }));
+      });
+
+      (data.materials || []).forEach(material => {
+        promises.push(setDoc(doc(db, 'materials', material.codigo), {
+            descripcion: material.descripcion,
+            unidad: material.unidad,
+            existencia: material.existencia,
+            costo: material.costo
+        }));
+      });
+
+      (data.operators || []).forEach(operator => {
+        promises.push(setDoc(doc(db, 'operators', operator.id), { name: operator.name }));
+      });
+
+      (data.equipos || []).forEach(equipo => {
+        promises.push(setDoc(doc(db, 'equipos', equipo.id), { name: equipo.name }));
+      });
+
+      (data.productionOrders || []).forEach(order => {
+        promises.push(setDoc(doc(db, 'productionOrders', order.order_id.toString()), order));
+      });
+
+      (data.vales || []).forEach(vale => {
+        promises.push(setDoc(doc(db, 'vales', vale.vale_id), vale));
+      });
+
+      if (data.recipes) {
+        for (const [productId, recipeItems] of Object.entries(data.recipes)) {
+            promises.push(setDoc(doc(db, 'recipes', productId), { items: recipeItems }));
+        }
+      }
+
+      await Promise.all(promises);
+
+      Toastify({ text: 'Datos restaurados en la nube. Recargando...', backgroundColor: 'var(--success-color)', duration: 3000 }).showToast();
+      setTimeout(() => location.reload(), 3000);
+
+    } catch (error) {
+      console.error("Error restoring backup:", error);
+      Toastify({ text: 'Archivo JSON inválido o error al restaurar.', backgroundColor: 'var(--danger-color)' }).showToast();
     }
   };
   reader.readAsText(file);
