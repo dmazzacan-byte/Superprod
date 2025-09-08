@@ -1,4 +1,6 @@
 import { db, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, storage, ref, uploadString, getDownloadURL } from './firebase.js';
+import Chart from 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/auto/auto.mjs';
+import ChartDataLabels from 'https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.esm.min.js';
 // -----------------------------------------------------------------------------
 //  Superproducción – Gestión de Producción
 //  main.js  (final – all fixes + improvements included)
@@ -149,39 +151,74 @@ function generatePagePDF(elementId, filename) {
 
 /* ----------  NAVEGACIÓN  ---------- */
 document.addEventListener('DOMContentLoaded', async () => {
+  console.log('DOM fully loaded and parsed');
   await loadInitialData();
   const navLinks = document.querySelectorAll('.nav-link');
   const pages    = document.querySelectorAll('.page-content');
 
-  async function showPage(pageId) {
-    pages.forEach(p => p.style.display = 'none');
-    document.getElementById(pageId).style.display = 'block';
-    navLinks.forEach(l => l.classList.remove('active'));
-    document.querySelector(`[data-page="${pageId}"]`).classList.add('active');
-    if (pageId === 'dashboardPage') {
-        updateDashboard();
-        updateTimestamps();
-    } else if (pageId === 'productsPage') {
-        loadProducts();
-    } else if (pageId === 'materialsPage') {
-        loadMaterials();
-    } else if (pageId === 'recipesPage') {
-        loadRecipes();
-        populateRecipeProductSelect();
-    } else if (pageId === 'productionOrdersPage') {
-        loadProductionOrders();
-        populateOrderFormSelects();
-    } else if (pageId === 'reportsPage') {
-        loadReports();
-        updateTimestamps();
-    } else if (pageId === 'settingsPage') {
-        loadOperators();
-        loadEquipos();
-        await loadLogo();
+  function showPage(pageId) {
+    try {
+        console.log(`Attempting to show page: ${pageId}`);
+
+        pages.forEach(p => {
+            p.style.display = 'none';
+        });
+
+        const pageToShow = document.getElementById(pageId);
+        if (!pageToShow) {
+            console.error(`Page with id "${pageId}" not found.`);
+            return;
+        }
+        pageToShow.style.display = 'block';
+
+        navLinks.forEach(l => l.classList.remove('active'));
+        const activeLink = document.querySelector(`[data-page="${pageId}"]`);
+        if (activeLink) {
+            activeLink.classList.add('active');
+        } else {
+            console.error(`Nav link with data-page "${pageId}" not found.`);
+        }
+
+        console.log(`Successfully displayed page: ${pageId}. Now loading content...`);
+
+        if (pageId === 'dashboardPage') {
+            console.log('Loading dashboard content...');
+            updateDashboard();
+            updateTimestamps();
+        } else if (pageId === 'productsPage') {
+            console.log('Loading products content...');
+            loadProducts();
+        } else if (pageId === 'materialsPage') {
+            console.log('Loading materials content...');
+            loadMaterials();
+        } else if (pageId === 'recipesPage') {
+            console.log('Loading recipes content...');
+            loadRecipes();
+            populateRecipeProductSelect();
+        } else if (pageId === 'productionOrdersPage') {
+            console.log('Loading production orders content...');
+            loadProductionOrders();
+            populateOrderFormSelects();
+        } else if (pageId === 'reportsPage') {
+            console.log('Loading reports content...');
+            loadReports();
+            updateTimestamps();
+        } else if (pageId === 'settingsPage') {
+            console.log('Loading settings content...');
+            loadOperators();
+            loadEquipos();
+            loadLogo().catch(err => console.error("Error in loadLogo:", err));
+        }
+        console.log('Finished loading content for page:', pageId);
+    } catch (error) {
+        console.error(`An error occurred in showPage for pageId "${pageId}":`, error);
+        Toastify({ text: 'Ocurrió un error al cambiar de sección.', backgroundColor: 'var(--danger-color)' }).showToast();
     }
   }
+
   navLinks.forEach(l => l.addEventListener('click', (e) => {
       e.preventDefault();
+      console.log(`Nav link clicked. page: ${l.dataset.page}`);
       showPage(l.dataset.page);
   }));
 
@@ -196,7 +233,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadProductionOrders(document.getElementById('searchOrder').value);
   });
 
-  await showPage('dashboardPage');
+  showPage('dashboardPage');
 });
 
 /* ----------  DASHBOARD  ---------- */
@@ -1871,6 +1908,11 @@ function initCharts() {
   }
 }
 document.addEventListener('DOMContentLoaded', () => {
-    Chart.register(ChartDataLabels);
-    // initCharts() is now called from updateDashboard()
+    console.log("Registering ChartDataLabels plugin");
+    try {
+        Chart.register(ChartDataLabels);
+        console.log("ChartDataLabels plugin registered successfully.");
+    } catch(e) {
+        console.error("Failed to register ChartDataLabels", e);
+    }
 });
