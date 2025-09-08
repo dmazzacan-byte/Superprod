@@ -27,7 +27,7 @@
         .page-content.printable-page {
           display: block !important;
         }
-        
+
         /* Inside the printable page, hide the header that contains the print/pdf buttons */
         .printable-page .d-flex.justify-content-between.align-items-center {
             display: none !important;
@@ -76,23 +76,24 @@
                         <button type="button" class="btn btn-sm btn-outline-secondary" id="dashboardPdfBtn"><i class="fas fa-file-pdf me-2"></i>Descargar PDF</button>
                     </div>
                 </div>
-                <div class="row g-4 mt-2">
-                    <div class="col-lg-2 col-md-6"><div class="kpi-card h-100"><div class="card-body"><h6 class="kpi-title">ÓRDENES PENDIENTES</h6><p class="kpi-value" id="pendingOrdersCard">0</p></div></div></div>
-                    <div class="col-lg-2 col-md-6"><div class="kpi-card h-100"><div class="card-body"><h6 class="kpi-title">ÓRDENES COMPLETADAS</h6><p class="kpi-value" id="completedOrdersCard">0</p></div></div></div>
-                    <div class="col-lg-2 col-md-6"><div class="kpi-card h-100"><div class="card-body"><h6 class="kpi-title">PRODUCCIÓN TOTAL</h6><p class="kpi-value" id="totalProductionCard">0</p></div></div></div>
-                    <div class="col-lg-3 col-md-6"><div class="kpi-card h-100"><div class="card-body"><h6 class="kpi-title">COSTO REAL TOTAL</h6><p class="kpi-value" id="totalCostCard">$0.00</p></div></div></div>
-                    <div class="col-lg-3 col-md-6"><div class="kpi-card h-100"><div class="card-body"><h6 class="kpi-title">SOBRECOSTO TOTAL</h6><p class="kpi-value" id="totalOvercostCard">$0.00</p></div></div></div>
+                <div class="row g-4 mt-2 justify-content-center">
+                    <div class="col-lg col-md-6"><div class="kpi-card h-100"><div class="card-body"><h6 class="kpi-title">ÓRDENES PENDIENTES</h6><p class="kpi-value" id="pendingOrdersCard">0</p></div></div></div>
+                    <div class="col-lg col-md-6"><div class="kpi-card h-100"><div class="card-body"><h6 class="kpi-title">ÓRDENES COMPLETADAS</h6><p class="kpi-value" id="completedOrdersCard">0</p></div></div></div>
+                    <div class="col-lg col-md-6"><div class="kpi-card h-100"><div class="card-body"><h6 class="kpi-title">PRODUCCIÓN TOTAL</h6><p class="kpi-value" id="totalProductionCard">0</p></div></div></div>
+                    <div class="col-lg col-md-6"><div class="kpi-card h-100"><div class="card-body"><h6 class="kpi-title">COSTO REAL TOTAL</h6><p class="kpi-value" id="totalCostCard">$0.00</p></div></div></div>
+                    <div class="col-lg col-md-6"><div class="kpi-card h-100"><div class="card-body"><h6 class="kpi-title">SOBRECOSTO TOTAL</h6><p class="kpi-value" id="totalOvercostCard">$0.00</p></div></div></div>
                 </div>
                 <div class="row g-4 mt-4">
-                    <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Ranking de producción por Operador</h5></div><div class="card-body"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>#</th><th>Operador</th><th>Unidades Producidas</th></tr></thead><tbody id="operatorProductionRankBody"></tbody></table></div></div></div></div>
-                    <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Ranking de producción por Equipo</h5></div><div class="card-body"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>#</th><th>Equipo</th><th>Unidades Producidas</th></tr></thead><tbody id="equipoProductionRankBody"></tbody></table></div></div></div></div>
+                    <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Ranking de Producción por Operador</h5></div><div class="card-body"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>#</th><th>Operador</th><th>Unidades Producidas</th></tr></thead><tbody id="operatorProductionRankBody"></tbody></table></div></div></div></div>
+                    <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Ranking de Sobrecosto por Operador</h5></div><div class="card-body"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>#</th><th>Operador</th><th>Sobrecosto Total</th></tr></thead><tbody id="operatorOvercostRankBody"></tbody></table></div></div></div></div>
+                </div>
+                <div class="row g-4 mt-4">
+                    <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Ranking de Producción por Equipo</h5></div><div class="card-body"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>#</th><th>Equipo</th><th>Unidades Producidas</th></tr></thead><tbody id="equipoProductionRankBody"></tbody></table></div></div></div></div>
+                    <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header bg-warning-subtle d-flex justify-content-between align-items-center"><h5 class="mb-0 text-dark"><i class="fas fa-exclamation-triangle me-2"></i>Alertas de Bajo Inventario</h5><div class="d-flex align-items-center"><label for="lowStockThreshold" class="me-2 text-dark fw-bold small">Límite:</label><input type="number" id="lowStockThreshold" class="form-control form-control-sm" value="10" style="width: 80px;"></div></div><div class="card-body"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>Material</th><th>Existencia Actual</th><th>Unidad</th><th>Productos Afectados</th></tr></thead><tbody id="lowStockTableBody"></tbody></table></div></div></div></div>
                 </div>
                 <div class="row g-4 mt-4">
                     <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Costo Unitario por Producto (Top 5)</h5></div><div class="card-body d-flex align-items-center justify-content-center"><canvas id="costChart"></canvas></div></div></div>
                     <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Producción por Producto (Top 5)</h5></div><div class="card-body"><canvas id="productionChart"></canvas></div></div></div>
-                </div>
-                <div class="row g-4 mt-4">
-                    <div class="col-12"><div class="card shadow-sm"><div class="card-header bg-warning-subtle"><h5 class="mb-0 text-dark"><i class="fas fa-exclamation-triangle me-2"></i>Alertas de Bajo Inventario (Menos de 10 unidades)</h5></div><div class="card-body"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>Material</th><th>Existencia Actual</th><th>Unidad</th></tr></thead><tbody id="lowStockTableBody"></tbody></table></div></div></div></div>
                 </div>
             </div>
 
@@ -235,7 +236,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="row g-4 mt-4">
                     <div class="col-lg-6">
                         <div class="card shadow-sm h-100">
@@ -358,13 +359,13 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
 	<form id="editRecipeForm">
- 	 <div class="modal-body">
-   	 <div class="mb-3">
-     	 <label class="form-label">Producto</label>
-     	 <select class="form-select" id="editRecipeProductSelect" disabled></select>
-    	</div>
-    	<div class="mb-3">
-    	  <label class="form-label">Ingredientes</label>
+	 <div class="modal-body">
+	 <div class="mb-3">
+	 <label class="form-label">Producto</label>
+	 <select class="form-select" id="editRecipeProductSelect" disabled></select>
+	</div>
+	<div class="mb-3">
+	  <label class="form-label">Ingredientes</label>
           <div class="row fw-bold border-bottom pb-2 mb-2 d-none d-md-flex">
             <div class="col-md-2">Tipo</div>
             <div class="col-md-3">Código</div>
@@ -372,16 +373,16 @@
             <div class="col-md-2">Cantidad</div>
             <div class="col-md-1"></div>
           </div>
-    	  <div id="editRecipeMaterials"></div>
-     	 <button type="button" class="btn btn-sm btn-outline-success mt-2" id="addMaterialToEditRecipeBtn">
-     	   <i class="fas fa-plus"></i> Añadir ingrediente
-     	 </button>
-    	</div>
-  	</div>
-  	<div class="modal-footer">
-  	  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
-   	 <button type="submit" class="btn btn-primary">Guardar Cambios</button>
-  	</div>
+	  <div id="editRecipeMaterials"></div>
+	 <button type="button" class="btn btn-sm btn-outline-success mt-2" id="addMaterialToEditRecipeBtn">
+	   <i class="fas fa-plus"></i> Añadir ingrediente
+	 </button>
+	</div>
+	</div>
+	<div class="modal-footer">
+	  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+	 <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+	</div>
 	</form>
     </div>
   </div>

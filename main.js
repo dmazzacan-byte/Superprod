@@ -174,6 +174,15 @@ function generatePagePDF(elementId, filename) {
 /* ----------  NAVEGACIÓN  ---------- */
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('DOM fully loaded and parsed');
+
+  console.log("Registering ChartDataLabels plugin");
+  try {
+      Chart.register(ChartDataLabels);
+      console.log("ChartDataLabels plugin registered successfully.");
+  } catch(e) {
+      console.error("Failed to register ChartDataLabels", e);
+  }
+
   await loadInitialData();
   const navLinks = document.querySelectorAll('.nav-link');
   const pages    = document.querySelectorAll('.page-content');
@@ -256,6 +265,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   showPage('dashboardPage');
+
+  document.getElementById('lowStockThreshold').addEventListener('input', () => {
+    if (document.getElementById('dashboardPage').style.display !== 'none') {
+        updateDashboard();
+    }
+  });
 });
 
 /* ----------  DASHBOARD  ---------- */
@@ -316,16 +331,34 @@ function updateDashboard() {
   const equipoRankBody = document.getElementById('equipoProductionRankBody');
   equipoRankBody.innerHTML = sortedByEquipoProduction.map((eq, i) => `<tr><td>${i + 1}</td><td>${eq.name}</td><td>${eq.production}</td></tr>`).join('');
 
-  const allRecipeMaterials = new Set();
-  Object.keys(recipes).forEach(productCode => {
-    const baseMaterials = getBaseMaterials(productCode, 1);
-    baseMaterials.forEach(m => allRecipeMaterials.add(m.code));
+  const threshold = parseInt(document.getElementById('lowStockThreshold').value, 10);
+
+  const lowStockMaterials = materials.filter(m => m.existencia < threshold);
+
+  const affectedProductsByMaterial = {};
+  lowStockMaterials.forEach(m => {
+      affectedProductsByMaterial[m.codigo] = new Set();
+      Object.keys(recipes).forEach(productId => {
+          const recipeItems = recipes[productId] || [];
+          const baseMaterials = getBaseMaterials(productId, 1);
+          if (baseMaterials.some(bm => bm.code === m.codigo)) {
+              const product = products.find(p => p.codigo === productId);
+              if (product) {
+                  affectedProductsByMaterial[m.codigo].add(product.descripcion);
+              }
+          }
+      });
   });
-  const low = materials.filter(m => m.existencia < 10 && allRecipeMaterials.has(m.codigo));
+
   const lowStockTbody = document.getElementById('lowStockTableBody');
-  lowStockTbody.innerHTML = low.length
-    ? low.map(m => `<tr><td>${m.descripcion}</td><td>${m.existencia}</td><td>${m.unidad}</td></tr>`).join('')
-    : '<tr><td colspan="3" class="text-center">Sin alertas</td></tr>';
+  lowStockTbody.innerHTML = lowStockMaterials.length
+    ? lowStockMaterials.map(m => `<tr>
+        <td>${m.descripcion}</td>
+        <td>${m.existencia}</td>
+        <td>${m.unidad}</td>
+        <td>${[...affectedProductsByMaterial[m.codigo]].join(', ') || 'N/A'}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="4" class="text-center">Sin alertas para el límite de ${threshold}</td></tr>`;
 
   initCharts();
 }
@@ -1998,12 +2031,3 @@ function initCharts() {
     });
   }
 }
-document.addEventListener('DOMContentLoaded', () => {
-    console.log("Registering ChartDataLabels plugin");
-    try {
-        Chart.register(ChartDataLabels);
-        console.log("ChartDataLabels plugin registered successfully.");
-    } catch(e) {
-        console.error("Failed to register ChartDataLabels", e);
-    }
-});
