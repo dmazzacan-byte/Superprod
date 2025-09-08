@@ -482,7 +482,11 @@ function loadRecipes() {
   });
 }
 function calculateRecipeCost(items) {
+  if (!items || !Array.isArray(items)) {
+    return 0;
+  }
   return items.reduce((acc, it) => {
+    if (!it || !it.type) return acc;
     if (it.type === 'product') return acc + (recipes[it.code] ? calculateRecipeCost(recipes[it.code]) * it.quantity : 0);
     else { const m = materials.find(ma => ma.codigo === it.code); return acc + (m ? m.costo * it.quantity : 0); }
   }, 0);
@@ -1301,7 +1305,7 @@ function loadReports() {
 function getIntermediateProductCodes() {
     const intermediateProducts = new Set();
     Object.values(recipes).flat().forEach(ing => {
-        if (ing.type === 'product') {
+        if (ing && ing.type === 'product') {
             intermediateProducts.add(ing.code);
         }
     });
