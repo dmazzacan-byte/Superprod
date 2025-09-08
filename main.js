@@ -229,7 +229,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.log('Loading settings content...');
             loadOperators();
             loadEquipos();
-            loadLogo().catch(err => console.error("Error in loadLogo:", err));
+            // loadLogo().catch(err => console.error("Error in loadLogo:", err));
         }
         console.log('Finished loading content for page:', pageId);
     } catch (error) {
