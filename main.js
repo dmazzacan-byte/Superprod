@@ -333,7 +333,18 @@ function updateDashboard() {
 
   const threshold = parseInt(document.getElementById('lowStockThreshold').value, 10);
 
-  const lowStockMaterials = materials.filter(m => m.existencia < threshold);
+  // 1. Get all unique materials used in recipes
+  const materialsInRecipes = new Set();
+  for (const productId of Object.keys(recipes)) {
+      const baseMats = getBaseMaterials(productId, 1);
+      baseMats.forEach(mat => materialsInRecipes.add(mat.code));
+  }
+
+  // 2. Filter materials that are in recipes, are below threshold, and then sort them
+  const lowStockMaterials = materials
+      .filter(m => materialsInRecipes.has(m.codigo))
+      .filter(m => m.existencia < threshold)
+      .sort((a, b) => a.existencia - b.existencia);
 
   const affectedProductsByMaterial = {};
   lowStockMaterials.forEach(m => {
@@ -352,12 +363,18 @@ function updateDashboard() {
 
   const lowStockTbody = document.getElementById('lowStockTableBody');
   lowStockTbody.innerHTML = lowStockMaterials.length
-    ? lowStockMaterials.map(m => `<tr>
-        <td>${m.descripcion}</td>
-        <td>${m.existencia}</td>
-        <td>${m.unidad}</td>
-        <td>${[...affectedProductsByMaterial[m.codigo]].join(', ') || 'N/A'}</td>
-      </tr>`).join('')
+    ? lowStockMaterials.map(m => {
+        const affectedProductsList = [...affectedProductsByMaterial[m.codigo]];
+        const formattedProducts = affectedProductsList.length
+            ? affectedProductsList.map((p, i) => `${i + 1}. ${p}`).join('<br>')
+            : 'N/A';
+        return `<tr>
+            <td>${m.descripcion}</td>
+            <td>${m.existencia}</td>
+            <td>${m.unidad}</td>
+            <td>${formattedProducts}</td>
+          </tr>`;
+      }).join('')
     : `<tr><td colspan="4" class="text-center">Sin alertas para el límite de ${threshold}</td></tr>`;
 
   initCharts();
