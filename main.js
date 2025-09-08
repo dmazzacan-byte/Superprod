@@ -180,9 +180,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         await loadLogo();
     }
   }
-  navLinks.forEach(l => l.addEventListener('click', async (e) => {
+  navLinks.forEach(l => l.addEventListener('click', (e) => {
       e.preventDefault();
-      await showPage(l.dataset.page);
+      showPage(l.dataset.page);
   }));
 
   // PDF and Print Buttons
