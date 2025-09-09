@@ -958,77 +958,137 @@ document.getElementById('confirmCloseOrderForm').addEventListener('submit', e =>
   bootstrap.Modal.getInstance(document.getElementById('confirmCloseOrderModal')).hide();
 });
 async function completeOrder(oid, realQty) {
-  const idx = productionOrders.findIndex(o => o.order_id === oid);
-  if (idx === -1) return;
-  const ord = productionOrders[idx];
-
-  (ord.materials_used || []).forEach(orderMat => {
-    if (orderMat.type !== 'material') return;
-    const mIdx = materials.findIndex(m => m.codigo === orderMat.material_code);
-    if (mIdx !== -1) {
-      const perUnitQty = (ord.quantity > 0) ? (orderMat.quantity / ord.quantity) : 0;
-      const consumedQty = perUnitQty * realQty;
-      materials[mIdx].existencia -= consumedQty;
+    const idx = productionOrders.findIndex(o => o.order_id === oid);
+    if (idx === -1) {
+        Toastify({ text: 'Error: Orden no encontrada para completar.', backgroundColor: 'var(--danger-color)' }).showToast();
+        return;
     }
-  });
 
-  ord.quantity_produced = realQty;
-  ord.status = 'Completada';
-  ord.completed_at = new Date().toISOString().slice(0, 10);
+    const orderToUpdate = { ...productionOrders[idx] };
+    const materialsToUpdate = new Map();
 
-  ord.cost_real = (ord.cost_standard || 0) + (ord.cost_extra || 0);
-  ord.overcost = ord.cost_real - ((ord.cost_standard_unit || 0) * realQty);
+    // Calculate consumed materials based on recipe
+    (orderToUpdate.materials_used || []).forEach(orderMat => {
+        if (orderMat.type !== 'material') return;
+        const mIdx = materials.findIndex(m => m.codigo === orderMat.material_code);
+        if (mIdx !== -1) {
+            const originalMaterial = materials[mIdx];
+            const perUnitQty = (orderToUpdate.quantity > 0) ? (orderMat.quantity / orderToUpdate.quantity) : 0;
+            const consumedQty = perUnitQty * realQty;
 
-  try {
-    await setDoc(doc(db, "productionOrders", ord.order_id.toString()), ord);
-    // Also update materials stock in firestore
-    for (const mat of materials) {
-        await setDoc(doc(db, "materials", mat.codigo), mat);
+            const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
+            updatedMaterial.existencia -= consumedQty;
+            materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
+        }
+    });
+
+    // Update order properties
+    orderToUpdate.quantity_produced = realQty;
+    orderToUpdate.status = 'Completada';
+    orderToUpdate.completed_at = new Date().toISOString().slice(0, 10);
+    orderToUpdate.cost_real = (orderToUpdate.cost_standard || 0) + (orderToUpdate.cost_extra || 0);
+    orderToUpdate.overcost = orderToUpdate.cost_real - ((orderToUpdate.cost_standard_unit || 0) * realQty);
+
+    try {
+        // Save all changes to Firestore
+        const promises = [];
+        promises.push(setDoc(doc(db, "productionOrders", orderToUpdate.order_id.toString()), orderToUpdate));
+        materialsToUpdate.forEach((material, code) => {
+            promises.push(setDoc(doc(db, "materials", code), material));
+        });
+
+        await Promise.all(promises);
+
+        // Re-fetch data from Firestore to ensure local state is in sync
+        [productionOrders, materials] = await Promise.all([
+            loadCollection('productionOrders', 'order_id'),
+            loadCollection('materials', 'codigo')
+        ]);
+        productionOrders.forEach(o => o.order_id = parseInt(o.order_id));
+
+        // Re-render UI
+        loadProductionOrders();
+        loadMaterials();
+        updateDashboard();
+
+        Toastify({ text: `Orden ${oid} completada con éxito.`, backgroundColor: 'var(--success-color)' }).showToast();
+    } catch (error) {
+        console.error("Error completing order: ", error);
+        Toastify({ text: 'Error al completar la orden.', backgroundColor: 'var(--danger-color)' }).showToast();
     }
-    loadProductionOrders();
-    loadMaterials();
-    updateDashboard();
-    Toastify({ text: `Orden ${oid} completada con éxito.`, backgroundColor: 'var(--success-color)' }).showToast();
-  } catch (error) {
-    console.error("Error completing order: ", error);
-    Toastify({ text: 'Error al completar la orden', backgroundColor: 'var(--danger-color)' }).showToast();
-  }
 }
 async function reopenOrder(oid) {
-  const idx = productionOrders.findIndex(o => o.order_id === oid);
-  if (idx === -1) return;
-  const ord = productionOrders[idx];
-  (ord.materials_used || []).forEach(orderMat => {
-    if (orderMat.type !== 'material') return;
-    const mIdx = materials.findIndex(m => m.codigo === orderMat.material_code);
-    if (mIdx !== -1) {
-      const perUnitQty = (ord.quantity > 0) ? (orderMat.quantity / ord.quantity) : 0;
-      const consumedQty = perUnitQty * (ord.quantity_produced || 0);
-      materials[mIdx].existencia += consumedQty;
+    const idx = productionOrders.findIndex(o => o.order_id === oid);
+    if (idx === -1) {
+        Toastify({ text: 'Error: Orden no encontrada para reabrir.', backgroundColor: 'var(--danger-color)' }).showToast();
+        return;
     }
-  });
-  vales.filter(v => v.order_id === oid).forEach(v => {
-    v.materials.forEach(m => {
-      const mIdx = materials.findIndex(ma => ma.codigo === m.material_code);
-      if (mIdx !== -1) materials[mIdx].existencia += (v.type === 'salida' ? 1 : -1) * m.quantity;
-    });
-  });
-  ord.status = 'Pendiente'; ord.completed_at = null; ord.quantity_produced = null; ord.cost_real = null; ord.overcost = null;
 
-  try {
-    await setDoc(doc(db, "productionOrders", ord.order_id.toString()), ord);
-    // Also update materials stock in firestore
-    for (const mat of materials) {
-        await setDoc(doc(db, "materials", mat.codigo), mat);
+    const orderToUpdate = { ...productionOrders[idx] };
+    const materialsToUpdate = new Map();
+
+    // Restore stock from the original completed order
+    (orderToUpdate.materials_used || []).forEach(orderMat => {
+        if (orderMat.type !== 'material') return;
+        const mIdx = materials.findIndex(m => m.codigo === orderMat.material_code);
+        if (mIdx !== -1) {
+            const originalMaterial = materials[mIdx];
+            const perUnitQty = (orderToUpdate.quantity > 0) ? (orderMat.quantity / orderToUpdate.quantity) : 0;
+            const consumedQty = perUnitQty * (orderToUpdate.quantity_produced || 0);
+
+            const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
+            updatedMaterial.existencia += consumedQty;
+            materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
+        }
+    });
+
+    // Restore stock from any associated vales
+    vales.filter(v => v.order_id === oid).forEach(v => {
+        v.materials.forEach(m => {
+            const mIdx = materials.findIndex(ma => ma.codigo === m.material_code);
+            if (mIdx !== -1) {
+                const originalMaterial = materials[mIdx];
+                const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
+                updatedMaterial.existencia += (v.type === 'salida' ? 1 : -1) * m.quantity;
+                materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
+            }
+        });
+    });
+
+    // Update order properties to revert its state
+    orderToUpdate.status = 'Pendiente';
+    orderToUpdate.completed_at = null;
+    orderToUpdate.quantity_produced = null;
+    orderToUpdate.cost_real = null;
+    orderToUpdate.overcost = null;
+
+    try {
+        // Save all changes to Firestore
+        const promises = [];
+        promises.push(setDoc(doc(db, "productionOrders", orderToUpdate.order_id.toString()), orderToUpdate));
+        materialsToUpdate.forEach((material, code) => {
+            promises.push(setDoc(doc(db, "materials", code), material));
+        });
+
+        await Promise.all(promises);
+
+        // Re-fetch data from Firestore
+        [productionOrders, materials] = await Promise.all([
+            loadCollection('productionOrders', 'order_id'),
+            loadCollection('materials', 'codigo')
+        ]);
+        productionOrders.forEach(o => o.order_id = parseInt(o.order_id));
+
+        // Re-render UI
+        loadProductionOrders();
+        loadMaterials();
+        updateDashboard();
+
+        Toastify({ text: `Orden ${oid} reabierta.`, backgroundColor: 'var(--success-color)' }).showToast();
+    } catch (error) {
+        console.error("Error reopening order: ", error);
+        Toastify({ text: 'Error al reabrir la orden.', backgroundColor: 'var(--danger-color)' }).showToast();
     }
-    loadProductionOrders();
-    loadMaterials();
-    updateDashboard();
-    Toastify({ text: `Orden ${oid} reabierta.`, backgroundColor: 'var(--success-color)' }).showToast();
-  } catch (error) {
-    console.error("Error reopening order: ", error);
-    Toastify({ text: 'Error al reabrir la orden', backgroundColor: 'var(--danger-color)' }).showToast();
-  }
 }
 async function generateOrderPDF(oid) {
   try {
