@@ -460,11 +460,29 @@ document.getElementById('searchProduct').addEventListener('input', e => loadProd
 /* ----------  MATERIALES  ---------- */
 let isEditingMaterial = false, currentMaterialCode = null;
 const materialModal = new bootstrap.Modal(document.getElementById('materialModal'));
-function loadMaterials(filter = '') {
-  const tbody = document.getElementById('materialsTableBody'); tbody.innerHTML = '';
+function loadMaterials() {
+  const filter = document.getElementById('searchMaterial').value.toLowerCase();
+  const showOnlyProducts = document.getElementById('filterMaterialsAsProducts').checked;
+
+  const tbody = document.getElementById('materialsTableBody');
+  tbody.innerHTML = '';
+
   materials.sort((a, b) => a.codigo.localeCompare(b.codigo));
-  materials.filter(m => !filter || m.codigo.includes(filter) || m.descripcion.toLowerCase().includes(filter.toLowerCase()))
-    .forEach(m => tbody.insertAdjacentHTML('beforeend', `<tr><td>${m.codigo}</td><td>${m.descripcion}</td><td>${m.unidad}</td><td>${m.existencia.toFixed(2)}</td><td>${formatCurrency(m.costo)}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${m.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${m.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`));
+
+  let filteredMaterials = materials;
+
+  if (showOnlyProducts) {
+    const productCodes = new Set(products.map(p => p.codigo));
+    filteredMaterials = filteredMaterials.filter(m => productCodes.has(m.codigo));
+  }
+
+  if (filter) {
+    filteredMaterials = filteredMaterials.filter(m => m.codigo.toLowerCase().includes(filter) || m.descripcion.toLowerCase().includes(filter));
+  }
+
+  filteredMaterials.forEach(m => {
+    tbody.insertAdjacentHTML('beforeend', `<tr><td>${m.codigo}</td><td>${m.descripcion}</td><td>${m.unidad}</td><td>${m.existencia.toFixed(2)}</td><td>${formatCurrency(m.costo)}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${m.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${m.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`);
+  });
 }
 document.getElementById('materialForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -519,7 +537,8 @@ document.getElementById('materialsTableBody').addEventListener('click', async (e
   if (btn.classList.contains('edit-btn')) { isEditingMaterial = true; currentMaterialCode = code; const m = materials.find(m => m.codigo === code); ['materialCode', 'materialDescription', 'materialUnit', 'materialExistence', 'materialCost'].forEach((id, i) => document.getElementById(id).value = [m.codigo, m.descripcion, m.unidad, m.existencia, m.costo][i]); document.getElementById('materialCode').disabled = true; document.getElementById('materialModalLabel').textContent = 'Editar Material'; materialModal.show(); }
 });
 document.getElementById('materialModal').addEventListener('hidden.bs.modal', () => { isEditingMaterial = false; document.getElementById('materialForm').reset(); document.getElementById('materialCode').disabled = false; document.getElementById('materialModalLabel').textContent = 'Añadir Material'; });
-document.getElementById('searchMaterial').addEventListener('input', e => loadMaterials(e.target.value));
+document.getElementById('searchMaterial').addEventListener('input', () => loadMaterials());
+document.getElementById('filterMaterialsAsProducts').addEventListener('change', () => loadMaterials());
 
 /* ----------  RECETAS  ---------- */
 const addRecipeModal  = new bootstrap.Modal(document.getElementById('addRecipeModal'));
