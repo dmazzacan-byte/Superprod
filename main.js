@@ -2303,6 +2303,9 @@ function initCharts() {
       },
       options: {
         plugins: {
+          legend: {
+            position: 'bottom',
+          },
           datalabels: {
             anchor: 'end',
             align: 'top',
@@ -2339,7 +2342,17 @@ function initCharts() {
         labels: topProd.map(x => x.name),
         datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }]
       },
-      options: { plugins: { datalabels: { anchor: 'end', align: 'top' } } }
+      options: {
+        plugins: {
+          legend: {
+            position: 'bottom',
+          },
+          datalabels: {
+            anchor: 'end',
+            align: 'top'
+          }
+        }
+      }
     });
   }
 }
