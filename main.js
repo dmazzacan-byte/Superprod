@@ -924,12 +924,13 @@ function showOrderDetails(oid) {
 
     // --- Cost Info ---
     const realQty = ord.quantity_produced || 0;
-    const standardCost = (ord.cost_standard_unit || 0) * realQty;
-    const extraCost = ord.cost_extra || 0;
-    const realTotalCost = standardCost + extraCost;
-    document.getElementById('detailStandardCost').textContent = formatCurrency(standardCost);
-    document.getElementById('detailExtraCost').textContent = formatCurrency(extraCost);
-    document.getElementById('detailRealCost').textContent = ord.status === 'Completada' ? formatCurrency(realTotalCost) : 'N/A';
+    // "Standard Cost" here refers to the cost that *should have been* for the actual quantity produced.
+    const standardCostForRealQty = (ord.cost_standard_unit || 0) * realQty;
+    
+    document.getElementById('detailStandardCost').textContent = formatCurrency(standardCostForRealQty);
+    document.getElementById('detailExtraCost').textContent = formatCurrency(ord.cost_extra);
+    // Display the true Real Cost and Overcost as calculated and stored on the order object
+    document.getElementById('detailRealCost').textContent = formatCurrency(ord.cost_real);
     const overcostEl = document.getElementById('detailOvercost');
     overcostEl.textContent = formatCurrency(ord.overcost);
     const ocValue = ord.overcost || 0;
@@ -1137,8 +1138,13 @@ async function completeOrder(oid, realQty) {
     orderToUpdate.quantity_produced = realQty;
     orderToUpdate.status = 'Completada';
     orderToUpdate.completed_at = new Date().toISOString().slice(0, 10);
+
+    // Perform cost calculations based on user-defined logic
     const standardCostForRealQty = (orderToUpdate.cost_standard_unit || 0) * realQty;
-    orderToUpdate.cost_real = standardCostForRealQty + (orderToUpdate.cost_extra || 0);
+    const plannedCost = orderToUpdate.cost_standard || 0;
+    const extraCostFromVales = orderToUpdate.cost_extra || 0;
+    
+    orderToUpdate.cost_real = plannedCost + extraCostFromVales;
     orderToUpdate.overcost = orderToUpdate.cost_real - standardCostForRealQty;
 
     try {
@@ -1194,18 +1200,8 @@ async function reopenOrder(oid) {
         }
     });
 
-    // Restore stock from any associated vales
-    vales.filter(v => v.order_id === oid).forEach(v => {
-        v.materials.forEach(m => {
-            const mIdx = materials.findIndex(ma => ma.codigo === m.material_code);
-            if (mIdx !== -1) {
-                const originalMaterial = materials[mIdx];
-                const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
-                updatedMaterial.existencia += (v.type === 'salida' ? 1 : -1) * m.quantity;
-                materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
-            }
-        });
-    });
+    // Vales are independent transactions and their stock adjustments should not be reversed when an order is reopened.
+    // The cost_extra associated with them remains on the order.
 
     // Update order properties to revert its state
     orderToUpdate.status = 'Pendiente';
@@ -2125,87 +2121,14 @@ document.getElementById('backupBtn').addEventListener('click', () => {
 });
 document.getElementById('restoreBtn').addEventListener('click', () => document.getElementById('importBackupFile').click());
 
-async function migrateDataToFirestore() {
-    if (localStorage.getItem('migrationCompleted')) {
-        Toastify({ text: 'La migración ya se ha completado anteriormente.', backgroundColor: 'var(--info-color)' }).showToast();
-        return;
-    }
-
-    if (!confirm('¿Está seguro de que desea migrar los datos locales a la nube? Esta acción sobreescribirá los datos en la nube y no se puede deshacer.')) {
-        return;
-    }
-
-    const loader = document.getElementById('loader');
-    if(loader) loader.style.display = 'flex';
-
-    try {
-        const localData = {
-            products: JSON.parse(localStorage.getItem('products')) || [],
-            materials: JSON.parse(localStorage.getItem('materials')) || [],
-            recipes: JSON.parse(localStorage.getItem('recipes')) || {},
-            productionOrders: JSON.parse(localStorage.getItem('productionOrders')) || [],
-            operators: JSON.parse(localStorage.getItem('operators')) || [],
-            equipos: JSON.parse(localStorage.getItem('equipos')) || [],
-            vales: JSON.parse(localStorage.getItem('vales')) || [],
-        };
-
-        for (const product of localData.products) {
-            await setDoc(doc(db, 'products', product.codigo), {
-                descripcion: product.descripcion,
-                unidad: product.unidad
-            });
-        }
-
-        for (const material of localData.materials) {
-            await setDoc(doc(db, 'materials', material.codigo), {
-                descripcion: material.descripcion,
-                unidad: material.unidad,
-                existencia: material.existencia,
-                costo: material.costo
-            });
-        }
-
-        for (const operator of localData.operators) {
-            await setDoc(doc(db, 'operators', operator.id), {
-                name: operator.name
-            });
-        }
-        
-        for (const equipo of localData.equipos) {
-            await setDoc(doc(db, 'equipos', equipo.id), {
-                name: equipo.name
-            });
-        }
-        
-        for (const order of localData.productionOrders) {
-            await setDoc(doc(db, 'productionOrders', order.order_id.toString()), order);
-        }
-        
-        for (const vale of localData.vales) {
-            await setDoc(doc(db, 'vales', vale.vale_id), vale);
-        }
-
-        for (const [productId, recipe] of Object.entries(localData.recipes)) {
-            await setDoc(doc(db, 'recipes', productId), { items: recipe });
-        }
-
-        localStorage.setItem('migrationCompleted', 'true');
-        Toastify({ text: 'Migración completada con éxito. Recargando la página...', backgroundColor: 'var(--success-color)', duration: 3000 }).showToast();
-        setTimeout(() => location.reload(), 3000);
-
-    } catch (error) {
-        console.error('Error during data migration:', error);
-        Toastify({ text: `Error en la migración: ${error.message}`, backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
-    } finally {
-        if(loader) loader.style.display = 'none';
-    }
-}
-
-document.getElementById('migrateBtn').addEventListener('click', migrateDataToFirestore);
-
 document.getElementById('importBackupFile').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+
+    if (!confirm('¿Está seguro de que desea restaurar desde esta copia de seguridad? Esta acción sobreescribirá TODOS los datos actuales en la nube y no se puede deshacer.')) {
+        return;
+    }
+
     const reader = new FileReader();
     reader.onload = async (ev) => {
         const loader = document.getElementById('loader');
@@ -2213,44 +2136,58 @@ document.getElementById('importBackupFile').addEventListener('change', async (e)
             const data = JSON.parse(ev.target.result);
             if(loader) loader.style.display = 'flex';
 
-            // Process collections sequentially to avoid race conditions and improve debugging.
-            // Clear existing collections first (optional, but good for a clean restore)
-            // Note: For a real-world app, a more robust "clear collection" cloud function would be better.
-            // For this app, we'll just overwrite documents.
+            const collectionsToSync = [
+                { name: 'products', data: data.products || [], idField: 'codigo' },
+                { name: 'materials', data: data.materials || [], idField: 'codigo' },
+                { name: 'operators', data: data.operators || [], idField: 'id' },
+                { name: 'equipos', data: data.equipos || [], idField: 'id' },
+                { name: 'productionOrders', data: data.productionOrders || [], idField: 'order_id' },
+                { name: 'vales', data: data.vales || [], idField: 'vale_id' }
+            ];
 
-            for (const product of (data.products || [])) {
-                await setDoc(doc(db, 'products', product.codigo), {
-                    descripcion: product.descripcion,
-                    unidad: product.unidad
+            for (const { name, data, idField } of collectionsToSync) {
+                const collectionRef = collection(db, name);
+                const snapshot = await getDocs(collectionRef);
+                const existingIds = new Set(snapshot.docs.map(d => d.id));
+                const backupIds = new Set(data.map(item => item[idField].toString()));
+
+                const deletePromises = [];
+                existingIds.forEach(id => {
+                    if (!backupIds.has(id)) {
+                        deletePromises.push(deleteDoc(doc(db, name, id)));
+                    }
                 });
-            }
-            for (const material of (data.materials || [])) {
-                await setDoc(doc(db, 'materials', material.codigo), {
-                    descripcion: material.descripcion,
-                    unidad: material.unidad,
-                    existencia: material.existencia,
-                    costo: material.costo
+                
+                const setPromises = [];
+                data.forEach(item => {
+                    const docId = item[idField].toString();
+                    setPromises.push(setDoc(doc(db, name, docId), item));
                 });
+                await Promise.all([...deletePromises, ...setPromises]);
             }
-            for (const operator of (data.operators || [])) {
-                await setDoc(doc(db, 'operators', operator.id), { name: operator.name });
-            }
-            for (const equipo of (data.equipos || [])) {
-                await setDoc(doc(db, 'equipos', equipo.id), { name: equipo.name });
-            }
-            for (const order of (data.productionOrders || [])) {
-                await setDoc(doc(db, 'productionOrders', order.order_id.toString()), order);
-            }
-            for (const vale of (data.vales || [])) {
-                await setDoc(doc(db, 'vales', vale.vale_id), vale);
-            }
+
+            // Special handling for recipes (object instead of array)
+            const recipesRef = collection(db, 'recipes');
+            const recipesSnapshot = await getDocs(recipesRef);
+            const existingRecipeIds = new Set(recipesSnapshot.docs.map(d => d.id));
+            const backupRecipeIds = new Set(Object.keys(data.recipes || {}));
+            
+            const deleteRecipePromises = [];
+            existingRecipeIds.forEach(id => {
+                if (!backupRecipeIds.has(id)) {
+                    deleteRecipePromises.push(deleteDoc(doc(db, 'recipes', id)));
+                }
+            });
+
+            const setRecipePromises = [];
             if (data.recipes) {
-                for (const [productId, recipeItems] of Object.entries(data.recipes)) {
-                    await setDoc(doc(db, 'recipes', productId), { items: recipeItems });
+                for (const [productId, items] of Object.entries(data.recipes)) {
+                    setRecipePromises.push(setDoc(doc(db, 'recipes', productId), { items }));
                 }
             }
+            await Promise.all([...deleteRecipePromises, ...setRecipePromises]);
 
-            Toastify({ text: 'Datos restaurados en la nube. Recargando...', backgroundColor: 'var(--success-color)', duration: 3000 }).showToast();
+            Toastify({ text: 'Datos restaurados con éxito. Recargando...', backgroundColor: 'var(--success-color)', duration: 3000 }).showToast();
             setTimeout(() => location.reload(), 3000);
 
         } catch (error) {
@@ -2308,7 +2245,8 @@ function initCharts() {
           },
           datalabels: {
             anchor: 'end',
-            align: 'top',
+            align: 'end',
+            color: '#fff',
             formatter: (value) => formatCurrency(value)
           }
         },
@@ -2349,7 +2287,8 @@ function initCharts() {
           },
           datalabels: {
             anchor: 'end',
-            align: 'top'
+            align: 'end',
+            color: '#fff'
           }
         }
       }
