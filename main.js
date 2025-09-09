@@ -924,12 +924,13 @@ function showOrderDetails(oid) {
 
     // --- Cost Info ---
     const realQty = ord.quantity_produced || 0;
-    const standardCost = (ord.cost_standard_unit || 0) * realQty;
-    const extraCost = ord.cost_extra || 0;
-    const realTotalCost = standardCost + extraCost;
-    document.getElementById('detailStandardCost').textContent = formatCurrency(standardCost);
-    document.getElementById('detailExtraCost').textContent = formatCurrency(extraCost);
-    document.getElementById('detailRealCost').textContent = ord.status === 'Completada' ? formatCurrency(realTotalCost) : 'N/A';
+    // "Standard Cost" here refers to the cost that *should have been* for the actual quantity produced.
+    const standardCostForRealQty = (ord.cost_standard_unit || 0) * realQty;
+
+    document.getElementById('detailStandardCost').textContent = formatCurrency(standardCostForRealQty);
+    document.getElementById('detailExtraCost').textContent = formatCurrency(ord.cost_extra);
+    // Display the true Real Cost and Overcost as calculated and stored on the order object
+    document.getElementById('detailRealCost').textContent = formatCurrency(ord.cost_real);
     const overcostEl = document.getElementById('detailOvercost');
     overcostEl.textContent = formatCurrency(ord.overcost);
     const ocValue = ord.overcost || 0;
@@ -1137,8 +1138,13 @@ async function completeOrder(oid, realQty) {
     orderToUpdate.quantity_produced = realQty;
     orderToUpdate.status = 'Completada';
     orderToUpdate.completed_at = new Date().toISOString().slice(0, 10);
+
+    // Perform cost calculations based on user-defined logic
     const standardCostForRealQty = (orderToUpdate.cost_standard_unit || 0) * realQty;
-    orderToUpdate.cost_real = standardCostForRealQty + (orderToUpdate.cost_extra || 0);
+    const plannedCost = orderToUpdate.cost_standard || 0;
+    const extraCostFromVales = orderToUpdate.cost_extra || 0;
+
+    orderToUpdate.cost_real = plannedCost + extraCostFromVales;
     orderToUpdate.overcost = orderToUpdate.cost_real - standardCostForRealQty;
 
     try {
@@ -1194,18 +1200,8 @@ async function reopenOrder(oid) {
         }
     });
 
-    // Restore stock from any associated vales
-    vales.filter(v => v.order_id === oid).forEach(v => {
-        v.materials.forEach(m => {
-            const mIdx = materials.findIndex(ma => ma.codigo === m.material_code);
-            if (mIdx !== -1) {
-                const originalMaterial = materials[mIdx];
-                const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
-                updatedMaterial.existencia += (v.type === 'salida' ? 1 : -1) * m.quantity;
-                materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
-            }
-        });
-    });
+    // Vales are independent transactions and their stock adjustments should not be reversed when an order is reopened.
+    // The cost_extra associated with them remains on the order.
 
     // Update order properties to revert its state
     orderToUpdate.status = 'Pendiente';
