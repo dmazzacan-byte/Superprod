@@ -675,9 +675,9 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
   row.append(
     createCol('col-md-2', typeSelect, { maxWidth: '120px' }),
     createCol('col-md-2', codeSelect, { maxWidth: '120px' }),
-    createCol('col-md-4', descInput),
+    createCol('col-md-3', descInput),
     createCol('col-md-1', qtyInput),
-    createCol('col-md-1', reqQtyOutput),
+    createCol('col-md-2', reqQtyOutput, { maxWidth: '150px' }),
     createCol('col-md-1', stockAlertOutput, { maxWidth: '100px' }),
     createCol('col-md-1 text-end', delBtn)
   );
@@ -800,7 +800,7 @@ function updateRecipeSimulation() {
         }
 
         const requiredQty = baseQty * simQty;
-        reqQtyOutput.textContent = requiredQty.toFixed(4);
+        reqQtyOutput.textContent = requiredQty.toFixed(2);
 
         if (type === 'material' && code) {
             const material = materials.find(m => m.codigo === code);
