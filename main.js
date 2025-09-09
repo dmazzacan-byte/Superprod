@@ -370,7 +370,7 @@ function updateDashboard() {
             : 'N/A';
         return `<tr>
             <td>${m.descripcion}</td>
-            <td>${m.existencia}</td>
+            <td>${m.existencia.toFixed(2)}</td>
             <td>${m.unidad}</td>
             <td>${formattedProducts}</td>
           </tr>`;
@@ -450,7 +450,7 @@ function loadMaterials(filter = '') {
   const tbody = document.getElementById('materialsTableBody'); tbody.innerHTML = '';
   materials.sort((a, b) => a.codigo.localeCompare(b.codigo));
   materials.filter(m => !filter || m.codigo.includes(filter) || m.descripcion.toLowerCase().includes(filter.toLowerCase()))
-    .forEach(m => tbody.insertAdjacentHTML('beforeend', `<tr><td>${m.codigo}</td><td>${m.descripcion}</td><td>${m.unidad}</td><td>${m.existencia}</td><td>$${m.costo.toFixed(2)}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${m.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${m.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`));
+    .forEach(m => tbody.insertAdjacentHTML('beforeend', `<tr><td>${m.codigo}</td><td>${m.descripcion}</td><td>${m.unidad}</td><td>${m.existencia.toFixed(2)}</td><td>$${m.costo.toFixed(2)}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${m.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${m.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`));
 }
 document.getElementById('materialForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -576,7 +576,7 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
 
   const qtyInput = document.createElement('input');
   qtyInput.type = 'number';
-  qtyInput.step = '0.001';
+  qtyInput.step = '0.0001';
   qtyInput.className = 'form-control form-control-sm qty-input';
   qtyInput.placeholder = 'Cantidad';
   if (qty) qtyInput.value = qty;
@@ -762,7 +762,7 @@ function loadProductionOrders(filter = '') {
             <button class="btn btn-sm btn-info view-details-btn" data-order-id="${o.order_id}" title="Ver"><i class="fas fa-eye"></i></button>
             <button class="btn btn-sm btn-danger pdf-btn" data-order-id="${o.order_id}" title="PDF"><i class="fas fa-file-pdf"></i></button>
             ${o.status === 'Pendiente'
-              ? `<button class="btn btn-sm btn-primary" onclick="generateValePrompt(${o.order_id})" title="Crear Vale"><i class="fas fa-plus-circle"></i></button>
+              ? `<button class="btn btn-sm btn-primary create-vale-btn" data-order-id="${o.order_id}" title="Crear Vale"><i class="fas fa-plus-circle"></i></button>
                  <button class="btn btn-sm btn-success complete-order-btn" data-order-id="${o.order_id}" title="Completar"><i class="fas fa-check"></i></button>
                  <button class="btn btn-sm btn-danger delete-order-btn" data-order-id="${o.order_id}" title="Eliminar"><i class="fas fa-trash"></i></button>`
               : `<button class="btn btn-sm btn-secondary reopen-order-btn" data-order-id="${o.order_id}" title="Reabrir"><i class="fas fa-undo"></i></button>`}
@@ -798,6 +798,8 @@ document.getElementById('productionOrdersTableBody').addEventListener('click', a
       confirmCloseOrderModal.show();
     } else if (btn.classList.contains('reopen-order-btn')) {
       reopenOrder(oid);
+    } else if (btn.classList.contains('create-vale-btn')) {
+      generateValePrompt(oid);
     }
 });
 
@@ -1043,8 +1045,9 @@ async function completeOrder(oid, realQty) {
     orderToUpdate.quantity_produced = realQty;
     orderToUpdate.status = 'Completada';
     orderToUpdate.completed_at = new Date().toISOString().slice(0, 10);
-    orderToUpdate.cost_real = (orderToUpdate.cost_standard || 0) + (orderToUpdate.cost_extra || 0);
-    orderToUpdate.overcost = orderToUpdate.cost_real - ((orderToUpdate.cost_standard_unit || 0) * realQty);
+    const standardCostForRealQty = (orderToUpdate.cost_standard_unit || 0) * realQty;
+    orderToUpdate.cost_real = standardCostForRealQty + (orderToUpdate.cost_extra || 0);
+    orderToUpdate.overcost = orderToUpdate.cost_real - standardCostForRealQty;
 
     try {
         // Save all changes to Firestore
@@ -1362,7 +1365,7 @@ function generateValePrompt(oid) {
           <tr class="existing-material-row">
               <td><input type="text" class="form-control-plaintext form-control-sm" value="${m.codigo}" readonly></td>
               <td><input type="text" class="form-control-plaintext form-control-sm" value="${m.descripcion}" readonly></td>
-              <td>${m.existencia} ${m.unidad}</td>
+              <td>${m.existencia.toFixed(2)} ${m.unidad}</td>
               <td><input type="number" class="form-control form-control-sm vale-material-qty" data-code="${code}" min="0" value="0" step="0.01"></td>
           </tr>
       `);
@@ -1514,20 +1517,50 @@ function generateAllReports() {
 }
 
 function generateOperatorReport(orders, tableBodyId) {
-  const report = {};
-  orders.forEach(o => {
-    const op = operators.find(op => op.id === o.operator_id);
-    const name = op ? op.name : o.operator_id;
-    if (!report[name]) report[name] = { completed: 0, units: 0, over: 0 };
-    report[name].completed += 1;
-    report[name].units += o.quantity_produced || 0;
-    report[name].over += o.overcost || 0;
-  });
+    const tbody = document.getElementById(tableBodyId);
+    if (!tbody) return;
 
-  const tbody = document.getElementById(tableBodyId);
-  tbody.innerHTML = Object.entries(report).map(([name, r]) => {
-    return `<tr><td>${name}</td><td>${r.completed}</td><td>${r.units}</td><td>$${r.over.toFixed(2)}</td></tr>`;
-  }).join('');
+    const report = {};
+    let totals = { completed: 0, units: 0, cost: 0, over: 0 };
+
+    orders.forEach(o => {
+        const op = operators.find(op => op.id === o.operator_id);
+        const name = op ? op.name : o.operator_id;
+        if (!report[name]) {
+            report[name] = { completed: 0, units: 0, cost: 0, over: 0 };
+        }
+        report[name].completed += 1;
+        report[name].units += o.quantity_produced || 0;
+        report[name].cost += o.cost_real || 0;
+        report[name].over += o.overcost || 0;
+
+        totals.completed += 1;
+        totals.units += o.quantity_produced || 0;
+        totals.cost += o.cost_real || 0;
+        totals.over += o.overcost || 0;
+    });
+
+    tbody.innerHTML = Object.entries(report).map(([name, r]) => {
+        return `<tr>
+            <td>${name}</td>
+            <td>${r.completed}</td>
+            <td>${r.units}</td>
+            <td>$${r.cost.toFixed(2)}</td>
+            <td>$${r.over.toFixed(2)}</td>
+        </tr>`;
+    }).join('');
+
+    if (Object.keys(report).length > 0) {
+        tbody.insertAdjacentHTML('beforeend', `
+            <tr class="table-group-divider fw-bold">
+                <td>TOTALES</td>
+                <td>${totals.completed}</td>
+                <td>${totals.units}</td>
+                <td>$${totals.cost.toFixed(2)}</td>
+                <td>$${totals.over.toFixed(2)}</td>
+            </tr>
+        `);
+    }
 }
 
 function generateDetailedOrdersReport(orders) {
@@ -1573,14 +1606,24 @@ function generateDetailedOrdersReport(orders) {
 function generateProductPerformanceReport(orders, tableBodyId) {
     const tbody = document.getElementById(tableBodyId);
     if (!tbody) return;
+
     const report = {};
+    let totals = { completed: 0, units: 0, cost: 0, over: 0 };
+
     orders.forEach(o => {
-        if (!report[o.product_name]) {
-            report[o.product_name] = { completed: 0, units: 0, over: 0 };
+        const name = o.product_name;
+        if (!report[name]) {
+            report[name] = { completed: 0, units: 0, cost: 0, over: 0 };
         }
-        report[o.product_name].completed += 1;
-        report[o.product_name].units += o.quantity_produced || 0;
-        report[o.product_name].over += o.overcost || 0;
+        report[name].completed += 1;
+        report[name].units += o.quantity_produced || 0;
+        report[name].cost += o.cost_real || 0;
+        report[name].over += o.overcost || 0;
+
+        totals.completed += 1;
+        totals.units += o.quantity_produced || 0;
+        totals.cost += o.cost_real || 0;
+        totals.over += o.overcost || 0;
     });
 
     tbody.innerHTML = Object.entries(report).map(([name, r]) => {
@@ -1588,26 +1631,69 @@ function generateProductPerformanceReport(orders, tableBodyId) {
             <td>${name}</td>
             <td>${r.completed}</td>
             <td>${r.units}</td>
+            <td>$${r.cost.toFixed(2)}</td>
             <td>$${r.over.toFixed(2)}</td>
         </tr>`;
     }).join('');
+
+    if (Object.keys(report).length > 0) {
+        tbody.insertAdjacentHTML('beforeend', `
+            <tr class="table-group-divider fw-bold">
+                <td>TOTALES</td>
+                <td>${totals.completed}</td>
+                <td>${totals.units}</td>
+                <td>$${totals.cost.toFixed(2)}</td>
+                <td>$${totals.over.toFixed(2)}</td>
+            </tr>
+        `);
+    }
 }
 
 function generateEquipoReport(orders) {
-  const report = {};
-  orders.forEach(o => {
-    const eq = equipos.find(eq => eq.id === o.equipo_id);
-    const name = eq ? eq.name : o.equipo_id;
-    if (!report[name]) report[name] = { completed: 0, units: 0, over: 0 };
-    report[name].completed += 1;
-    report[name].units += o.quantity_produced || 0;
-    report[name].over += o.overcost || 0;
-  });
+    const tbody = document.getElementById('equipoReportTableBody');
+    if (!tbody) return;
 
-  const tbody = document.getElementById('equipoReportTableBody');
-  tbody.innerHTML = Object.entries(report).map(([name, r]) => {
-    return `<tr><td>${name}</td><td>${r.completed}</td><td>${r.units}</td><td>$${r.over.toFixed(2)}</td></tr>`;
-  }).join('');
+    const report = {};
+    let totals = { completed: 0, units: 0, cost: 0, over: 0 };
+
+    orders.forEach(o => {
+        const eq = equipos.find(eq => eq.id === o.equipo_id);
+        const name = eq ? eq.name : o.equipo_id;
+        if (!report[name]) {
+            report[name] = { completed: 0, units: 0, cost: 0, over: 0 };
+        }
+        report[name].completed += 1;
+        report[name].units += o.quantity_produced || 0;
+        report[name].cost += o.cost_real || 0;
+        report[name].over += o.overcost || 0;
+
+        totals.completed += 1;
+        totals.units += o.quantity_produced || 0;
+        totals.cost += o.cost_real || 0;
+        totals.over += o.overcost || 0;
+    });
+
+    tbody.innerHTML = Object.entries(report).map(([name, r]) => {
+        return `<tr>
+            <td>${name}</td>
+            <td>${r.completed}</td>
+            <td>${r.units}</td>
+            <td>$${r.cost.toFixed(2)}</td>
+            <td>$${r.over.toFixed(2)}</td>
+        </tr>`;
+    }).join('');
+
+    if (Object.keys(report).length > 0) {
+        tbody.insertAdjacentHTML('beforeend', `
+            <tr class="table-group-divider fw-bold">
+                <td>TOTALES</td>
+                <td>${totals.completed}</td>
+                <td>${totals.units}</td>
+                <td>$${totals.cost.toFixed(2)}</td>
+                <td>$${totals.over.toFixed(2)}</td>
+            </tr>
+        `);
+    }
 }
 
 function getBaseMaterials(productCode, requiredQty) {
@@ -1939,7 +2025,7 @@ document.getElementById('recipeFile').addEventListener('change', async (e) => {
 
 /* ----------  BACKUP / RESTORE  ---------- */
 document.getElementById('backupBtn').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify({ products, materials, recipes, productionOrders, operators, vales }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ products, materials, recipes, productionOrders, operators, equipos, vales }, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = 'superproduccion_backup.json'; a.click();
@@ -2026,63 +2112,63 @@ async function migrateDataToFirestore() {
 document.getElementById('migrateBtn').addEventListener('click', migrateDataToFirestore);
 
 document.getElementById('importBackupFile').addEventListener('change', async (e) => {
-  const file = e.target.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async (ev) => {
-    try {
-      const data = JSON.parse(ev.target.result);
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+        const loader = document.getElementById('loader');
+        try {
+            const data = JSON.parse(ev.target.result);
+            if(loader) loader.style.display = 'flex';
 
-      const promises = [];
+            // Process collections sequentially to avoid race conditions and improve debugging.
+            // Clear existing collections first (optional, but good for a clean restore)
+            // Note: For a real-world app, a more robust "clear collection" cloud function would be better.
+            // For this app, we'll just overwrite documents.
 
-      (data.products || []).forEach(product => {
-        promises.push(setDoc(doc(db, 'products', product.codigo), {
-            descripcion: product.descripcion,
-            unidad: product.unidad
-        }));
-      });
+            for (const product of (data.products || [])) {
+                await setDoc(doc(db, 'products', product.codigo), {
+                    descripcion: product.descripcion,
+                    unidad: product.unidad
+                });
+            }
+            for (const material of (data.materials || [])) {
+                await setDoc(doc(db, 'materials', material.codigo), {
+                    descripcion: material.descripcion,
+                    unidad: material.unidad,
+                    existencia: material.existencia,
+                    costo: material.costo
+                });
+            }
+            for (const operator of (data.operators || [])) {
+                await setDoc(doc(db, 'operators', operator.id), { name: operator.name });
+            }
+            for (const equipo of (data.equipos || [])) {
+                await setDoc(doc(db, 'equipos', equipo.id), { name: equipo.name });
+            }
+            for (const order of (data.productionOrders || [])) {
+                await setDoc(doc(db, 'productionOrders', order.order_id.toString()), order);
+            }
+            for (const vale of (data.vales || [])) {
+                await setDoc(doc(db, 'vales', vale.vale_id), vale);
+            }
+            if (data.recipes) {
+                for (const [productId, recipeItems] of Object.entries(data.recipes)) {
+                    await setDoc(doc(db, 'recipes', productId), { items: recipeItems });
+                }
+            }
 
-      (data.materials || []).forEach(material => {
-        promises.push(setDoc(doc(db, 'materials', material.codigo), {
-            descripcion: material.descripcion,
-            unidad: material.unidad,
-            existencia: material.existencia,
-            costo: material.costo
-        }));
-      });
+            Toastify({ text: 'Datos restaurados en la nube. Recargando...', backgroundColor: 'var(--success-color)', duration: 3000 }).showToast();
+            setTimeout(() => location.reload(), 3000);
 
-      (data.operators || []).forEach(operator => {
-        promises.push(setDoc(doc(db, 'operators', operator.id), { name: operator.name }));
-      });
-
-      (data.equipos || []).forEach(equipo => {
-        promises.push(setDoc(doc(db, 'equipos', equipo.id), { name: equipo.name }));
-      });
-
-      (data.productionOrders || []).forEach(order => {
-        promises.push(setDoc(doc(db, 'productionOrders', order.order_id.toString()), order));
-      });
-
-      (data.vales || []).forEach(vale => {
-        promises.push(setDoc(doc(db, 'vales', vale.vale_id), vale));
-      });
-
-      if (data.recipes) {
-        for (const [productId, recipeItems] of Object.entries(data.recipes)) {
-            promises.push(setDoc(doc(db, 'recipes', productId), { items: recipeItems }));
+        } catch (error) {
+            console.error("Error restoring backup:", error);
+            Toastify({ text: `Archivo JSON inválido o error al restaurar: ${error.message}`, duration: 5000, backgroundColor: 'var(--danger-color)' }).showToast();
+        } finally {
+            if(loader) loader.style.display = 'none';
         }
-      }
-
-      await Promise.all(promises);
-
-      Toastify({ text: 'Datos restaurados en la nube. Recargando...', backgroundColor: 'var(--success-color)', duration: 3000 }).showToast();
-      setTimeout(() => location.reload(), 3000);
-
-    } catch (error) {
-      console.error("Error restoring backup:", error);
-      Toastify({ text: 'Archivo JSON inválido o error al restaurar.', backgroundColor: 'var(--danger-color)' }).showToast();
-    }
-  };
-  reader.readAsText(file);
+    };
+    reader.readAsText(file);
 });
 
 /* ----------  CHARTS  ---------- */
