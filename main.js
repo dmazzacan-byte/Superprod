@@ -802,111 +802,168 @@ document.getElementById('productionOrdersTableBody').addEventListener('click', a
 });
 
 function showOrderDetails(oid) {
-  const ord = productionOrders.find(o => o.order_id === oid);
-  if (!ord) {
-    Toastify({ text: 'Orden no encontrada', backgroundColor: 'var(--danger-color)' }).showToast();
-    return;
-  }
-
-  document.getElementById('detailOrderId').textContent = ord.order_id;
-  document.getElementById('detailProductName').textContent = ord.product_name;
-  const operator = operators.find(op => op.id === ord.operator_id);
-  document.getElementById('detailOperatorName').textContent = operator ? operator.name : 'N/A';
-  const equipo = equipos.find(eq => eq.id === ord.equipo_id);
-  document.getElementById('detailEquipoName').textContent = equipo ? equipo.name : 'N/A';
-  const statusBadge = document.getElementById('detailStatus');
-  statusBadge.textContent = ord.status;
-  statusBadge.className = `badge ${ord.status === 'Completada' ? 'bg-success' : 'bg-warning'}`;
-  document.getElementById('detailQuantityPlanned').textContent = ord.quantity;
-  document.getElementById('detailQuantityProduced').textContent = ord.quantity_produced ?? 'N/A';
-  document.getElementById('detailCreatedDate').textContent = formatDate(ord.created_at);
-  document.getElementById('detailCompletedDate').textContent = formatDate(ord.completed_at);
-
-  const realQty = ord.quantity_produced || 0;
-  const standardCost = (ord.cost_standard_unit || 0) * realQty;
-  const extraCost = ord.cost_extra || 0;
-  const realTotalCost = standardCost + extraCost;
-
-  document.getElementById('detailStandardCost').textContent = `$${standardCost.toFixed(2)}`;
-  document.getElementById('detailExtraCost').textContent = `$${extraCost.toFixed(2)}`;
-  document.getElementById('detailRealCost').textContent = ord.status === 'Completada' ? `$${realTotalCost.toFixed(2)}` : 'N/A';
-
-  const displayOvercost = ord.overcost;
-  const overcostEl = document.getElementById('detailOvercost');
-  overcostEl.textContent = displayOvercost ? `$${displayOvercost.toFixed(2)}` : 'N/A';
-  const ocValue = displayOvercost || 0;
-  overcostEl.className = 'h5 ' + (ocValue > 0 ? 'text-danger' : ocValue < 0 ? 'text-success' : '');
-
-  const materialsSummary = {};
-  const recipeItems = recipes[ord.product_code] || [];
-
-  recipeItems.forEach(recipeMat => {
-    let itemInfo = {
-        descripcion: 'N/A',
-        costo_unit: 0
-    };
-
-    if (recipeMat.type === 'product') {
-        const p = products.find(prod => prod.codigo === recipeMat.code);
-        if (p) {
-            itemInfo.descripcion = p.descripcion;
-        }
-        itemInfo.costo_unit = calculateRecipeCost(recipes[recipeMat.code] || []);
-    } else { // 'material'
-        const m = materials.find(mat => mat.codigo === recipeMat.code);
-        if (m) {
-            itemInfo.descripcion = m.descripcion;
-            itemInfo.costo_unit = m.costo;
-        }
+    const ord = productionOrders.find(o => o.order_id === oid);
+    if (!ord) {
+        Toastify({ text: 'Orden no encontrada', backgroundColor: 'var(--danger-color)' }).showToast();
+        return;
     }
 
-    const plannedQty = recipeMat.quantity * ord.quantity;
-    materialsSummary[recipeMat.code] = {
-      descripcion: itemInfo.descripcion,
-      costo_unit: itemInfo.costo_unit,
-      qty_plan: plannedQty,
-      qty_real: ord.status === 'Completada' ? (recipeMat.quantity * (ord.quantity_produced || 0)) : 0,
-      cost_plan: plannedQty * itemInfo.costo_unit,
-    };
-  });
+    // --- Basic Order Info ---
+    document.getElementById('detailOrderId').textContent = ord.order_id;
+    document.getElementById('detailProductName').textContent = ord.product_name;
+    const operator = operators.find(op => op.id === ord.operator_id);
+    document.getElementById('detailOperatorName').textContent = operator ? operator.name : 'N/A';
+    const equipo = equipos.find(eq => eq.id === ord.equipo_id);
+    document.getElementById('detailEquipoName').textContent = equipo ? equipo.name : 'N/A';
+    const statusBadge = document.getElementById('detailStatus');
+    statusBadge.textContent = ord.status;
+    statusBadge.className = `badge ${ord.status === 'Completada' ? 'bg-success' : 'bg-warning'}`;
+    document.getElementById('detailQuantityPlanned').textContent = ord.quantity;
+    document.getElementById('detailQuantityProduced').textContent = ord.quantity_produced ?? 'N/A';
+    document.getElementById('detailCreatedDate').textContent = formatDate(ord.created_at);
+    document.getElementById('detailCompletedDate').textContent = formatDate(ord.completed_at);
 
-  if (ord.status === 'Completada') {
-    vales.filter(v => v.order_id === oid).forEach(vale => {
-      vale.materials.forEach(valeMat => {
-        const adjust = vale.type === 'salida' ? valeMat.quantity : -valeMat.quantity;
-        if (materialsSummary[valeMat.material_code]) {
-          materialsSummary[valeMat.material_code].qty_real += adjust;
+    // --- Vales Info ---
+    const orderVales = vales.filter(v => v.order_id === oid);
+    document.getElementById('detailValeCount').textContent = orderVales.length;
+
+    // --- Cost Info ---
+    const realQty = ord.quantity_produced || 0;
+    const standardCost = (ord.cost_standard_unit || 0) * realQty;
+    const extraCost = ord.cost_extra || 0;
+    const realTotalCost = standardCost + extraCost;
+    document.getElementById('detailStandardCost').textContent = `$${standardCost.toFixed(2)}`;
+    document.getElementById('detailExtraCost').textContent = `$${extraCost.toFixed(2)}`;
+    document.getElementById('detailRealCost').textContent = ord.status === 'Completada' ? `$${realTotalCost.toFixed(2)}` : 'N/A';
+    const displayOvercost = ord.overcost;
+    const overcostEl = document.getElementById('detailOvercost');
+    overcostEl.textContent = displayOvercost ? `$${displayOvercost.toFixed(2)}` : 'N/A';
+    const ocValue = displayOvercost || 0;
+    overcostEl.className = 'h5 ' + (ocValue > 0 ? 'text-danger' : ocValue < 0 ? 'text-success' : '');
+
+    // --- Consolidated Materials Table ---
+    const materialsSummary = {};
+    const recipeItems = recipes[ord.product_code] || [];
+    recipeItems.forEach(recipeMat => {
+        let itemInfo = { descripcion: 'N/A', costo_unit: 0 };
+        if (recipeMat.type === 'product') {
+            const p = products.find(prod => prod.codigo === recipeMat.code);
+            if (p) itemInfo.descripcion = p.descripcion;
+            itemInfo.costo_unit = calculateRecipeCost(recipes[recipeMat.code] || []);
         } else {
-          const m = materials.find(m => m.codigo === valeMat.material_code);
-          if (m) {
-            materialsSummary[valeMat.material_code] = {
-              descripcion: m.descripcion,
-              costo_unit: m.costo,
-              qty_plan: 0,
-              qty_real: adjust,
-              cost_plan: 0,
-            };
-          }
+            const m = materials.find(mat => mat.codigo === recipeMat.code);
+            if (m) { itemInfo.descripcion = m.descripcion; itemInfo.costo_unit = m.costo; }
         }
-      });
+        const plannedQty = recipeMat.quantity * ord.quantity;
+        materialsSummary[recipeMat.code] = {
+            descripcion: itemInfo.descripcion,
+            costo_unit: itemInfo.costo_unit,
+            qty_plan: plannedQty,
+            qty_real: ord.status === 'Completada' ? (recipeMat.quantity * (ord.quantity_produced || 0)) : 0,
+            cost_plan: plannedQty * itemInfo.costo_unit,
+        };
     });
-  }
 
-  const materialsTbody = document.getElementById('detailMaterialsTableBody');
-  materialsTbody.innerHTML = '';
-  for (const [code, mat] of Object.entries(materialsSummary)) {
-    const cost_real = mat.qty_real * mat.costo_unit;
+    if (ord.status === 'Completada') {
+        orderVales.forEach(vale => {
+            vale.materials.forEach(valeMat => {
+                const adjust = vale.type === 'salida' ? valeMat.quantity : -valeMat.quantity;
+                if (materialsSummary[valeMat.material_code]) {
+                    materialsSummary[valeMat.material_code].qty_real += adjust;
+                } else {
+                    const m = materials.find(m => m.codigo === valeMat.material_code);
+                    if (m) {
+                        materialsSummary[valeMat.material_code] = {
+                            descripcion: m.descripcion,
+                            costo_unit: m.costo,
+                            qty_plan: 0,
+                            qty_real: adjust,
+                            cost_plan: 0,
+                        };
+                    }
+                }
+            });
+        });
+    }
+
+    const materialsTbody = document.getElementById('detailMaterialsTableBody');
+    materialsTbody.innerHTML = '';
+    let totalPlanCost = 0;
+    let totalRealCostConsolidated = 0;
+
+    for (const [code, mat] of Object.entries(materialsSummary)) {
+        const cost_real = mat.qty_real * mat.costo_unit;
+        totalPlanCost += mat.cost_plan;
+        totalRealCostConsolidated += cost_real;
+        materialsTbody.insertAdjacentHTML('beforeend', `
+            <tr>
+                <td>${code}</td>
+                <td>${mat.descripcion}</td>
+                <td>${mat.qty_plan.toFixed(2)} / <strong class="ms-1">${mat.qty_real.toFixed(2)}</strong></td>
+                <td>$${mat.cost_plan.toFixed(2)} / <strong class="ms-1">$${cost_real.toFixed(2)}</strong></td>
+            </tr>
+        `);
+    }
+
+    // Add total row to consolidated table
     materialsTbody.insertAdjacentHTML('beforeend', `
-        <tr>
-            <td>${code}</td>
-            <td>${mat.descripcion}</td>
-            <td>${mat.qty_plan.toFixed(2)} / <strong class="ms-1">${mat.qty_real.toFixed(2)}</strong></td>
-            <td>$${mat.cost_plan.toFixed(2)} / <strong class="ms-1">$${cost_real.toFixed(2)}</strong></td>
+        <tr class="table-group-divider fw-bold">
+            <td colspan="3" class="text-end">TOTALES:</td>
+            <td>$${totalPlanCost.toFixed(2)} / <strong class="ms-1">$${totalRealCostConsolidated.toFixed(2)}</strong></td>
         </tr>
     `);
-  }
 
-  orderDetailsModal.show();
+    // --- Individual Vales Details ---
+    const valesContainer = document.getElementById('detailValesContainer');
+    valesContainer.innerHTML = '';
+    if (orderVales.length > 0) {
+        valesContainer.innerHTML += '<h6 class="mt-4">Desglose de Vales</h6>';
+        orderVales.forEach(vale => {
+            let valeHTML = `
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <strong>Vale #${vale.vale_id}</strong> - Tipo: ${vale.type === 'salida' ? 'Salida' : 'Devolución'} - Fecha: ${formatDate(vale.created_at)}
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Código</th>
+                                    <th>Descripción</th>
+                                    <th>Cantidad</th>
+                                    <th>Costo</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+            let valeTotalCost = 0;
+            vale.materials.forEach(item => {
+                const material = materials.find(m => m.codigo === item.material_code);
+                const cost = material ? material.costo * item.quantity : 0;
+                valeTotalCost += cost;
+                valeHTML += `
+                    <tr>
+                        <td>${item.material_code}</td>
+                        <td>${material ? material.descripcion : 'N/A'}</td>
+                        <td>${item.quantity.toFixed(2)}</td>
+                        <td>$${cost.toFixed(2)}</td>
+                    </tr>`;
+            });
+            valeHTML += `
+                            </tbody>
+                            <tfoot>
+                                <tr class="fw-bold">
+                                    <td colspan="3" class="text-end">Costo Total del Vale:</td>
+                                    <td>$${valeTotalCost.toFixed(2)}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>`;
+            valesContainer.innerHTML += valeHTML;
+        });
+    }
+
+    orderDetailsModal.show();
 }
 
 document.getElementById('productionOrderForm').addEventListener('submit', async (e) => {
@@ -1297,7 +1354,7 @@ function generateValePrompt(oid) {
   const tbody = document.getElementById('valeMaterialsTableBody');
   tbody.innerHTML = '';
 
-  const recipeMaterials = new Set(ord.materials_used.map(m => m.material_code));
+  const recipeMaterials = new Set((ord.materials_used || []).map(m => m.material_code));
   recipeMaterials.forEach(code => {
       const m = materials.find(ma => ma.codigo === code);
       if (!m) return;
