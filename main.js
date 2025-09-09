@@ -2121,52 +2121,6 @@ document.getElementById('backupBtn').addEventListener('click', () => {
 });
 document.getElementById('restoreBtn').addEventListener('click', () => document.getElementById('importBackupFile').click());
 
-async function syncCollection(collectionName, backupData, idField) {
-    const collectionRef = collection(db, collectionName);
-    const snapshot = await getDocs(collectionRef);
-    const existingIds = new Set(snapshot.docs.map(d => d.id));
-    const backupIds = new Set(backupData.map(item => item[idField].toString()));
-
-    const deletePromises = [];
-    existingIds.forEach(id => {
-        if (!backupIds.has(id)) {
-            deletePromises.push(deleteDoc(doc(db, collectionName, id)));
-        }
-    });
-
-    const setPromises = [];
-    backupData.forEach(item => {
-        const docId = item[idField].toString();
-        const dataToSet = { ...item };
-        // The idField (e.g., 'codigo') is intentionally kept in the document's data
-        // to ensure it's available when the data is loaded into the application.
-        setPromises.push(setDoc(doc(db, collectionName, docId), dataToSet));
-    });
-
-    await Promise.all([...deletePromises, ...setPromises]);
-}
-
-async function syncRecipes(backupRecipes) {
-    const collectionRef = collection(db, 'recipes');
-    const snapshot = await getDocs(collectionRef);
-    const existingIds = new Set(snapshot.docs.map(d => d.id));
-    const backupIds = new Set(Object.keys(backupRecipes));
-
-    const deletePromises = [];
-    existingIds.forEach(id => {
-        if (!backupIds.has(id)) {
-            deletePromises.push(deleteDoc(doc(db, 'recipes', id)));
-        }
-    });
-
-    const setPromises = [];
-    for (const [productId, items] of Object.entries(backupRecipes)) {
-        setPromises.push(setDoc(doc(db, 'recipes', productId), { items }));
-    }
-
-    await Promise.all([...deletePromises, ...setPromises]);
-}
-
 document.getElementById('importBackupFile').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -2182,13 +2136,56 @@ document.getElementById('importBackupFile').addEventListener('change', async (e)
             const data = JSON.parse(ev.target.result);
             if(loader) loader.style.display = 'flex';
 
-            await syncCollection('products', data.products || [], 'codigo');
-            await syncCollection('materials', data.materials || [], 'codigo');
-            await syncCollection('operators', data.operators || [], 'id');
-            await syncCollection('equipos', data.equipos || [], 'id');
-            await syncCollection('productionOrders', data.productionOrders || [], 'order_id');
-            await syncCollection('vales', data.vales || [], 'vale_id');
-            await syncRecipes(data.recipes || {});
+            const collectionsToSync = [
+                { name: 'products', data: data.products || [], idField: 'codigo' },
+                { name: 'materials', data: data.materials || [], idField: 'codigo' },
+                { name: 'operators', data: data.operators || [], idField: 'id' },
+                { name: 'equipos', data: data.equipos || [], idField: 'id' },
+                { name: 'productionOrders', data: data.productionOrders || [], idField: 'order_id' },
+                { name: 'vales', data: data.vales || [], idField: 'vale_id' }
+            ];
+
+            for (const { name, data, idField } of collectionsToSync) {
+                const collectionRef = collection(db, name);
+                const snapshot = await getDocs(collectionRef);
+                const existingIds = new Set(snapshot.docs.map(d => d.id));
+                const backupIds = new Set(data.map(item => item[idField].toString()));
+
+                const deletePromises = [];
+                existingIds.forEach(id => {
+                    if (!backupIds.has(id)) {
+                        deletePromises.push(deleteDoc(doc(db, name, id)));
+                    }
+                });
+
+                const setPromises = [];
+                data.forEach(item => {
+                    const docId = item[idField].toString();
+                    setPromises.push(setDoc(doc(db, name, docId), item));
+                });
+                await Promise.all([...deletePromises, ...setPromises]);
+            }
+
+            // Special handling for recipes (object instead of array)
+            const recipesRef = collection(db, 'recipes');
+            const recipesSnapshot = await getDocs(recipesRef);
+            const existingRecipeIds = new Set(recipesSnapshot.docs.map(d => d.id));
+            const backupRecipeIds = new Set(Object.keys(data.recipes || {}));
+
+            const deleteRecipePromises = [];
+            existingRecipeIds.forEach(id => {
+                if (!backupRecipeIds.has(id)) {
+                    deleteRecipePromises.push(deleteDoc(doc(db, 'recipes', id)));
+                }
+            });
+
+            const setRecipePromises = [];
+            if (data.recipes) {
+                for (const [productId, items] of Object.entries(data.recipes)) {
+                    setRecipePromises.push(setDoc(doc(db, 'recipes', productId), { items }));
+                }
+            }
+            await Promise.all([...deleteRecipePromises, ...setRecipePromises]);
 
             Toastify({ text: 'Datos restaurados con éxito. Recargando...', backgroundColor: 'var(--success-color)', duration: 3000 }).showToast();
             setTimeout(() => location.reload(), 3000);
