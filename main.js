@@ -2138,7 +2138,8 @@ async function syncCollection(collectionName, backupData, idField) {
     backupData.forEach(item => {
         const docId = item[idField].toString();
         const dataToSet = { ...item };
-        delete dataToSet[idField];
+        // The idField (e.g., 'codigo') is intentionally kept in the document's data
+        // to ensure it's available when the data is loaded into the application.
         setPromises.push(setDoc(doc(db, collectionName, docId), dataToSet));
     });
 
