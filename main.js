@@ -108,6 +108,20 @@ function formatDate(isoDate) {
   return `${day}-${month}-${year}`;
 }
 
+function formatCurrency(value) {
+  if (value === null || typeof value === 'undefined') {
+    return 'N/A';
+  }
+  const number = parseFloat(value);
+  if (isNaN(number)) {
+    return 'N/A';
+  }
+  return `$${number.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 function updateTimestamps() {
   const now = new Date();
   const options = { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' };
@@ -294,8 +308,8 @@ function updateDashboard() {
   document.getElementById('pendingOrdersCard').textContent = pending.length;
   document.getElementById('completedOrdersCard').textContent = completedThisMonth.length;
   document.getElementById('totalProductionCard').textContent = totalProduction;
-  document.getElementById('totalCostCard').textContent = `$${realCost.toFixed(2)}`;
-  document.getElementById('totalOvercostCard').textContent = `$${overCost.toFixed(2)}`;
+  document.getElementById('totalCostCard').textContent = formatCurrency(realCost);
+  document.getElementById('totalOvercostCard').textContent = formatCurrency(overCost);
 
   const operatorStats = {};
   completedThisMonth.forEach(o => {
@@ -315,7 +329,7 @@ function updateDashboard() {
 
   const overcostRankBody = document.getElementById('operatorOvercostRankBody');
   if(overcostRankBody) {
-    overcostRankBody.innerHTML = sortedByOvercost.map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>$${op.overcost.toFixed(2)}</td></tr>`).join('');
+    overcostRankBody.innerHTML = sortedByOvercost.map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>${formatCurrency(op.overcost)}</td></tr>`).join('');
   }
 
   const equipoStats = {};
@@ -450,7 +464,7 @@ function loadMaterials(filter = '') {
   const tbody = document.getElementById('materialsTableBody'); tbody.innerHTML = '';
   materials.sort((a, b) => a.codigo.localeCompare(b.codigo));
   materials.filter(m => !filter || m.codigo.includes(filter) || m.descripcion.toLowerCase().includes(filter.toLowerCase()))
-    .forEach(m => tbody.insertAdjacentHTML('beforeend', `<tr><td>${m.codigo}</td><td>${m.descripcion}</td><td>${m.unidad}</td><td>${m.existencia.toFixed(2)}</td><td>$${m.costo.toFixed(2)}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${m.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${m.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`));
+    .forEach(m => tbody.insertAdjacentHTML('beforeend', `<tr><td>${m.codigo}</td><td>${m.descripcion}</td><td>${m.unidad}</td><td>${m.existencia.toFixed(2)}</td><td>${formatCurrency(m.costo)}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${m.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${m.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`));
 }
 document.getElementById('materialForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -525,7 +539,7 @@ function loadRecipes() {
         <td>${prod.codigo}</td>
         <td>${prod.descripcion}</td>
         <td>${recipe.length}</td>
-        <td>$${cost.toFixed(2)}</td>
+        <td>${formatCurrency(cost)}</td>
         <td>
           <button class="btn btn-sm btn-warning edit-btn me-2" data-product-id="${pid}" title="Editar"><i class="fas fa-edit"></i></button>
           <button class="btn btn-sm btn-danger delete-btn" data-product-id="${pid}" title="Eliminar"><i class="fas fa-trash"></i></button>
@@ -623,19 +637,30 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
   });
   codeSelect.addEventListener('change', updateDescription);
 
-  const createCol = (className, element) => {
+  const createCol = (className, element, style = {}) => {
       const col = document.createElement('div');
       col.className = className;
+      Object.assign(col.style, style);
       col.appendChild(element);
       return col;
   };
 
+  const reqQtyOutput = document.createElement('div');
+  reqQtyOutput.className = 'req-qty-output text-end pe-2';
+  reqQtyOutput.style.paddingTop = '0.375rem';
+
+  const stockAlertOutput = document.createElement('div');
+  stockAlertOutput.className = 'stock-alert-output';
+  stockAlertOutput.style.paddingTop = '0.375rem';
+
   row.append(
-    createCol('col-md-2', typeSelect),
-    createCol('col-md-3', codeSelect),
+    createCol('col-md-2', typeSelect, { maxWidth: '120px' }),
+    createCol('col-md-2', codeSelect, { maxWidth: '120px' }),
     createCol('col-md-4', descInput),
-    createCol('col-md-2', qtyInput),
-    createCol('col-md-1 text-center', delBtn)
+    createCol('col-md-1', qtyInput),
+    createCol('col-md-1', reqQtyOutput),
+    createCol('col-md-1', stockAlertOutput, { maxWidth: '100px' }),
+    createCol('col-md-1 text-end', delBtn)
   );
 
   container.appendChild(row);
@@ -709,6 +734,8 @@ document.getElementById('recipesTableBody').addEventListener('click', async (e) 
         document.getElementById('editRecipeProductSelect').innerHTML = `<option value="${pid}">${prod.descripcion}</option>`;
         const cont = document.getElementById('editRecipeMaterials'); cont.innerHTML = '';
         recipes[pid].forEach(i => addRecipeMaterialField('editRecipeMaterials', i.code, i.quantity, i.type));
+        document.getElementById('recipeSimulationQty').value = ''; // Clear simulation input
+        updateRecipeSimulation(); // Clear simulation columns
         editRecipeModal.show();
     } catch (error) {
         console.error("Error al abrir el modal de editar receta:", error);
@@ -720,6 +747,53 @@ document.addEventListener('click', e => {
   if (e.target.closest('.remove-material-btn')) e.target.closest('.material-field').remove();
   if (e.target.id === 'addMaterialToEditRecipeBtn') addRecipeMaterialField('editRecipeMaterials');
 });
+
+document.getElementById('recipeSimulationQty')?.addEventListener('input', updateRecipeSimulation);
+
+document.getElementById('editRecipeModal').addEventListener('hidden.bs.modal', () => {
+    document.getElementById('recipeSimulationQty').value = '';
+    // No need to call updateRecipeSimulation() here as the content is destroyed on open anyway
+});
+
+function updateRecipeSimulation() {
+    const simQty = parseFloat(document.getElementById('recipeSimulationQty').value);
+    const materialRows = document.querySelectorAll('#editRecipeMaterials .material-field');
+
+    materialRows.forEach(row => {
+        const baseQtyInput = row.querySelector('.qty-input');
+        const reqQtyOutput = row.querySelector('.req-qty-output');
+        const stockAlertOutput = row.querySelector('.stock-alert-output');
+        const type = row.querySelector('.type-select').value;
+        const code = row.querySelector('.code-select').value;
+
+        stockAlertOutput.textContent = ''; // Clear previous alerts
+        stockAlertOutput.classList.remove('text-danger', 'fw-bold');
+
+        if (isNaN(simQty) || simQty <= 0) {
+            reqQtyOutput.textContent = '';
+            return;
+        }
+
+        const baseQty = parseFloat(baseQtyInput.value);
+        if (isNaN(baseQty)) {
+            reqQtyOutput.textContent = '';
+            return;
+        }
+
+        const requiredQty = baseQty * simQty;
+        reqQtyOutput.textContent = requiredQty.toFixed(4);
+
+        if (type === 'material' && code) {
+            const material = materials.find(m => m.codigo === code);
+            if (material && material.existencia < requiredQty) {
+                const shortfall = requiredQty - material.existencia;
+                stockAlertOutput.textContent = `-${shortfall.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                stockAlertOutput.classList.add('text-danger', 'fw-bold');
+            }
+        }
+    });
+}
+
 
 /* ----------  ÓRDENES  ---------- */
 const productionOrderModal = new bootstrap.Modal(document.getElementById('productionOrderModal'));
@@ -755,8 +829,8 @@ function loadProductionOrders(filter = '') {
           <td>${o.order_id}</td>
           <td>${o.product_name || 'N/A'}</td>
           <td>${o.quantity} / ${o.quantity_produced ?? 'N/A'}</td>
-          <td>$${(o.cost_real || 0).toFixed(2)}</td>
-          <td class="${ocColor}">$${oc.toFixed(2)}</td>
+          <td>${formatCurrency(o.cost_real)}</td>
+          <td class="${ocColor}">${formatCurrency(oc)}</td>
           <td><span class="badge ${o.status === 'Completada' ? 'bg-success' : 'bg-warning'}">${o.status}</span></td>
           <td>
             <button class="btn btn-sm btn-info view-details-btn" data-order-id="${o.order_id}" title="Ver"><i class="fas fa-eye"></i></button>
@@ -834,13 +908,12 @@ function showOrderDetails(oid) {
     const standardCost = (ord.cost_standard_unit || 0) * realQty;
     const extraCost = ord.cost_extra || 0;
     const realTotalCost = standardCost + extraCost;
-    document.getElementById('detailStandardCost').textContent = `$${standardCost.toFixed(2)}`;
-    document.getElementById('detailExtraCost').textContent = `$${extraCost.toFixed(2)}`;
-    document.getElementById('detailRealCost').textContent = ord.status === 'Completada' ? `$${realTotalCost.toFixed(2)}` : 'N/A';
-    const displayOvercost = ord.overcost;
+    document.getElementById('detailStandardCost').textContent = formatCurrency(standardCost);
+    document.getElementById('detailExtraCost').textContent = formatCurrency(extraCost);
+    document.getElementById('detailRealCost').textContent = ord.status === 'Completada' ? formatCurrency(realTotalCost) : 'N/A';
     const overcostEl = document.getElementById('detailOvercost');
-    overcostEl.textContent = displayOvercost ? `$${displayOvercost.toFixed(2)}` : 'N/A';
-    const ocValue = displayOvercost || 0;
+    overcostEl.textContent = formatCurrency(ord.overcost);
+    const ocValue = ord.overcost || 0;
     overcostEl.className = 'h5 ' + (ocValue > 0 ? 'text-danger' : ocValue < 0 ? 'text-success' : '');
 
     // --- Consolidated Materials Table ---
@@ -902,7 +975,7 @@ function showOrderDetails(oid) {
                 <td>${code}</td>
                 <td>${mat.descripcion}</td>
                 <td>${mat.qty_plan.toFixed(2)} / <strong class="ms-1">${mat.qty_real.toFixed(2)}</strong></td>
-                <td>$${mat.cost_plan.toFixed(2)} / <strong class="ms-1">$${cost_real.toFixed(2)}</strong></td>
+                <td>${formatCurrency(mat.cost_plan)} / <strong class="ms-1">${formatCurrency(cost_real)}</strong></td>
             </tr>
         `);
     }
@@ -911,7 +984,7 @@ function showOrderDetails(oid) {
     materialsTbody.insertAdjacentHTML('beforeend', `
         <tr class="table-group-divider fw-bold">
             <td colspan="3" class="text-end">TOTALES:</td>
-            <td>$${totalPlanCost.toFixed(2)} / <strong class="ms-1">$${totalRealCostConsolidated.toFixed(2)}</strong></td>
+            <td>${formatCurrency(totalPlanCost)} / <strong class="ms-1">${formatCurrency(totalRealCostConsolidated)}</strong></td>
         </tr>
     `);
 
@@ -947,7 +1020,7 @@ function showOrderDetails(oid) {
                         <td>${item.material_code}</td>
                         <td>${material ? material.descripcion : 'N/A'}</td>
                         <td>${item.quantity.toFixed(2)}</td>
-                        <td>$${cost.toFixed(2)}</td>
+                        <td>${formatCurrency(cost)}</td>
                     </tr>`;
             });
             valeHTML += `
@@ -955,7 +1028,7 @@ function showOrderDetails(oid) {
                             <tfoot>
                                 <tr class="fw-bold">
                                     <td colspan="3" class="text-end">Costo Total del Vale:</td>
-                                    <td>$${valeTotalCost.toFixed(2)}</td>
+                                    <td>${formatCurrency(valeTotalCost)}</td>
                                 </tr>
                             </tfoot>
                         </table>
@@ -1545,8 +1618,8 @@ function generateOperatorReport(orders, tableBodyId) {
             <td>${name}</td>
             <td>${r.completed}</td>
             <td>${r.units}</td>
-            <td>$${r.cost.toFixed(2)}</td>
-            <td>$${r.over.toFixed(2)}</td>
+            <td>${formatCurrency(r.cost)}</td>
+            <td>${formatCurrency(r.over)}</td>
         </tr>`;
     }).join('');
 
@@ -1556,8 +1629,8 @@ function generateOperatorReport(orders, tableBodyId) {
                 <td>TOTALES</td>
                 <td>${totals.completed}</td>
                 <td>${totals.units}</td>
-                <td>$${totals.cost.toFixed(2)}</td>
-                <td>$${totals.over.toFixed(2)}</td>
+                <td>${formatCurrency(totals.cost)}</td>
+                <td>${formatCurrency(totals.over)}</td>
             </tr>
         `);
     }
@@ -1582,8 +1655,8 @@ function generateDetailedOrdersReport(orders) {
                 <td>${operator ? operator.name : 'N/A'}</td>
                 <td>${o.quantity}</td>
                 <td>${o.quantity_produced || 'N/A'}</td>
-                <td>$${(o.cost_real || 0).toFixed(2)}</td>
-                <td class="${overcostColor}">$${(o.overcost || 0).toFixed(2)}</td>
+                <td>${formatCurrency(o.cost_real)}</td>
+                <td class="${overcostColor}">${formatCurrency(o.overcost)}</td>
                 <td><span class="badge bg-success">${o.status}</span></td>
                 <td>${formatDate(o.completed_at)}</td>
             </tr>
@@ -1595,8 +1668,8 @@ function generateDetailedOrdersReport(orders) {
         tbody.insertAdjacentHTML('beforeend', `
             <tr class="table-group-divider fw-bold">
                 <td colspan="5" class="text-end">TOTALES:</td>
-                <td>$${totalRealCost.toFixed(2)}</td>
-                <td class="${overcostTotalColor}">$${totalOvercost.toFixed(2)}</td>
+                <td>${formatCurrency(totalRealCost)}</td>
+                <td class="${overcostTotalColor}">${formatCurrency(totalOvercost)}</td>
                 <td colspan="2"></td>
             </tr>
         `);
@@ -1631,8 +1704,8 @@ function generateProductPerformanceReport(orders, tableBodyId) {
             <td>${name}</td>
             <td>${r.completed}</td>
             <td>${r.units}</td>
-            <td>$${r.cost.toFixed(2)}</td>
-            <td>$${r.over.toFixed(2)}</td>
+            <td>${formatCurrency(r.cost)}</td>
+            <td>${formatCurrency(r.over)}</td>
         </tr>`;
     }).join('');
 
@@ -1642,8 +1715,8 @@ function generateProductPerformanceReport(orders, tableBodyId) {
                 <td>TOTALES</td>
                 <td>${totals.completed}</td>
                 <td>${totals.units}</td>
-                <td>$${totals.cost.toFixed(2)}</td>
-                <td>$${totals.over.toFixed(2)}</td>
+                <td>${formatCurrency(totals.cost)}</td>
+                <td>${formatCurrency(totals.over)}</td>
             </tr>
         `);
     }
@@ -1678,8 +1751,8 @@ function generateEquipoReport(orders) {
             <td>${name}</td>
             <td>${r.completed}</td>
             <td>${r.units}</td>
-            <td>$${r.cost.toFixed(2)}</td>
-            <td>$${r.over.toFixed(2)}</td>
+            <td>${formatCurrency(r.cost)}</td>
+            <td>${formatCurrency(r.over)}</td>
         </tr>`;
     }).join('');
 
@@ -1689,8 +1762,8 @@ function generateEquipoReport(orders) {
                 <td>TOTALES</td>
                 <td>${totals.completed}</td>
                 <td>${totals.units}</td>
-                <td>$${totals.cost.toFixed(2)}</td>
-                <td>$${totals.over.toFixed(2)}</td>
+                <td>${formatCurrency(totals.cost)}</td>
+                <td>${formatCurrency(totals.over)}</td>
             </tr>
         `);
     }
@@ -1752,7 +1825,7 @@ function generateMaterialConsumptionReport(orders) {
 
   const rows = Object.values(report).map(r => {
     totalCost += r.cost;
-    return `<tr><td>${r.desc}</td><td>${r.qty.toFixed(2)}</td><td>$${r.cost.toFixed(2)}</td></tr>`;
+    return `<tr><td>${r.desc}</td><td>${r.qty.toFixed(2)}</td><td>${formatCurrency(r.cost)}</td></tr>`;
   });
 
   tbody.innerHTML = rows.join('');
@@ -1761,7 +1834,7 @@ function generateMaterialConsumptionReport(orders) {
     tbody.insertAdjacentHTML('beforeend', `
         <tr class="table-group-divider fw-bold">
             <td colspan="2" class="text-end">TOTAL:</td>
-            <td>$${totalCost.toFixed(2)}</td>
+            <td>${formatCurrency(totalCost)}</td>
         </tr>
     `);
   }
@@ -2214,7 +2287,7 @@ function initCharts() {
           datalabels: {
             anchor: 'end',
             align: 'top',
-            formatter: (value) => `$${value.toFixed(2)}`
+            formatter: (value) => formatCurrency(value)
           }
         },
         scales: {
@@ -2222,7 +2295,7 @@ function initCharts() {
             beginAtZero: true,
             ticks: {
               callback: function(value) {
-                return '$' + value.toFixed(2);
+                return formatCurrency(value);
               }
             }
           }
