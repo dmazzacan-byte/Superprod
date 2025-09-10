@@ -119,7 +119,7 @@ let materials  = [];
 let vales      = [];
 let users      = [];
 
-let costChartInstance = null, productionChartInstance = null;
+let costChartInstance = null, productionChartInstance = null, dailyProductionChartInstance = null, dailyOvercostChartInstance = null;
 
 async function loadCollection(collectionName, idField) {
     const querySnapshot = await getDocs(collection(db, collectionName));
@@ -2492,12 +2492,15 @@ document.getElementById('importBackupFile').addEventListener('change', async (e)
 
 /* ----------  CHARTS  ---------- */
 function initCharts() {
+  // Destroy previous instances to prevent memory leaks and rendering issues
   if (costChartInstance) costChartInstance.destroy();
   if (productionChartInstance) productionChartInstance.destroy();
+  if (dailyProductionChartInstance) dailyProductionChartInstance.destroy();
+  if (dailyOvercostChartInstance) dailyOvercostChartInstance.destroy();
 
   const now = new Date();
-  const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
 
   const completedThisMonth = productionOrders.filter(o => {
     if (o.status !== 'Completada' || !o.completed_at) return false;
@@ -2505,83 +2508,87 @@ function initCharts() {
     return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
   });
 
-  // Cost Chart (Top 5 products this month by Unit Cost)
+  // --- Data for Top 5 charts ---
+  const costMap = {};
+  const prodMap = {};
+  completedThisMonth.forEach(o => {
+      if (!costMap[o.product_name]) {
+          costMap[o.product_name] = { total_cost: 0, total_qty: 0 };
+      }
+      costMap[o.product_name].total_cost += o.cost_real || 0;
+      costMap[o.product_name].total_qty += o.quantity_produced || 0;
+      prodMap[o.product_name] = (prodMap[o.product_name] || 0) + (o.quantity_produced || 0);
+  });
+
+  // --- Data processing for Daily Charts ---
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const monthLabels = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const dailyProductionData = Array(daysInMonth).fill(0);
+  const dailyOvercostData = Array(daysInMonth).fill(0);
+  const intermediateProducts = getIntermediateProductCodes();
+
+  completedThisMonth.forEach(o => {
+      const dayOfMonth = new Date(o.completed_at).getDate() - 1; // 0-indexed for array
+      dailyOvercostData[dayOfMonth] += o.overcost || 0;
+      if (!intermediateProducts.has(o.product_code)) {
+          dailyProductionData[dayOfMonth] += o.quantity_produced || 0;
+      }
+  });
+
+  // --- Render Top 5 Unit Cost (Bar Chart) ---
   const ctxCost = document.getElementById('costChart');
   if (ctxCost) {
-    const costMap = {};
-    completedThisMonth.forEach(o => {
-        if (!costMap[o.product_name]) {
-            costMap[o.product_name] = { total_cost: 0, total_qty: 0 };
-        }
-        costMap[o.product_name].total_cost += o.cost_real || 0;
-        costMap[o.product_name].total_qty += o.quantity_produced || 0;
-    });
+    const topUnitCost = Object.entries(costMap).map(([name, data]) => ({ name, unit_cost: data.total_qty > 0 ? data.total_cost / data.total_qty : 0 })).sort((a, b) => b.unit_cost - a.unit_cost).slice(0, 5);
+    costChartInstance = new Chart(ctxCost, { type: 'bar', data: { labels: topUnitCost.map(x => x.name), datasets: [{ label: 'Costo Unitario', data: topUnitCost.map(x => x.unit_cost), backgroundColor: '#3498db' }] }, options: { plugins: { legend: { position: 'bottom' }, datalabels: { anchor: 'end', align: 'end', color: '#fff', formatter: (value) => formatCurrency(value) } }, scales: { y: { beginAtZero: true, ticks: { callback: (value) => formatCurrency(value) } } } } });
+  }
 
-    const topUnitCost = Object.entries(costMap).map(([name, data]) => ({
-      name,
-      unit_cost: data.total_qty > 0 ? data.total_cost / data.total_qty : 0
-    })).sort((a, b) => b.unit_cost - a.unit_cost).slice(0, 5);
+  // --- Render Top 5 Production (Bar Chart) ---
+  const ctxProd = document.getElementById('productionChart');
+  if (ctxProd) {
+    const topProd = Object.entries(prodMap).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 5);
+    productionChartInstance = new Chart(ctxProd, { type: 'bar', data: { labels: topProd.map(x => x.name), datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }] }, options: { plugins: { legend: { position: 'bottom' }, datalabels: { anchor: 'end', align: 'end', color: '#fff' } } } });
+  }
 
-    costChartInstance = new Chart(ctxCost, {
-      type: 'bar',
-      data: {
-        labels: topUnitCost.map(x => x.name),
-        datasets: [{ label: 'Costo Unitario', data: topUnitCost.map(x => x.unit_cost), backgroundColor: '#3498db' }]
-      },
-      options: {
-        plugins: {
-          legend: {
-            position: 'bottom',
-          },
-          datalabels: {
-            anchor: 'end',
-            align: 'end',
-            color: '#fff',
-            formatter: (value) => formatCurrency(value)
-          }
+  // --- Render Daily Production (Line Chart) ---
+  const ctxDailyProd = document.getElementById('dailyProductionChart');
+  if (ctxDailyProd) {
+    dailyProductionChartInstance = new Chart(ctxDailyProd, {
+        type: 'line',
+        data: {
+            labels: monthLabels,
+            datasets: [{
+                label: 'Unidades Producidas (Finales)',
+                data: dailyProductionData,
+                borderColor: 'rgb(75, 192, 192)',
+                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                tension: 0.1,
+                fill: true
+            }]
         },
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: {
-              callback: function(value) {
-                return formatCurrency(value);
-              }
-            }
-          }
-        }
-      }
+        options: { plugins: { legend: { position: 'bottom' } } }
     });
   }
 
-  // Production chart (Top 5 products this month)
-  const ctxProd = document.getElementById('productionChart');
-  if (ctxProd) {
-    const prodMap = {};
-    completedThisMonth.forEach(o => {
-      prodMap[o.product_name] = (prodMap[o.product_name] || 0) + (o.quantity_produced || 0);
-    });
-    const topProd = Object.entries(prodMap).map(([name, qty]) => ({ name, qty }))
-      .sort((a, b) => b.qty - a.qty).slice(0, 5);
-
-    productionChartInstance = new Chart(ctxProd, {
-      type: 'bar',
-      data: {
-        labels: topProd.map(x => x.name),
-        datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }]
-      },
-      options: {
-        plugins: {
-          legend: {
-            position: 'bottom',
-          },
-          datalabels: {
-            anchor: 'end',
-            align: 'end',
-            color: '#fff'
-          }
+  // --- Render Daily Overcost (Line Chart) ---
+  const ctxDailyOvercost = document.getElementById('dailyOvercostChart');
+  if (ctxDailyOvercost) {
+    dailyOvercostChartInstance = new Chart(ctxDailyOvercost, {
+        type: 'line',
+        data: {
+            labels: monthLabels,
+            datasets: [{
+                label: 'Sobrecosto Diario',
+                data: dailyOvercostData,
+                borderColor: 'rgb(255, 99, 132)',
+                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                tension: 0.1,
+                fill: true
+            }]
+        },
+        options: {
+            plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: (tooltipItem) => formatCurrency(tooltipItem.raw) } } },
+            scales: { y: { ticks: { callback: (value) => formatCurrency(value) } } }
         }
-      }
     });
   }
 }
