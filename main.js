@@ -205,6 +205,15 @@ function formatDate(isoDate) {
   return `${day}-${month}-${year}`;
 }
 
+function formatDateShort(isoDate) {
+  if (!isoDate || typeof isoDate !== 'string') return 'N/A';
+  const parts = isoDate.split('-');
+  if (parts.length !== 3) return isoDate;
+  const [year, month, day] = parts;
+  const shortYear = year.slice(-2); // Get last two digits of the year
+  return `${day}-${month}-${shortYear}`;
+}
+
 function formatCurrency(value) {
   if (value === null || typeof value === 'undefined') {
     return 'N/A';
@@ -1872,7 +1881,7 @@ function generateDetailedOrdersReport(orders) {
                 <td>${formatCurrency(o.cost_real)}</td>
                 <td class="${overcostColor}">${formatCurrency(o.overcost)}</td>
                 <td><span class="badge bg-success">${o.status}</span></td>
-                <td>${formatDate(o.completed_at)}</td>
+                <td>${formatDateShort(o.completed_at)}</td>
             </tr>
         `);
     });
