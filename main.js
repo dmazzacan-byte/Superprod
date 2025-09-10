@@ -289,7 +289,7 @@ function applyRoleRestrictions() {
     const navLinksToHide = {
         'productsPage': true,
         'materialsPage': true,
-        'recipesPage': true,
+        // 'recipesPage': true, // Supervisors can now view recipes
         'reportsPage': true,
         'settingsPage': true
     };
