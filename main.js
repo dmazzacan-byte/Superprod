@@ -2546,7 +2546,12 @@ function initCharts() {
         type: 'bar',
         data: { labels: topProd.map(x => x.name), datasets: [{ label: 'Unidades', data: topProdData, backgroundColor: '#27ae60' }] },
         options: {
-            scales: { y: { suggestedMax: maxProdValue * 1.15 } }, // Add 15% padding to y-axis
+            scales: {
+                y: {
+                    suggestedMax: maxProdValue * 1.15, // Add 15% padding to y-axis
+                    title: { display: true, text: 'Cantidad' }
+                }
+            },
             plugins: {
                 legend: { display: false },
                 datalabels: { anchor: 'end', align: 'top', color: '#333', formatter: (value) => Math.round(value) }
@@ -2572,8 +2577,11 @@ function initCharts() {
             }]
         },
         options: {
+            scales: {
+                y: { title: { display: true, text: 'Cantidad' } }
+            },
             plugins: {
-                legend: { position: 'bottom' },
+                legend: { display: false }, // Remove legend
                 tooltip: { callbacks: { label: (tooltipItem) => `Unidades: ${Math.round(tooltipItem.raw)}` } },
                 datalabels: {
                     display: true,
@@ -2582,7 +2590,6 @@ function initCharts() {
                     borderRadius: 4,
                     color: 'white',
                     formatter: (value) => Math.round(value),
-                    // Hide label if value is 0 to prevent clutter
                     display: (context) => context.dataset.data[context.dataIndex] > 0
                 }
             }
@@ -2601,7 +2608,14 @@ function initCharts() {
         type: 'bar',
         data: { labels: topUnitCost.map(x => x.name), datasets: [{ label: 'Costo Unitario', data: topCostData, backgroundColor: '#3498db' }] },
         options: {
-            scales: { y: { beginAtZero: true, ticks: { callback: (value) => formatCurrency(value) }, suggestedMax: maxCostValue * 1.15 } }, // Add 15% padding
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { callback: (value) => formatCurrency(value) },
+                    suggestedMax: maxCostValue * 1.15, // Add 15% padding
+                    title: { display: true, text: 'US$' }
+                }
+            },
             plugins: {
                 legend: { display: false },
                 datalabels: { anchor: 'end', align: 'top', color: '#333', formatter: (value) => formatCurrency(value) }
@@ -2627,8 +2641,14 @@ function initCharts() {
             }]
         },
         options: {
+            scales: {
+                y: {
+                    ticks: { callback: (value) => formatCurrency(value) },
+                    title: { display: true, text: 'US$' }
+                }
+            },
             plugins: {
-                legend: { position: 'bottom' },
+                legend: { display: false }, // Remove legend
                 tooltip: { callbacks: { label: (tooltipItem) => formatCurrency(tooltipItem.raw) } },
                 datalabels: {
                     display: true,
@@ -2637,11 +2657,9 @@ function initCharts() {
                     borderRadius: 4,
                     color: 'white',
                     formatter: (value) => formatCurrency(value),
-                    // Hide label if value is 0 to prevent clutter
                     display: (context) => context.dataset.data[context.dataIndex] !== 0
                 }
-            },
-            scales: { y: { ticks: { callback: (value) => formatCurrency(value) } } }
+            }
         }
     });
   }
