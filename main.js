@@ -2575,7 +2575,16 @@ function initCharts() {
             plugins: {
                 legend: { position: 'bottom' },
                 tooltip: { callbacks: { label: (tooltipItem) => `Unidades: ${Math.round(tooltipItem.raw)}` } },
-                datalabels: { display: false } // Explicitly disable data labels for line chart
+                datalabels: {
+                    display: true,
+                    align: 'top',
+                    backgroundColor: 'rgba(75, 192, 192, 0.7)',
+                    borderRadius: 4,
+                    color: 'white',
+                    formatter: (value) => Math.round(value),
+                    // Hide label if value is 0 to prevent clutter
+                    display: (context) => context.dataset.data[context.dataIndex] > 0
+                }
             }
         }
     });
@@ -2621,7 +2630,16 @@ function initCharts() {
             plugins: {
                 legend: { position: 'bottom' },
                 tooltip: { callbacks: { label: (tooltipItem) => formatCurrency(tooltipItem.raw) } },
-                datalabels: { display: false } // Explicitly disable data labels for line chart
+                datalabels: {
+                    display: true,
+                    align: 'top',
+                    backgroundColor: 'rgba(255, 99, 132, 0.7)',
+                    borderRadius: 4,
+                    color: 'white',
+                    formatter: (value) => formatCurrency(value),
+                    // Hide label if value is 0 to prevent clutter
+                    display: (context) => context.dataset.data[context.dataIndex] !== 0
+                }
             },
             scales: { y: { ticks: { callback: (value) => formatCurrency(value) } } }
         }
