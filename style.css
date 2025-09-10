@@ -171,3 +171,45 @@ body {
 .fixed-column-width-table td:nth-child(4) {
     width: 20%; /* Costo */
 }
+
+/* Custom styles for the detailed orders report table to prevent date wrapping */
+#detailedOrdersTableBody th:nth-child(9),
+#detailedOrdersTableBody td:nth-child(9) {
+    white-space: nowrap; /* Prevent the date from wrapping */
+}
+
+/* Custom styles for report analysis tables to manage column widths */
+#operatorReportTableBodyFinal th, #operatorReportTableBodyFinal td,
+#operatorReportTableBodyIntermediate th, #operatorReportTableBodyIntermediate td,
+#productReportTableBodyFinal th, #productReportTableBodyFinal td,
+#productReportTableBodyIntermediate th, #productReportTableBodyIntermediate td {
+    padding: 0.5rem 0.4rem;
+    font-size: 0.85rem;
+    text-align: right;
+    vertical-align: middle;
+}
+
+#productReportTableBodyFinal th:nth-child(1), #productReportTableBodyFinal td:nth-child(1),
+#productReportTableBodyIntermediate th:nth-child(1), #productReportTableBodyIntermediate td:nth-child(1),
+#operatorReportTableBodyFinal th:nth-child(1), #operatorReportTableBodyFinal td:nth-child(1),
+#operatorReportTableBodyIntermediate th:nth-child(1), #operatorReportTableBodyIntermediate td:nth-child(1) {
+    text-align: left;
+}
+
+/* Custom styles for report analysis tables to manage column widths */
+#operatorReportTableBodyFinal th, #operatorReportTableBodyFinal td,
+#operatorReportTableBodyIntermediate th, #operatorReportTableBodyIntermediate td,
+#productReportTableBodyFinal th, #productReportTableBodyFinal td,
+#productReportTableBodyIntermediate th, #productReportTableBodyIntermediate td {
+    padding: 0.5rem 0.4rem;
+    font-size: 0.85rem;
+    text-align: right;
+    vertical-align: middle;
+}
+
+#productReportTableBodyFinal th:nth-child(1), #productReportTableBodyFinal td:nth-child(1),
+#productReportTableBodyIntermediate th:nth-child(1), #productReportTableBodyIntermediate td:nth-child(1),
+#operatorReportTableBodyFinal th:nth-child(1), #operatorReportTableBodyFinal td:nth-child(1),
+#operatorReportTableBodyIntermediate th:nth-child(1), #operatorReportTableBodyIntermediate td:nth-child(1) {
+    text-align: left;
+}
