@@ -1843,10 +1843,12 @@ function generateOperatorReport(orders, tableBodyId) {
     });
 
     tbody.innerHTML = Object.entries(report).map(([name, r]) => {
+        const unitCost = r.units > 0 ? r.cost / r.units : 0;
         return `<tr>
             <td>${name}</td>
             <td>${r.completed}</td>
             <td>${r.units}</td>
+            <td>${formatCurrency(unitCost)}</td>
             <td>${formatCurrency(r.cost)}</td>
             <td>${formatCurrency(r.over)}</td>
         </tr>`;
