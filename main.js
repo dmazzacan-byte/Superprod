@@ -2563,6 +2563,7 @@ function initCharts() {
   // --- Render Daily Production (Line Chart) ---
   const ctxDailyProd = document.getElementById('dailyProductionChart');
   if (ctxDailyProd) {
+    const maxDailyProd = dailyProductionData.length > 0 ? Math.max(...dailyProductionData) : 0;
     dailyProductionChartInstance = new Chart(ctxDailyProd, {
         type: 'line',
         data: {
@@ -2578,7 +2579,10 @@ function initCharts() {
         },
         options: {
             scales: {
-                y: { title: { display: true, text: 'Cantidad' } }
+                y: {
+                    title: { display: true, text: 'Cantidad' },
+                    suggestedMax: maxDailyProd * 1.15 // Add 15% padding
+                }
             },
             plugins: {
                 legend: { display: false }, // Remove legend
