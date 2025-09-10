@@ -1209,7 +1209,10 @@ function showOrderDetails(oid) {
             let valeTotalCost = 0;
             vale.materials.forEach(item => {
                 const material = materials.find(m => m.codigo === item.material_code);
-                const cost = material ? material.costo * item.quantity : 0;
+                // Use the stored historical cost (item.cost_at_time) if it exists.
+                // Fallback to live cost for older vales that don't have the field.
+                const costPerUnit = item.cost_at_time ?? (material ? material.costo : 0);
+                const cost = costPerUnit * item.quantity;
                 valeTotalCost += cost;
                 valeHTML += `
                     <tr>
@@ -1669,32 +1672,50 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
       return false;
     }
 
+    // Adjust stock locally first
     type === 'salida' ? materials[mIdx].existencia -= qty : materials[mIdx].existencia += qty;
 
-    return { material_code: code, quantity: qty };
+    // Get the cost at the moment of the transaction
+    const costAtTime = materials[mIdx].costo;
+
+    return { material_code: code, quantity: qty, cost_at_time: costAtTime };
   }).filter(Boolean);
 
   if (!mats.length) {
-    loadMaterials();
+    loadMaterials(); // Refresh materials view if an invalid operation was attempted
     return;
   }
 
-  const cost = mats.reduce((a, m) => a + m.quantity * materials.find(ma => ma.codigo === m.material_code).costo, 0) * (type === 'salida' ? 1 : -1);
+  // Calculate total cost from the snapshotted costs
+  const totalCost = mats.reduce((acc, m) => acc + (m.quantity * m.cost_at_time), 0) * (type === 'salida' ? 1 : -1);
+
   const orderIdx = productionOrders.findIndex(o => o.order_id === oid);
-  productionOrders[orderIdx].cost_extra += cost;
+  productionOrders[orderIdx].cost_extra += totalCost;
+
   const lastVale = vales.filter(v => v.order_id === oid).pop();
   const seq = lastVale ? parseInt(lastVale.vale_id.split('-')[1]) + 1 : 1;
   const valeId = `${oid}-${seq}`;
-  const newVale = { vale_id: valeId, order_id: oid, type, created_at: new Date().toISOString().slice(0, 10), materials: mats, cost };
+
+  const newVale = {
+      vale_id: valeId,
+      order_id: oid,
+      type,
+      created_at: new Date().toISOString().slice(0, 10),
+      materials: mats, // This now contains cost_at_time for each material
+      cost: totalCost
+  };
 
   try {
+    // Save the new vale with historical costs
     await setDoc(doc(db, "vales", valeId), newVale);
     vales.push(newVale);
 
+    // Update the production order's extra cost
     await updateDoc(doc(db, "productionOrders", oid.toString()), {
         cost_extra: productionOrders[orderIdx].cost_extra
     });
 
+    // Update stock for each material involved
     for (const mat of mats) {
         const m = materials.find(m => m.codigo === mat.material_code);
         await updateDoc(doc(db, "materials", m.codigo), { existencia: m.existencia });
@@ -1704,10 +1725,12 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
     loadProductionOrders();
     loadMaterials();
     bootstrap.Modal.getInstance(document.getElementById('valeModal')).hide();
-    Toastify({ text: 'Vale guardado', backgroundColor: 'var(--success-color)' }).showToast();
+    Toastify({ text: 'Vale guardado con costo histórico', backgroundColor: 'var(--success-color)' }).showToast();
   } catch (error) {
     console.error("Error saving vale: ", error);
     Toastify({ text: 'Error al guardar el vale', backgroundColor: 'var(--danger-color)' }).showToast();
+    // OPTIONAL: Revert local stock changes if Firestore fails
+    // This adds complexity but makes the UI more robust. For now, a refresh will solve inconsistencies.
   }
 });
 
