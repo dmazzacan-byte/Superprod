@@ -1855,11 +1855,13 @@ function generateOperatorReport(orders, tableBodyId) {
     }).join('');
 
     if (Object.keys(report).length > 0) {
+        const totalUnitCost = totals.units > 0 ? totals.cost / totals.units : 0;
         tbody.insertAdjacentHTML('beforeend', `
             <tr class="table-group-divider fw-bold">
                 <td>TOTALES</td>
                 <td>${totals.completed}</td>
                 <td>${totals.units}</td>
+                <td>${formatCurrency(totalUnitCost)}</td>
                 <td>${formatCurrency(totals.cost)}</td>
                 <td>${formatCurrency(totals.over)}</td>
             </tr>
