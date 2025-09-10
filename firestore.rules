@@ -3,14 +3,30 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper function to check if a user is an administrator
-    function isAdmin() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role.lower() == 'administrador';
+    // Helper function to check if the user's role document exists.
+    function userDocExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
-    // Helper function to check if a user is a supervisor
+    // Helper function to get the user's role document.
+    function getUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    // Helper function to check if a user is an administrator.
+    // This is now robust and checks for existence of the doc and field.
+    function isAdmin() {
+      return userDocExists()
+        && 'role' in getUserDoc().data
+        && getUserDoc().data.role.lower() == 'administrator';
+    }
+
+    // Helper function to check if a user is a supervisor.
+    // This is now robust and checks for existence of the doc and field.
     function isSupervisor() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role.lower() == 'supervisor';
+      return userDocExists()
+        && 'role' in getUserDoc().data
+        && getUserDoc().data.role.lower() == 'supervisor';
     }
 
     // --- User Roles ---
@@ -23,7 +39,6 @@ service cloud.firestore {
 
     // --- Admin-Managed Collections ---
     // Products, Materials, Recipes, Operators, and Equipos can only be written to by Admins.
-    // Any authenticated user can read them, which is necessary for the app to function for all roles.
     match /products/{docId} {
       allow read: if request.auth != null;
       allow write: if isAdmin();
@@ -47,7 +62,6 @@ service cloud.firestore {
 
     // --- Operational Collections ---
     // Production Orders and Vales can be created/updated by Admins and Supervisors.
-    // Only Admins can delete them.
     match /productionOrders/{docId} {
       allow read: if request.auth != null;
       allow create, update: if isAdmin() || isSupervisor();
