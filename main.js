@@ -2539,10 +2539,19 @@ function initCharts() {
   const ctxProd = document.getElementById('productionChart');
   if (ctxProd) {
     const topProd = Object.entries(prodMap).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 5);
+    const topProdData = topProd.map(x => x.qty);
+    const maxProdValue = topProdData.length > 0 ? Math.max(...topProdData) : 0;
+
     productionChartInstance = new Chart(ctxProd, {
         type: 'bar',
-        data: { labels: topProd.map(x => x.name), datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }] },
-        options: { plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', color: '#333', formatter: (value) => Math.round(value) } } }
+        data: { labels: topProd.map(x => x.name), datasets: [{ label: 'Unidades', data: topProdData, backgroundColor: '#27ae60' }] },
+        options: {
+            scales: { y: { suggestedMax: maxProdValue * 1.15 } }, // Add 15% padding to y-axis
+            plugins: {
+                legend: { display: false },
+                datalabels: { anchor: 'end', align: 'top', color: '#333', formatter: (value) => Math.round(value) }
+            }
+        }
     });
   }
 
@@ -2565,7 +2574,8 @@ function initCharts() {
         options: {
             plugins: {
                 legend: { position: 'bottom' },
-                tooltip: { callbacks: { label: (tooltipItem) => `Unidades: ${Math.round(tooltipItem.raw)}` } }
+                tooltip: { callbacks: { label: (tooltipItem) => `Unidades: ${Math.round(tooltipItem.raw)}` } },
+                datalabels: { display: false } // Explicitly disable data labels for line chart
             }
         }
     });
@@ -2575,12 +2585,18 @@ function initCharts() {
   const ctxCost = document.getElementById('costChart');
   if (ctxCost) {
     const topUnitCost = Object.entries(costMap).map(([name, data]) => ({ name, unit_cost: data.total_qty > 0 ? data.total_cost / data.total_qty : 0 })).sort((a, b) => b.unit_cost - a.unit_cost).slice(0, 5);
+    const topCostData = topUnitCost.map(x => x.unit_cost);
+    const maxCostValue = topCostData.length > 0 ? Math.max(...topCostData) : 0;
+
     costChartInstance = new Chart(ctxCost, {
         type: 'bar',
-        data: { labels: topUnitCost.map(x => x.name), datasets: [{ label: 'Costo Unitario', data: topUnitCost.map(x => x.unit_cost), backgroundColor: '#3498db' }] },
+        data: { labels: topUnitCost.map(x => x.name), datasets: [{ label: 'Costo Unitario', data: topCostData, backgroundColor: '#3498db' }] },
         options: {
-            plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', color: '#333', formatter: (value) => formatCurrency(value) } },
-            scales: { y: { beginAtZero: true, ticks: { callback: (value) => formatCurrency(value) } } }
+            scales: { y: { beginAtZero: true, ticks: { callback: (value) => formatCurrency(value) }, suggestedMax: maxCostValue * 1.15 } }, // Add 15% padding
+            plugins: {
+                legend: { display: false },
+                datalabels: { anchor: 'end', align: 'top', color: '#333', formatter: (value) => formatCurrency(value) }
+            }
         }
     });
   }
@@ -2604,7 +2620,8 @@ function initCharts() {
         options: {
             plugins: {
                 legend: { position: 'bottom' },
-                tooltip: { callbacks: { label: (tooltipItem) => formatCurrency(tooltipItem.raw) } }
+                tooltip: { callbacks: { label: (tooltipItem) => formatCurrency(tooltipItem.raw) } },
+                datalabels: { display: false } // Explicitly disable data labels for line chart
             },
             scales: { y: { ticks: { callback: (value) => formatCurrency(value) } } }
         }
