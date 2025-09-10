@@ -288,7 +288,7 @@ function applyRoleRestrictions() {
     // --- 1. Hide Navigation Links for Supervisor ---
     const navLinksToHide = {
         'productsPage': true,
-        'materialsPage': true,
+        // 'materialsPage': true, // Supervisors can now view materials
         // 'recipesPage': true, // Supervisors can now view recipes
         // 'reportsPage': true, // Supervisors can now view reports
         'settingsPage': true
@@ -316,7 +316,7 @@ function applyRoleRestrictions() {
         'button[data-bs-target="#materialModal"]',
         '#materialsTableBody .edit-btn',
         '#materialsTableBody .delete-btn',
-        '#importMaterialsBtn',
+        // '#importMaterialsBtn', // Supervisors can now import
         '#exportMaterialsBtn',
 
         // Recipes Page: Add, Edit, Delete, Import/Export
