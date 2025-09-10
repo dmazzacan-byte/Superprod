@@ -490,12 +490,14 @@ function updateDashboard() {
   const intermediateProducts = getIntermediateProductCodes();
   const finalProductOrdersThisMonth = completedThisMonth.filter(o => !intermediateProducts.has(o.product_code));
 
+  // Production and Real Cost KPIs are based on FINAL products only.
   const totalProduction = finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.quantity_produced || 0), 0);
   const realCost = finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.cost_real || 0), 0);
-  const overCost = finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.overcost || 0), 0);
+  // Overcost KPI is based on ALL completed products to monitor all deficiencies.
+  const overCost = completedThisMonth.reduce((acc, o) => acc + (o.overcost || 0), 0);
 
   document.getElementById('pendingOrdersCard').textContent = pending.length;
-  document.getElementById('completedOrdersCard').textContent = completedThisMonth.length; // This should still show ALL completed orders
+  document.getElementById('completedOrdersCard').textContent = completedThisMonth.length;
   document.getElementById('totalProductionCard').textContent = totalProduction;
   document.getElementById('totalCostCard').textContent = formatCurrency(realCost);
   document.getElementById('totalOvercostCard').textContent = formatCurrency(overCost);
