@@ -2535,18 +2535,15 @@ function initCharts() {
       }
   });
 
-  // --- Render Top 5 Unit Cost (Bar Chart) ---
-  const ctxCost = document.getElementById('costChart');
-  if (ctxCost) {
-    const topUnitCost = Object.entries(costMap).map(([name, data]) => ({ name, unit_cost: data.total_qty > 0 ? data.total_cost / data.total_qty : 0 })).sort((a, b) => b.unit_cost - a.unit_cost).slice(0, 5);
-    costChartInstance = new Chart(ctxCost, { type: 'bar', data: { labels: topUnitCost.map(x => x.name), datasets: [{ label: 'Costo Unitario', data: topUnitCost.map(x => x.unit_cost), backgroundColor: '#3498db' }] }, options: { plugins: { legend: { position: 'bottom' }, datalabels: { anchor: 'end', align: 'end', color: '#fff', formatter: (value) => formatCurrency(value) } }, scales: { y: { beginAtZero: true, ticks: { callback: (value) => formatCurrency(value) } } } } });
-  }
-
   // --- Render Top 5 Production (Bar Chart) ---
   const ctxProd = document.getElementById('productionChart');
   if (ctxProd) {
     const topProd = Object.entries(prodMap).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 5);
-    productionChartInstance = new Chart(ctxProd, { type: 'bar', data: { labels: topProd.map(x => x.name), datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }] }, options: { plugins: { legend: { position: 'bottom' }, datalabels: { anchor: 'end', align: 'end', color: '#fff' } } } });
+    productionChartInstance = new Chart(ctxProd, {
+        type: 'bar',
+        data: { labels: topProd.map(x => x.name), datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }] },
+        options: { plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', color: '#333', formatter: (value) => Math.round(value) } } }
+    });
   }
 
   // --- Render Daily Production (Line Chart) ---
@@ -2565,7 +2562,26 @@ function initCharts() {
                 fill: true
             }]
         },
-        options: { plugins: { legend: { position: 'bottom' } } }
+        options: {
+            plugins: {
+                legend: { position: 'bottom' },
+                tooltip: { callbacks: { label: (tooltipItem) => `Unidades: ${Math.round(tooltipItem.raw)}` } }
+            }
+        }
+    });
+  }
+
+  // --- Render Top 5 Unit Cost (Bar Chart) ---
+  const ctxCost = document.getElementById('costChart');
+  if (ctxCost) {
+    const topUnitCost = Object.entries(costMap).map(([name, data]) => ({ name, unit_cost: data.total_qty > 0 ? data.total_cost / data.total_qty : 0 })).sort((a, b) => b.unit_cost - a.unit_cost).slice(0, 5);
+    costChartInstance = new Chart(ctxCost, {
+        type: 'bar',
+        data: { labels: topUnitCost.map(x => x.name), datasets: [{ label: 'Costo Unitario', data: topUnitCost.map(x => x.unit_cost), backgroundColor: '#3498db' }] },
+        options: {
+            plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', color: '#333', formatter: (value) => formatCurrency(value) } },
+            scales: { y: { beginAtZero: true, ticks: { callback: (value) => formatCurrency(value) } } }
+        }
     });
   }
 
@@ -2586,7 +2602,10 @@ function initCharts() {
             }]
         },
         options: {
-            plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: (tooltipItem) => formatCurrency(tooltipItem.raw) } } },
+            plugins: {
+                legend: { position: 'bottom' },
+                tooltip: { callbacks: { label: (tooltipItem) => formatCurrency(tooltipItem.raw) } }
+            },
             scales: { y: { ticks: { callback: (value) => formatCurrency(value) } } }
         }
     });

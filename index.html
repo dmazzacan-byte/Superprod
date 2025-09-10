@@ -124,14 +124,15 @@
                         <div class="col-lg-4"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Sobrecosto por Operador</h5></div><div class="card-body"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>#</th><th>Operador</th><th>Sobrecosto</th></tr></thead><tbody id="operatorOvercostRankBody"></tbody></table></div></div></div></div>
                         <div class="col-lg-4"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Producción por Equipo</h5></div><div class="card-body"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>#</th><th>Equipo</th><th>Unidades</th></tr></thead><tbody id="equipoProductionRankBody"></tbody></table></div></div></div></div>
                     </div>
+                    <!-- Chart Row 1: Production -->
                     <div class="row g-4 mt-4">
-                        <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Costo Unitario por Producto (Top 5)</h5></div><div class="card-body d-flex align-items-center justify-content-center"><canvas id="costChart"></canvas></div></div></div>
                         <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Producción por Producto (Top 5)</h5></div><div class="card-body"><canvas id="productionChart"></canvas></div></div></div>
+                        <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Producción Diaria (Productos Finales)</h5></div><div class="card-body"><canvas id="dailyProductionChart"></canvas></div></div></div>
                     </div>
 
-                    <!-- New Daily Charts Row -->
+                    <!-- Chart Row 2: Costs -->
                     <div class="row g-4 mt-4">
-                        <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Producción Diaria (Productos Finales)</h5></div><div class="card-body"><canvas id="dailyProductionChart"></canvas></div></div></div>
+                        <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Costo Unitario por Producto (Top 5)</h5></div><div class="card-body d-flex align-items-center justify-content-center"><canvas id="costChart"></canvas></div></div></div>
                         <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Sobrecosto Diario</h5></div><div class="card-body"><canvas id="dailyOvercostChart"></canvas></div></div></div>
                     </div>
                     <div class="row g-4 mt-4">
