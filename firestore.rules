@@ -14,10 +14,11 @@ service cloud.firestore {
     }
 
     // --- User Roles ---
-    // Users can read their own role. Only Admins can change roles.
     match /users/{userId} {
-      allow read: if request.auth.uid == userId;
-      allow write: if isAdmin();
+      // Any user can get their own document to check their role upon login.
+      allow get: if request.auth.uid == userId;
+      // Admins can get any user document, list all users for management, and write to any user document.
+      allow read, write: if isAdmin();
     }
 
     // --- Admin-Managed Collections ---
