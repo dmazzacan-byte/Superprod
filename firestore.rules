@@ -4,12 +4,12 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // Helper function to check if a user is an administrator
     function isAdmin() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Administrador';
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role.lower() == 'administrador';
     }
 
     // Helper function to check if a user is a supervisor
     function isSupervisor() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Supervisor';
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role.lower() == 'supervisor';
     }
 
     // Allow authenticated users to read their own user document to get their role

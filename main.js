@@ -155,7 +155,7 @@ async function loadInitialData() {
             loadRecipesCollection()
         ];
 
-        if (currentUserRole === 'Administrator') {
+        if (currentUserRole?.toLowerCase() === 'administrator') {
             promises.push(loadCollection('users', 'uid'));
         }
 
@@ -283,7 +283,7 @@ function generatePagePDF(elementId, filename) {
 }
 
 function applyRoleRestrictions() {
-    const isSupervisor = currentUserRole === 'Supervisor';
+    const isSupervisor = currentUserRole?.toLowerCase() === 'supervisor';
 
     // --- 1. Hide Navigation Links for Supervisor ---
     const navLinksToHide = {
