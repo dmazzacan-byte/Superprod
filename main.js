@@ -1,5 +1,6 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
 import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
 import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
 import Chart from 'https://esm.sh/chart.js/auto';
@@ -18,6 +19,7 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
@@ -29,6 +31,84 @@ console.log("Firebase initialized");
 // -----------------------------------------------------------------------------
 /* global bootstrap, XLSX, jsPDF, html2canvas, Toastify */
 
+/* ----------  AUTH  ---------- */
+const loginView = document.getElementById('loginView');
+const appView = document.getElementById('appView');
+const loginForm = document.getElementById('loginForm');
+const logoutBtn = document.getElementById('logoutBtn');
+const userDataDiv = document.getElementById('userData');
+
+let currentUserRole = null;
+
+async function getUserRole(uid) {
+    const userDoc = await getDoc(doc(db, "users", uid));
+    if (userDoc.exists()) {
+        return userDoc.data().role;
+    }
+    return null;
+}
+
+onAuthStateChanged(auth, async (user) => {
+    if (user) {
+        try {
+            currentUserRole = await getUserRole(user.uid);
+
+            // If user is authenticated but has no role, deny access and sign out.
+            if (!currentUserRole) {
+                console.error(`Authentication error: User ${user.email} has no role assigned in Firestore.`);
+                Toastify({
+                    text: 'Acceso denegado. No tiene un rol asignado. Contacte a un administrador.',
+                    backgroundColor: 'var(--danger-color)',
+                    duration: 8000
+                }).showToast();
+                await signOut(auth);
+                // The onAuthStateChanged will fire again with user=null, showing the login screen.
+                return;
+            }
+
+            // If role is valid, proceed to show the app
+            loginView.classList.add('d-none');
+            appView.classList.remove('d-none');
+            userDataDiv.textContent = `${user.email} (${currentUserRole})`;
+            await initializeAppContent();
+
+        } catch (error) {
+            console.error("A critical error occurred during the login process:", error);
+            Toastify({ text: 'Ocurrió un error crítico al iniciar sesión. Por favor, intente de nuevo.', backgroundColor: 'var(--danger-color)', duration: 8000 }).showToast();
+            await signOut(auth);
+        }
+    } else {
+        currentUserRole = null;
+        loginView.classList.remove('d-none');
+        appView.classList.add('d-none');
+    }
+});
+
+loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+    const loginButton = loginForm.querySelector('button');
+    const spinner = loginButton.querySelector('.spinner-border');
+
+    spinner.classList.remove('d-none');
+    loginButton.disabled = true;
+
+    try {
+        await signInWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+        Toastify({ text: `Error: ${error.code}`, backgroundColor: 'var(--danger-color)' }).showToast();
+    } finally {
+        spinner.classList.add('d-none');
+        loginButton.disabled = false;
+    }
+});
+
+logoutBtn.addEventListener('click', async () => {
+    await signOut(auth);
+});
+
+
 /* ----------  BASE DE DATOS LOCAL  ---------- */
 let products   = [];
 let recipes    = {};
@@ -37,8 +117,9 @@ let operators  = [];
 let equipos    = [];
 let materials  = [];
 let vales      = [];
+let users      = [];
 
-let costChartInstance = null, productionChartInstance = null;
+let costChartInstance = null, productionChartInstance = null, dailyProductionChartInstance = null, dailyOvercostChartInstance = null;
 
 async function loadCollection(collectionName, idField) {
     const querySnapshot = await getDocs(collection(db, collectionName));
@@ -64,15 +145,7 @@ async function loadInitialData() {
     document.body.insertAdjacentHTML('beforeend', '<div id="loader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center;"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>');
 
     try {
-        [
-            products,
-            materials,
-            productionOrders,
-            operators,
-            equipos,
-            vales,
-            recipes
-        ] = await Promise.all([
+        const promises = [
             loadCollection('products', 'codigo'),
             loadCollection('materials', 'codigo'),
             loadCollection('productionOrders', 'order_id'),
@@ -80,8 +153,32 @@ async function loadInitialData() {
             loadCollection('equipos', 'id'),
             loadCollection('vales', 'vale_id'),
             loadRecipesCollection()
-        ]);
-        
+        ];
+
+        if (currentUserRole?.toLowerCase() === 'administrator') {
+            promises.push(loadCollection('users', 'uid'));
+        }
+
+        const [
+            productsData,
+            materialsData,
+            productionOrdersData,
+            operatorsData,
+            equiposData,
+            valesData,
+            recipesData,
+            usersData
+        ] = await Promise.all(promises);
+
+        products = productsData;
+        materials = materialsData;
+        productionOrders = productionOrdersData;
+        operators = operatorsData;
+        equipos = equiposData;
+        vales = valesData;
+        recipes = recipesData;
+        if (usersData) users = usersData;
+
         productionOrders.forEach(o => o.order_id = parseInt(o.order_id));
 
     } catch (error) {
@@ -106,6 +203,15 @@ function formatDate(isoDate) {
   if (parts.length !== 3) return isoDate;
   const [year, month, day] = parts;
   return `${day}-${month}-${year}`;
+}
+
+function formatDateShort(isoDate) {
+  if (!isoDate || typeof isoDate !== 'string') return 'N/A';
+  const parts = isoDate.split('-');
+  if (parts.length !== 3) return isoDate;
+  const [year, month, day] = parts;
+  const shortYear = year.slice(-2); // Get last two digits of the year
+  return `${day}-${month}-${shortYear}`;
 }
 
 function formatCurrency(value) {
@@ -139,7 +245,7 @@ function printPage(pageId) {
         page.classList.remove('printable-page');
         window.onafterprint = null; // Clean up handler
     };
-    
+
     page.classList.add('printable-page');
     window.print();
 }
@@ -162,7 +268,7 @@ function generatePagePDF(elementId, filename) {
         const ratio = canvasWidth / canvasHeight;
         const width = pdfWidth;
         const height = width / ratio;
-        
+
         let position = 0;
         let heightLeft = height;
 
@@ -175,7 +281,7 @@ function generatePagePDF(elementId, filename) {
             pdf.addImage(imgData, 'PNG', 0, position, width, height);
             heightLeft -= pdfHeight;
         }
-       
+
         pdf.save(filename);
         element.style.display = originalDisplay;
     }).catch(err => {
@@ -185,9 +291,81 @@ function generatePagePDF(elementId, filename) {
     });
 }
 
+function applyRoleRestrictions() {
+    const isSupervisor = currentUserRole?.toLowerCase() === 'supervisor';
+
+    // --- 1. Hide Navigation Links for Supervisor ---
+    const navLinksToHide = {
+        'productsPage': true,
+        // 'materialsPage': true, // Supervisors can now view materials
+        // 'recipesPage': true, // Supervisors can now view recipes
+        // 'reportsPage': true, // Supervisors can now view reports
+        'settingsPage': true
+    };
+
+    document.querySelectorAll('#sidebar .nav-link').forEach(link => {
+        const page = link.dataset.page;
+        if (isSupervisor && navLinksToHide[page]) {
+            link.parentElement.style.display = 'none';
+        } else {
+            link.parentElement.style.display = 'block'; // Use 'block' for <li> elements
+        }
+    });
+
+    // --- 2. Hide specific buttons and actions within pages ---
+    const adminOnlySelectors = [
+        // Products Page: Add, Edit, Delete, Import/Export
+        'button[data-bs-target="#productModal"]',
+        '#productsTableBody .edit-btn',
+        '#productsTableBody .delete-btn',
+        '#importProductsBtn',
+        '#exportProductsBtn',
+
+        // Materials Page: Add, Edit, Delete, Import/Export
+        'button[data-bs-target="#materialModal"]',
+        '#materialsTableBody .edit-btn',
+        '#materialsTableBody .delete-btn',
+        // '#importMaterialsBtn', // Supervisors can now import
+        '#exportMaterialsBtn',
+
+        // Recipes Page: Add, Edit, Delete, Import/Export
+        'button[data-bs-target="#addRecipeModal"]',
+        '#recipesTableBody .edit-btn',
+        '#recipesTableBody .delete-btn',
+        '#importRecipesBtn',
+        '#exportRecipesBtn',
+
+        // Production Orders Page: Supervisors can create orders and vales, but not delete or reopen orders.
+        '#productionOrdersTableBody .delete-order-btn',
+        '#productionOrdersTableBody .reopen-order-btn',
+
+        // Settings Page: Hide all management cards/buttons from supervisors
+        '#settingsPage .card'
+    ];
+
+    adminOnlySelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => {
+            if (isSupervisor) {
+                el.style.display = 'none';
+            } else {
+                // Ensure admins can see everything
+                el.style.display = ''; // Revert to default display style
+            }
+        });
+    });
+
+    // --- 3. If a supervisor somehow navigates to a restricted page, show an access denied message ---
+    // This is a fallback, as the links should already be hidden.
+    const currentPageId = document.querySelector('.page-content:not([style*="display: none"])')?.id;
+    if (isSupervisor && navLinksToHide[currentPageId]) {
+        document.getElementById(currentPageId).innerHTML = '<h1 class="mt-4">Acceso Denegado</h1><p>No tiene permiso para ver esta página. Por favor, regrese al Dashboard.</p>';
+    }
+}
+
+
 /* ----------  NAVEGACIÓN  ---------- */
-document.addEventListener('DOMContentLoaded', async () => {
-  console.log('DOM fully loaded and parsed');
+async function initializeAppContent() {
+  console.log("Initializing app content...");
 
   console.log("Registering ChartDataLabels plugin");
   try {
@@ -198,17 +376,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   await loadInitialData();
+  applyRoleRestrictions();
   const navLinks = document.querySelectorAll('.nav-link');
   const pages    = document.querySelectorAll('.page-content');
 
   function showPage(pageId) {
     try {
         console.log(`Attempting to show page: ${pageId}`);
-        
+
         pages.forEach(p => {
             p.style.display = 'none';
         });
-        
+
         const pageToShow = document.getElementById(pageId);
         if (!pageToShow) {
             console.error(`Page with id "${pageId}" not found.`);
@@ -252,6 +431,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.log('Loading settings content...');
             loadOperators();
             loadEquipos();
+            if (currentUserRole === 'Administrator') {
+                document.getElementById('userManagementCard').style.display = 'block';
+                loadUsers();
+            } else {
+                document.getElementById('userManagementCard').style.display = 'none';
+            }
             // loadLogo().catch(err => console.error("Error in loadLogo:", err));
         }
         console.log('Finished loading content for page:', pageId);
@@ -260,17 +445,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         Toastify({ text: 'Ocurrió un error al cambiar de sección.', backgroundColor: 'var(--danger-color)' }).showToast();
     }
   }
-  
-  navLinks.forEach(l => l.addEventListener('click', (e) => { 
-      e.preventDefault(); 
+
+  navLinks.forEach(l => l.addEventListener('click', (e) => {
+      e.preventDefault();
       console.log(`Nav link clicked. page: ${l.dataset.page}`);
       showPage(l.dataset.page);
   }));
-  
+
   // PDF and Print Buttons
   document.getElementById('dashboardPdfBtn')?.addEventListener('click', () => generatePagePDF('dashboardPage', 'dashboard.pdf'));
   document.getElementById('reportsPdfBtn')?.addEventListener('click', () => generatePagePDF('reportsPage', 'reporte.pdf'));
-  
+
   document.getElementById('toggleOrderSortBtn')?.addEventListener('click', () => {
     orderSortDirection = orderSortDirection === 'asc' ? 'desc' : 'asc';
     const icon = document.querySelector('#toggleOrderSortBtn i');
@@ -285,7 +470,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateDashboard();
     }
   });
-});
+}
 
 /* ----------  DASHBOARD  ---------- */
 function updateDashboard() {
@@ -298,11 +483,17 @@ function updateDashboard() {
     const orderDate = new Date(o.completed_at);
     return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
   });
-  
+
   const pending = productionOrders.filter(o => o.status === 'Pendiente');
 
-  const totalProduction = completedThisMonth.reduce((acc, o) => acc + (o.quantity_produced || 0), 0);
-  const realCost = completedThisMonth.reduce((acc, o) => acc + (o.cost_real || 0), 0);
+  // --- Refined KPI Calculations ---
+  const intermediateProducts = getIntermediateProductCodes();
+  const finalProductOrdersThisMonth = completedThisMonth.filter(o => !intermediateProducts.has(o.product_code));
+
+  // Production and Real Cost KPIs are based on FINAL products only.
+  const totalProduction = finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.quantity_produced || 0), 0);
+  const realCost = finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.cost_real || 0), 0);
+  // Overcost KPI is based on ALL completed products to monitor all deficiencies.
   const overCost = completedThisMonth.reduce((acc, o) => acc + (o.overcost || 0), 0);
 
   document.getElementById('pendingOrdersCard').textContent = pending.length;
@@ -310,7 +501,8 @@ function updateDashboard() {
   document.getElementById('totalProductionCard').textContent = totalProduction;
   document.getElementById('totalCostCard').textContent = formatCurrency(realCost);
   document.getElementById('totalOvercostCard').textContent = formatCurrency(overCost);
-  
+
+  // --- Operator and Equipment Rankings (based on all completed orders) ---
   const operatorStats = {};
   completedThisMonth.forEach(o => {
     const opId = o.operator_id;
@@ -345,21 +537,19 @@ function updateDashboard() {
   const equipoRankBody = document.getElementById('equipoProductionRankBody');
   equipoRankBody.innerHTML = sortedByEquipoProduction.map((eq, i) => `<tr><td>${i + 1}</td><td>${eq.name}</td><td>${eq.production}</td></tr>`).join('');
 
+  // --- Low Stock Alert ---
   const threshold = parseInt(document.getElementById('lowStockThreshold').value, 10);
-
-  // 1. Get all unique materials used in recipes
   const materialsInRecipes = new Set();
   for (const productId of Object.keys(recipes)) {
       const baseMats = getBaseMaterials(productId, 1);
       baseMats.forEach(mat => materialsInRecipes.add(mat.code));
   }
 
-  // 2. Filter materials that are in recipes, are below threshold, and then sort them
   const lowStockMaterials = materials
       .filter(m => materialsInRecipes.has(m.codigo))
       .filter(m => m.existencia < threshold)
       .sort((a, b) => a.existencia - b.existencia);
-  
+
   const affectedProductsByMaterial = {};
   lowStockMaterials.forEach(m => {
       affectedProductsByMaterial[m.codigo] = new Set();
@@ -390,8 +580,9 @@ function updateDashboard() {
           </tr>`;
       }).join('')
     : `<tr><td colspan="4" class="text-center">Sin alertas para el límite de ${threshold}</td></tr>`;
-  
-  initCharts();
+
+  // Pass filtered data to initCharts
+  initCharts(completedThisMonth, finalProductOrdersThisMonth);
 }
 
 /* ----------  PRODUCTOS  ---------- */
@@ -427,7 +618,7 @@ document.getElementById('productForm').addEventListener('submit', async (e) => {
     } else {
         products.push({ codigo: code, ...productData });
     }
-    
+
     loadProducts();
     productModal.hide();
     Toastify({ text: 'Producto guardado', backgroundColor: 'var(--success-color)' }).showToast();
@@ -463,12 +654,12 @@ const materialModal = new bootstrap.Modal(document.getElementById('materialModal
 function loadMaterials() {
   const filter = document.getElementById('searchMaterial').value.toLowerCase();
   const showOnlyProducts = document.getElementById('filterMaterialsAsProducts').checked;
-  
+
   const tbody = document.getElementById('materialsTableBody');
   tbody.innerHTML = '';
-  
+
   materials.sort((a, b) => a.codigo.localeCompare(b.codigo));
-  
+
   let filteredMaterials = materials;
 
   if (showOnlyProducts) {
@@ -479,7 +670,7 @@ function loadMaterials() {
   if (filter) {
     filteredMaterials = filteredMaterials.filter(m => m.codigo.toLowerCase().includes(filter) || m.descripcion.toLowerCase().includes(filter));
   }
-  
+
   filteredMaterials.forEach(m => {
     tbody.insertAdjacentHTML('beforeend', `<tr><td>${m.codigo}</td><td>${m.descripcion}</td><td>${m.unidad}</td><td>${m.existencia.toFixed(2)}</td><td>${formatCurrency(m.costo)}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${m.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${m.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`);
   });
@@ -492,7 +683,7 @@ document.getElementById('materialForm').addEventListener('submit', async (e) => 
   const exist = parseFloat(document.getElementById('materialExistence').value);
   const cost = parseFloat(document.getElementById('materialCost').value);
   if (!code || !desc) return;
-  
+
   const materialData = {
       descripcion: desc,
       unidad: unit,
@@ -509,7 +700,7 @@ document.getElementById('materialForm').addEventListener('submit', async (e) => 
     } else {
         materials[idx] = { codigo: code, ...materialData };
     }
-    
+
     loadMaterials();
     materialModal.hide();
     Toastify({ text: 'Material guardado', backgroundColor: 'var(--success-color)' }).showToast();
@@ -635,12 +826,12 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
     }
     const list = allItems[currentType];
     codeSelect.innerHTML = '<option value="" selected disabled>Selecciona...</option>';
-    
+
     const recipeProductCode = document.getElementById('editRecipeProductSelect')?.value || document.getElementById('recipeProductSelect')?.value;
 
     list.forEach(item => {
       if (currentType === 'product' && item.codigo === recipeProductCode) return;
-      
+
       const isSelected = item.codigo === mCode;
       const o = new Option(`${item.codigo} – ${item.descripcion}`, item.codigo, false, isSelected);
       codeSelect.add(o);
@@ -663,10 +854,10 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
       col.appendChild(element);
       return col;
   };
-  
+
   const reqQtyOutput = document.createElement('div');
   reqQtyOutput.className = 'req-qty-output text-end pe-2';
-  reqQtyOutput.style.paddingTop = '0.375rem'; 
+  reqQtyOutput.style.paddingTop = '0.375rem';
 
   const stockAlertOutput = document.createElement('div');
   stockAlertOutput.className = 'stock-alert-output';
@@ -681,7 +872,7 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
     createCol('col-md-1', stockAlertOutput, { maxWidth: '100px' }),
     createCol('col-md-1 text-end', delBtn)
   );
-  
+
   container.appendChild(row);
   populateCodeSelect();
 }
@@ -692,7 +883,7 @@ document.getElementById('addRecipeForm').addEventListener('submit', async (e) =>
     .map(f => ({ type: f.querySelector('.type-select').value, code: f.querySelector('.code-select').value, quantity: parseFloat(f.querySelector('.qty-input').value) }))
     .filter(i => i.code && !isNaN(i.quantity));
   if (!items.length) { Toastify({ text: 'Agrega al menos un ingrediente' }).showToast(); return; }
-  
+
   try {
     await setDoc(doc(db, "recipes", pid), { items });
     recipes[pid] = items;
@@ -715,7 +906,7 @@ document.getElementById('editRecipeForm').addEventListener('submit', async (e) =
     }))
     .filter(i => i.code && !isNaN(i.quantity));
   if (!items.length) { Toastify({ text: 'Agrega al menos un ingrediente' }).showToast(); return; }
-  
+
   try {
     await setDoc(doc(db, "recipes", pid), { items });
     recipes[pid] = items;
@@ -832,7 +1023,7 @@ function populateOrderFormSelects() {
 function loadProductionOrders(filter = '') {
   const tbody = document.getElementById('productionOrdersTableBody');
   tbody.innerHTML = '';
-  
+
   const sortedOrders = [...productionOrders].sort((a, b) => {
     if (orderSortDirection === 'asc') return a.order_id - b.order_id;
     return b.order_id - a.order_id;
@@ -926,7 +1117,7 @@ function showOrderDetails(oid) {
     const realQty = ord.quantity_produced || 0;
     // "Standard Cost" here refers to the cost that *should have been* for the actual quantity produced.
     const standardCostForRealQty = (ord.cost_standard_unit || 0) * realQty;
-    
+
     document.getElementById('detailStandardCost').textContent = formatCurrency(standardCostForRealQty);
     document.getElementById('detailExtraCost').textContent = formatCurrency(ord.cost_extra);
     // Display the true Real Cost and Overcost as calculated and stored on the order object
@@ -980,7 +1171,7 @@ function showOrderDetails(oid) {
             });
         });
     }
-    
+
     const materialsTbody = document.getElementById('detailMaterialsTableBody');
     materialsTbody.innerHTML = '';
     let totalPlanCost = 0;
@@ -1033,7 +1224,10 @@ function showOrderDetails(oid) {
             let valeTotalCost = 0;
             vale.materials.forEach(item => {
                 const material = materials.find(m => m.codigo === item.material_code);
-                const cost = material ? material.costo * item.quantity : 0;
+                // Use the stored historical cost (item.cost_at_time) if it exists.
+                // Fallback to live cost for older vales that don't have the field.
+                const costPerUnit = item.cost_at_time ?? (material ? material.costo : 0);
+                const cost = costPerUnit * item.quantity;
                 valeTotalCost += cost;
                 valeHTML += `
                     <tr>
@@ -1127,7 +1321,7 @@ async function completeOrder(oid, realQty) {
             const originalMaterial = materials[mIdx];
             const perUnitQty = (orderToUpdate.quantity > 0) ? (orderMat.quantity / orderToUpdate.quantity) : 0;
             const consumedQty = perUnitQty * realQty;
-            
+
             const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
             updatedMaterial.existencia -= consumedQty;
             materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
@@ -1143,7 +1337,7 @@ async function completeOrder(oid, realQty) {
     const standardCostForRealQty = (orderToUpdate.cost_standard_unit || 0) * realQty;
     const plannedCost = orderToUpdate.cost_standard || 0;
     const extraCostFromVales = orderToUpdate.cost_extra || 0;
-    
+
     orderToUpdate.cost_real = plannedCost + extraCostFromVales;
     orderToUpdate.overcost = orderToUpdate.cost_real - standardCostForRealQty;
 
@@ -1154,7 +1348,7 @@ async function completeOrder(oid, realQty) {
         materialsToUpdate.forEach((material, code) => {
             promises.push(setDoc(doc(db, "materials", code), material));
         });
-        
+
         await Promise.all(promises);
 
         // Re-fetch data from Firestore to ensure local state is in sync
@@ -1193,7 +1387,7 @@ async function reopenOrder(oid) {
             const originalMaterial = materials[mIdx];
             const perUnitQty = (orderToUpdate.quantity > 0) ? (orderMat.quantity / orderToUpdate.quantity) : 0;
             const consumedQty = perUnitQty * (orderToUpdate.quantity_produced || 0);
-            
+
             const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
             updatedMaterial.existencia += consumedQty;
             materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
@@ -1247,7 +1441,7 @@ async function generateOrderPDF(oid) {
       return;
     }
     const doc = new jsPDF();
-    
+
     let logoHeight = 0;
     const logoData = localStorage.getItem('companyLogo');
     if (logoData) {
@@ -1271,7 +1465,7 @@ async function generateOrderPDF(oid) {
 
     let startY = (logoHeight > 0 ? 15 + logoHeight : 25) + 15;
     const lineHeight = 7;
-    
+
     const rightColX = 140;
     const valeCount = vales.filter(v => v.order_id === oid).length;
     doc.setFontSize(10);
@@ -1317,7 +1511,7 @@ async function generateOrderPDF(oid) {
       return [desc, u.quantity.toFixed(2), (u.quantity * cost).toFixed(2)];
     });
     doc.autoTable({ head: [['Material', 'Cantidad Plan.', 'Costo Plan.']], body: bodyRows, startY: startY + 5 });
-    
+
     const pageHeight = doc.internal.pageSize.getHeight();
     const bottomMargin = 20;
     doc.setLineWidth(0.2);
@@ -1483,8 +1677,8 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
     const code = input.dataset.code;
     const qty = parseFloat(input.value);
 
-    if (!code) return false; 
-    
+    if (!code) return false;
+
     const mIdx = materials.findIndex(m => m.codigo === code);
     if (mIdx === -1) return false;
 
@@ -1492,33 +1686,51 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
       Toastify({ text: `No hay suficiente ${materials[mIdx].descripcion}` }).showToast();
       return false;
     }
-    
+
+    // Adjust stock locally first
     type === 'salida' ? materials[mIdx].existencia -= qty : materials[mIdx].existencia += qty;
-    
-    return { material_code: code, quantity: qty };
+
+    // Get the cost at the moment of the transaction
+    const costAtTime = materials[mIdx].costo;
+
+    return { material_code: code, quantity: qty, cost_at_time: costAtTime };
   }).filter(Boolean);
 
   if (!mats.length) {
-    loadMaterials();
+    loadMaterials(); // Refresh materials view if an invalid operation was attempted
     return;
   }
-  
-  const cost = mats.reduce((a, m) => a + m.quantity * materials.find(ma => ma.codigo === m.material_code).costo, 0) * (type === 'salida' ? 1 : -1);
+
+  // Calculate total cost from the snapshotted costs
+  const totalCost = mats.reduce((acc, m) => acc + (m.quantity * m.cost_at_time), 0) * (type === 'salida' ? 1 : -1);
+
   const orderIdx = productionOrders.findIndex(o => o.order_id === oid);
-  productionOrders[orderIdx].cost_extra += cost;
+  productionOrders[orderIdx].cost_extra += totalCost;
+
   const lastVale = vales.filter(v => v.order_id === oid).pop();
   const seq = lastVale ? parseInt(lastVale.vale_id.split('-')[1]) + 1 : 1;
   const valeId = `${oid}-${seq}`;
-  const newVale = { vale_id: valeId, order_id: oid, type, created_at: new Date().toISOString().slice(0, 10), materials: mats, cost };
-  
+
+  const newVale = {
+      vale_id: valeId,
+      order_id: oid,
+      type,
+      created_at: new Date().toISOString().slice(0, 10),
+      materials: mats, // This now contains cost_at_time for each material
+      cost: totalCost
+  };
+
   try {
+    // Save the new vale with historical costs
     await setDoc(doc(db, "vales", valeId), newVale);
     vales.push(newVale);
 
+    // Update the production order's extra cost
     await updateDoc(doc(db, "productionOrders", oid.toString()), {
         cost_extra: productionOrders[orderIdx].cost_extra
     });
 
+    // Update stock for each material involved
     for (const mat of mats) {
         const m = materials.find(m => m.codigo === mat.material_code);
         await updateDoc(doc(db, "materials", m.codigo), { existencia: m.existencia });
@@ -1528,10 +1740,12 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
     loadProductionOrders();
     loadMaterials();
     bootstrap.Modal.getInstance(document.getElementById('valeModal')).hide();
-    Toastify({ text: 'Vale guardado', backgroundColor: 'var(--success-color)' }).showToast();
+    Toastify({ text: 'Vale guardado con costo histórico', backgroundColor: 'var(--success-color)' }).showToast();
   } catch (error) {
     console.error("Error saving vale: ", error);
     Toastify({ text: 'Error al guardar el vale', backgroundColor: 'var(--danger-color)' }).showToast();
+    // OPTIONAL: Revert local stock changes if Firestore fails
+    // This adds complexity but makes the UI more robust. For now, a refresh will solve inconsistencies.
   }
 });
 
@@ -1594,7 +1808,7 @@ function generateAllReports() {
   const intermediateProducts = getIntermediateProductCodes();
   const finalOrders = filteredOrders.filter(o => !intermediateProducts.has(o.product_code));
   const intermediateOrders = filteredOrders.filter(o => intermediateProducts.has(o.product_code));
-  
+
   generateDetailedOrdersReport(filteredOrders);
   generateOperatorReport(finalOrders, 'operatorReportTableBodyFinal');
   generateProductPerformanceReport(finalOrders, 'productReportTableBodyFinal');
@@ -1629,21 +1843,25 @@ function generateOperatorReport(orders, tableBodyId) {
     });
 
     tbody.innerHTML = Object.entries(report).map(([name, r]) => {
+        const unitCost = r.units > 0 ? r.cost / r.units : 0;
         return `<tr>
             <td>${name}</td>
             <td>${r.completed}</td>
             <td>${r.units}</td>
+            <td>${formatCurrency(unitCost)}</td>
             <td>${formatCurrency(r.cost)}</td>
             <td>${formatCurrency(r.over)}</td>
         </tr>`;
     }).join('');
 
     if (Object.keys(report).length > 0) {
+        const totalUnitCost = totals.units > 0 ? totals.cost / totals.units : 0;
         tbody.insertAdjacentHTML('beforeend', `
             <tr class="table-group-divider fw-bold">
                 <td>TOTALES</td>
                 <td>${totals.completed}</td>
                 <td>${totals.units}</td>
+                <td>${formatCurrency(totalUnitCost)}</td>
                 <td>${formatCurrency(totals.cost)}</td>
                 <td>${formatCurrency(totals.over)}</td>
             </tr>
@@ -1673,7 +1891,7 @@ function generateDetailedOrdersReport(orders) {
                 <td>${formatCurrency(o.cost_real)}</td>
                 <td class="${overcostColor}">${formatCurrency(o.overcost)}</td>
                 <td><span class="badge bg-success">${o.status}</span></td>
-                <td>${formatDate(o.completed_at)}</td>
+                <td>${formatDateShort(o.completed_at)}</td>
             </tr>
         `);
     });
@@ -1801,7 +2019,7 @@ function getBaseMaterials(productCode, requiredQty) {
             baseMaterials[ingredient.code] = (baseMaterials[ingredient.code] || 0) + ingredientQty;
         }
     });
-    
+
     return Object.entries(baseMaterials).map(([code, quantity]) => ({ code, quantity }));
 }
 
@@ -1810,7 +2028,7 @@ function generateMaterialConsumptionReport(orders) {
 
   function addMaterialToReport(materialCode, quantity) {
       const material = materials.find(m => m.codigo === materialCode);
-      if (!material) return; 
+      if (!material) return;
 
       if (!report[materialCode]) {
           report[materialCode] = { qty: 0, cost: 0, desc: material.descripcion };
@@ -1837,7 +2055,7 @@ function generateMaterialConsumptionReport(orders) {
 
   const tbody = document.getElementById('materialReportTableBody');
   let totalCost = 0;
-  
+
   const rows = Object.values(report).map(r => {
     totalCost += r.cost;
     return `<tr><td>${r.desc}</td><td>${r.qty.toFixed(2)}</td><td>${formatCurrency(r.cost)}</td></tr>`;
@@ -1855,6 +2073,88 @@ function generateMaterialConsumptionReport(orders) {
   }
 }
 
+/* ----------  USERS  ---------- */
+const userModal = new bootstrap.Modal(document.getElementById('userModal'));
+let isEditingUser = false;
+
+function loadUsers() {
+    const list = document.getElementById('usersList');
+    list.innerHTML = '';
+    users.forEach(u => {
+        list.insertAdjacentHTML('beforeend', `
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <span>${u.email} <span class="badge bg-secondary">${u.role}</span></span>
+                <div>
+                    <button class="btn btn-sm btn-warning edit-user-btn" data-uid="${u.uid}"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-sm btn-danger delete-user-btn" data-uid="${u.uid}"><i class="fas fa-trash"></i></button>
+                </div>
+            </li>
+        `);
+    });
+}
+
+document.getElementById('userForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('userEmail').value;
+    const role = document.getElementById('userRole').value;
+    const uid = document.getElementById('userUid').value;
+
+    // This is a simplified approach. In a real app, you'd use a Cloud Function
+    // to get the user by email and then create the role document.
+    // For now, we'll assume the UID is manually provided or fetched,
+    // and we're just setting the role.
+    if (uid) {
+        await setDoc(doc(db, "users", uid), { email, role });
+        const userIndex = users.findIndex(u => u.uid === uid);
+        if (userIndex > -1) {
+            users[userIndex] = { uid, email, role };
+        } else {
+            users.push({ uid, email, role });
+        }
+        loadUsers();
+        userModal.hide();
+        Toastify({ text: 'Rol de usuario guardado.', backgroundColor: 'var(--success-color)' }).showToast();
+    } else {
+        Toastify({ text: 'No se pudo encontrar el UID del usuario. Asegúrese de que el usuario exista en Firebase Authentication.', backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
+    }
+});
+
+document.getElementById('usersList').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+
+    const uid = btn.dataset.uid;
+    if (btn.classList.contains('edit-user-btn')) {
+        const user = users.find(u => u.uid === uid);
+        if (user) {
+            isEditingUser = true;
+            document.getElementById('userUid').value = user.uid;
+            document.getElementById('userEmail').value = user.email;
+            document.getElementById('userUid').disabled = true;
+            document.getElementById('userRole').value = user.role;
+            document.getElementById('userModalLabel').textContent = 'Editar Rol de Usuario';
+            userModal.show();
+        }
+    }
+
+    if (btn.classList.contains('delete-user-btn')) {
+        if (confirm('¿Está seguro que desea eliminar el rol de este usuario? El usuario no será eliminado de la autenticación.')) {
+            await deleteDoc(doc(db, "users", uid));
+            users = users.filter(u => u.uid !== uid);
+            loadUsers();
+            Toastify({ text: 'Rol de usuario eliminado.', backgroundColor: 'var(--success-color)' }).showToast();
+        }
+    }
+});
+
+document.getElementById('userModal').addEventListener('hidden.bs.modal', () => {
+    isEditingUser = false;
+    document.getElementById('userForm').reset();
+    document.getElementById('userUid').disabled = false;
+    document.getElementById('userModalLabel').textContent = 'Añadir/Editar Usuario';
+});
+
+
 /* ----------  OPERADORES / LOGO / BACKUP  ---------- */
 let isEditingOperator = false, currentOperatorId = null;
 const operatorModal = new bootstrap.Modal(document.getElementById('operatorModal'));
@@ -1867,7 +2167,7 @@ document.getElementById('operatorForm').addEventListener('submit', async (e) => 
   const id   = document.getElementById('operatorId').value.trim();
   const name = document.getElementById('operatorName').value.trim();
   if (!id || !name) return;
-  
+
   const operatorData = { name };
 
   try {
@@ -2012,12 +2312,12 @@ document.getElementById('logoUpload').addEventListener('change', async (e) => {
         await uploadString(storageRef, reader.result, 'data_url');
         const logoUrl = await getDownloadURL(storageRef);
         localStorage.setItem('companyLogo', logoUrl); // cache it
-        loadLogo(); 
+        loadLogo();
         Toastify({ text: 'Logo guardado correctamente', backgroundColor: 'var(--success-color)' }).showToast();
     }
-    catch(error) { 
+    catch(error) {
         console.error("Error uploading logo:", error);
-        Toastify({ text: 'Error al guardar el logo', backgroundColor: 'var(--danger-color)' }).showToast(); 
+        Toastify({ text: 'Error al guardar el logo', backgroundColor: 'var(--danger-color)' }).showToast();
     }
   };
   reader.readAsDataURL(file);
@@ -2040,7 +2340,7 @@ document.getElementById('productFile').addEventListener('change', async (e) => {
     const wb = XLSX.read(ev.target.result, { type: 'binary' });
     const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
     const importedProducts = json.map(r => ({ codigo: r.codigo || r.Código, descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad || '' }));
-    
+
     for (const product of importedProducts) {
         await setDoc(doc(db, "products", product.codigo), {
             descripcion: product.descripcion,
@@ -2106,7 +2406,7 @@ document.getElementById('recipeFile').addEventListener('change', async (e) => {
     recipes = await loadRecipesCollection();
     loadRecipes();
     populateRecipeProductSelect();
-    Toastify({ text: 'Recetas importadas y guardadas en la nube', backgroundColor: 'var(--success-color)' }).showToast();
+    Toastify({ text: 'Recetas importadas y guardados en la nube', backgroundColor: 'var(--success-color)' }).showToast();
   };
   reader.readAsBinaryString(file);
 });
@@ -2157,7 +2457,7 @@ document.getElementById('importBackupFile').addEventListener('change', async (e)
                         deletePromises.push(deleteDoc(doc(db, name, id)));
                     }
                 });
-                
+
                 const setPromises = [];
                 data.forEach(item => {
                     const docId = item[idField].toString();
@@ -2171,7 +2471,7 @@ document.getElementById('importBackupFile').addEventListener('change', async (e)
             const recipesSnapshot = await getDocs(recipesRef);
             const existingRecipeIds = new Set(recipesSnapshot.docs.map(d => d.id));
             const backupRecipeIds = new Set(Object.keys(data.recipes || {}));
-            
+
             const deleteRecipePromises = [];
             existingRecipeIds.forEach(id => {
                 if (!backupRecipeIds.has(id)) {
@@ -2201,97 +2501,175 @@ document.getElementById('importBackupFile').addEventListener('change', async (e)
 });
 
 /* ----------  CHARTS  ---------- */
-function initCharts() {
+function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
+  // Destroy previous instances to prevent memory leaks and rendering issues
   if (costChartInstance) costChartInstance.destroy();
   if (productionChartInstance) productionChartInstance.destroy();
+  if (dailyProductionChartInstance) dailyProductionChartInstance.destroy();
+  if (dailyOvercostChartInstance) dailyOvercostChartInstance.destroy();
 
   const now = new Date();
-  const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
 
-  const completedThisMonth = productionOrders.filter(o => {
-    if (o.status !== 'Completada' || !o.completed_at) return false;
-    const orderDate = new Date(o.completed_at);
-    return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
+  // --- Data for Top 5 charts (now uses pre-filtered list for final products) ---
+  const costMap = {};
+  const prodMap = {};
+  finalProductOrdersThisMonth.forEach(o => {
+      if (!costMap[o.product_name]) {
+          costMap[o.product_name] = { total_cost: 0, total_qty: 0 };
+      }
+      costMap[o.product_name].total_cost += o.cost_real || 0;
+      costMap[o.product_name].total_qty += o.quantity_produced || 0;
+      prodMap[o.product_name] = (prodMap[o.product_name] || 0) + (o.quantity_produced || 0);
   });
 
-  // Cost Chart (Top 5 products this month by Unit Cost)
-  const ctxCost = document.getElementById('costChart');
-  if (ctxCost) {
-    const costMap = {};
-    completedThisMonth.forEach(o => {
-        if (!costMap[o.product_name]) {
-            costMap[o.product_name] = { total_cost: 0, total_qty: 0 };
-        }
-        costMap[o.product_name].total_cost += o.cost_real || 0;
-        costMap[o.product_name].total_qty += o.quantity_produced || 0;
-    });
+  // --- Data processing for Daily Charts ---
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const monthLabels = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const dailyProductionData = Array(daysInMonth).fill(0);
+  const dailyOvercostData = Array(daysInMonth).fill(0);
 
-    const topUnitCost = Object.entries(costMap).map(([name, data]) => ({
-      name,
-      unit_cost: data.total_qty > 0 ? data.total_cost / data.total_qty : 0
-    })).sort((a, b) => b.unit_cost - a.unit_cost).slice(0, 5);
+  // Daily overcost uses ALL completed orders
+  completedThisMonth.forEach(o => {
+      const dayOfMonth = new Date(o.completed_at).getDate() - 1;
+      dailyOvercostData[dayOfMonth] += o.overcost || 0;
+  });
 
-    costChartInstance = new Chart(ctxCost, { 
-      type: 'bar', 
-      data: { 
-        labels: topUnitCost.map(x => x.name), 
-        datasets: [{ label: 'Costo Unitario', data: topUnitCost.map(x => x.unit_cost), backgroundColor: '#3498db' }] 
-      },
-      options: {
-        plugins: {
-          legend: {
-            position: 'bottom',
-          },
-          datalabels: {
-            anchor: 'end',
-            align: 'end',
-            color: '#fff',
-            formatter: (value) => formatCurrency(value)
-          }
-        },
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: {
-              callback: function(value) {
-                return formatCurrency(value);
-              }
+  // Daily production uses only FINAL product orders
+  finalProductOrdersThisMonth.forEach(o => {
+      const dayOfMonth = new Date(o.completed_at).getDate() - 1;
+      dailyProductionData[dayOfMonth] += o.quantity_produced || 0;
+  });
+
+  // --- Render Top 5 Production (Bar Chart) ---
+  const ctxProd = document.getElementById('productionChart');
+  if (ctxProd) {
+    const topProd = Object.entries(prodMap).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 5);
+    const topProdData = topProd.map(x => x.qty);
+    const maxProdValue = topProdData.length > 0 ? Math.max(...topProdData) : 0;
+
+    productionChartInstance = new Chart(ctxProd, {
+        type: 'bar',
+        data: { labels: topProd.map(x => x.name), datasets: [{ label: 'Unidades', data: topProdData, backgroundColor: '#27ae60' }] },
+        options: {
+            scales: {
+                y: {
+                    suggestedMax: maxProdValue * 1.15,
+                    title: { display: true, text: 'Cantidad' }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                datalabels: { anchor: 'end', align: 'top', color: '#333', formatter: (value) => Math.round(value) }
             }
-          }
         }
-      }
     });
   }
 
-  // Production chart (Top 5 products this month)
-  const ctxProd = document.getElementById('productionChart');
-  if (ctxProd) {
-    const prodMap = {};
-    completedThisMonth.forEach(o => {
-      prodMap[o.product_name] = (prodMap[o.product_name] || 0) + (o.quantity_produced || 0);
-    });
-    const topProd = Object.entries(prodMap).map(([name, qty]) => ({ name, qty }))
-      .sort((a, b) => b.qty - a.qty).slice(0, 5);
-      
-    productionChartInstance = new Chart(ctxProd, { 
-      type: 'bar', 
-      data: { 
-        labels: topProd.map(x => x.name), 
-        datasets: [{ label: 'Unidades', data: topProd.map(x => x.qty), backgroundColor: '#27ae60' }] 
-      },
-      options: {
-        plugins: {
-          legend: {
-            position: 'bottom',
-          },
-          datalabels: {
-            anchor: 'end',
-            align: 'end',
-            color: '#fff'
-          }
+  // --- Render Daily Production (Line Chart) ---
+  const ctxDailyProd = document.getElementById('dailyProductionChart');
+  if (ctxDailyProd) {
+    const maxDailyProd = dailyProductionData.length > 0 ? Math.max(...dailyProductionData) : 0;
+    dailyProductionChartInstance = new Chart(ctxDailyProd, {
+        type: 'line',
+        data: {
+            labels: monthLabels,
+            datasets: [{
+                label: 'Unidades Producidas (Finales)',
+                data: dailyProductionData,
+                borderColor: 'rgb(75, 192, 192)',
+                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                tension: 0.1,
+                fill: true
+            }]
+        },
+        options: {
+            scales: {
+                y: {
+                    title: { display: true, text: 'Cantidad' },
+                    suggestedMax: maxDailyProd * 1.15
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: (tooltipItem) => `Unidades: ${Math.round(tooltipItem.raw)}` } },
+                datalabels: {
+                    display: true,
+                    align: 'top',
+                    color: '#333',
+                    formatter: (value) => Math.round(value),
+                    display: (context) => context.dataset.data[context.dataIndex] > 0,
+                    backgroundColor: null
+                }
+            }
         }
-      }
+    });
+  }
+
+  // --- Render Top 5 Unit Cost (Bar Chart) ---
+  const ctxCost = document.getElementById('costChart');
+  if (ctxCost) {
+    const topUnitCost = Object.entries(costMap).map(([name, data]) => ({ name, unit_cost: data.total_qty > 0 ? data.total_cost / data.total_qty : 0 })).sort((a, b) => b.unit_cost - a.unit_cost).slice(0, 5);
+    const topCostData = topUnitCost.map(x => x.unit_cost);
+    const maxCostValue = topCostData.length > 0 ? Math.max(...topCostData) : 0;
+
+    costChartInstance = new Chart(ctxCost, {
+        type: 'bar',
+        data: { labels: topUnitCost.map(x => x.name), datasets: [{ label: 'Costo Unitario', data: topCostData, backgroundColor: '#3498db' }] },
+        options: {
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { callback: (value) => formatCurrency(value) },
+                    suggestedMax: maxCostValue * 1.15,
+                    title: { display: true, text: 'US$' }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                datalabels: { anchor: 'end', align: 'top', color: '#333', formatter: (value) => formatCurrency(value) }
+            }
+        }
+    });
+  }
+
+  // --- Render Daily Overcost (Line Chart) ---
+  const ctxDailyOvercost = document.getElementById('dailyOvercostChart');
+  if (ctxDailyOvercost) {
+    dailyOvercostChartInstance = new Chart(ctxDailyOvercost, {
+        type: 'line',
+        data: {
+            labels: monthLabels,
+            datasets: [{
+                label: 'Sobrecosto Diario',
+                data: dailyOvercostData,
+                borderColor: 'rgb(255, 99, 132)',
+                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                tension: 0.1,
+                fill: true
+            }]
+        },
+        options: {
+            scales: {
+                y: {
+                    ticks: { callback: (value) => formatCurrency(value) },
+                    title: { display: true, text: 'US$' }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: (tooltipItem) => formatCurrency(tooltipItem.raw) } },
+                datalabels: {
+                    display: true,
+                    align: 'top',
+                    color: '#333',
+                    formatter: (value) => formatCurrency(value),
+                    display: (context) => context.dataset.data[context.dataIndex] !== 0,
+                    backgroundColor: null
+                }
+            }
+        }
     });
   }
 }
