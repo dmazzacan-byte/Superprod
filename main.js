@@ -2066,7 +2066,7 @@ document.getElementById('usersList').addEventListener('click', async (e) => {
             isEditingUser = true;
             document.getElementById('userUid').value = user.uid;
             document.getElementById('userEmail').value = user.email;
-            document.getElementById('userEmail').disabled = true;
+            document.getElementById('userUid').disabled = true;
             document.getElementById('userRole').value = user.role;
             document.getElementById('userModalLabel').textContent = 'Editar Rol de Usuario';
             userModal.show();
@@ -2086,7 +2086,7 @@ document.getElementById('usersList').addEventListener('click', async (e) => {
 document.getElementById('userModal').addEventListener('hidden.bs.modal', () => {
     isEditingUser = false;
     document.getElementById('userForm').reset();
-    document.getElementById('userEmail').disabled = false;
+    document.getElementById('userUid').disabled = false;
     document.getElementById('userModalLabel').textContent = 'Añadir/Editar Usuario';
 });
 
