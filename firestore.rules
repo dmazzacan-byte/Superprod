@@ -2,6 +2,7 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
     // Helper function to check if a user is an administrator
     function isAdmin() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role.lower() == 'administrador';
@@ -12,21 +13,46 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role.lower() == 'supervisor';
     }
 
-    // Allow authenticated users to read their own user document to get their role
+    // --- User Roles ---
+    // Users can read their own role. Only Admins can change roles.
     match /users/{userId} {
       allow read: if request.auth.uid == userId;
-      // Only admins can create, update, or delete user roles
       allow write: if isAdmin();
     }
 
-    // Products, Materials, Recipes, Operators, Equipos can only be managed by Admins
-    match /{collection}/{docId} where collection in ['products', 'materials', 'recipes', 'operators', 'equipos'] {
-      allow read: if request.auth != null; // Allow any authenticated user to read
-      allow write: if isAdmin(); // Only admins can write
+    // --- Admin-Managed Collections ---
+    // Products, Materials, Recipes, Operators, and Equipos can only be written to by Admins.
+    // Any authenticated user can read them, which is necessary for the app to function for all roles.
+    match /products/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+    match /materials/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+    match /recipes/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+    match /operators/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+    match /equipos/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
     }
 
-    // Production Orders and Vales can be created by Admins and Supervisors
-    match /{collection}/{docId} where collection in ['productionOrders', 'vales'] {
+    // --- Operational Collections ---
+    // Production Orders and Vales can be created/updated by Admins and Supervisors.
+    // Only Admins can delete them.
+    match /productionOrders/{docId} {
+      allow read: if request.auth != null;
+      allow create, update: if isAdmin() || isSupervisor();
+      allow delete: if isAdmin();
+    }
+    match /vales/{docId} {
       allow read: if request.auth != null;
       allow create, update: if isAdmin() || isSupervisor();
       allow delete: if isAdmin();
