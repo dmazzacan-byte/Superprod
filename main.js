@@ -486,16 +486,21 @@ function updateDashboard() {
 
   const pending = productionOrders.filter(o => o.status === 'Pendiente');
 
-  const totalProduction = completedThisMonth.reduce((acc, o) => acc + (o.quantity_produced || 0), 0);
-  const realCost = completedThisMonth.reduce((acc, o) => acc + (o.cost_real || 0), 0);
-  const overCost = completedThisMonth.reduce((acc, o) => acc + (o.overcost || 0), 0);
+  // --- Refined KPI Calculations ---
+  const intermediateProducts = getIntermediateProductCodes();
+  const finalProductOrdersThisMonth = completedThisMonth.filter(o => !intermediateProducts.has(o.product_code));
+
+  const totalProduction = finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.quantity_produced || 0), 0);
+  const realCost = finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.cost_real || 0), 0);
+  const overCost = finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.overcost || 0), 0);
 
   document.getElementById('pendingOrdersCard').textContent = pending.length;
-  document.getElementById('completedOrdersCard').textContent = completedThisMonth.length;
+  document.getElementById('completedOrdersCard').textContent = completedThisMonth.length; // This should still show ALL completed orders
   document.getElementById('totalProductionCard').textContent = totalProduction;
   document.getElementById('totalCostCard').textContent = formatCurrency(realCost);
   document.getElementById('totalOvercostCard').textContent = formatCurrency(overCost);
 
+  // --- Operator and Equipment Rankings (based on all completed orders) ---
   const operatorStats = {};
   completedThisMonth.forEach(o => {
     const opId = o.operator_id;
@@ -530,16 +535,14 @@ function updateDashboard() {
   const equipoRankBody = document.getElementById('equipoProductionRankBody');
   equipoRankBody.innerHTML = sortedByEquipoProduction.map((eq, i) => `<tr><td>${i + 1}</td><td>${eq.name}</td><td>${eq.production}</td></tr>`).join('');
 
+  // --- Low Stock Alert ---
   const threshold = parseInt(document.getElementById('lowStockThreshold').value, 10);
-
-  // 1. Get all unique materials used in recipes
   const materialsInRecipes = new Set();
   for (const productId of Object.keys(recipes)) {
       const baseMats = getBaseMaterials(productId, 1);
       baseMats.forEach(mat => materialsInRecipes.add(mat.code));
   }
 
-  // 2. Filter materials that are in recipes, are below threshold, and then sort them
   const lowStockMaterials = materials
       .filter(m => materialsInRecipes.has(m.codigo))
       .filter(m => m.existencia < threshold)
