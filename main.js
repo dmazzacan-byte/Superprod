@@ -581,7 +581,8 @@ function updateDashboard() {
       }).join('')
     : `<tr><td colspan="4" class="text-center">Sin alertas para el límite de ${threshold}</td></tr>`;
 
-  initCharts();
+  // Pass filtered data to initCharts
+  initCharts(completedThisMonth, finalProductOrdersThisMonth);
 }
 
 /* ----------  PRODUCTOS  ---------- */
@@ -2496,7 +2497,7 @@ document.getElementById('importBackupFile').addEventListener('change', async (e)
 });
 
 /* ----------  CHARTS  ---------- */
-function initCharts() {
+function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
   // Destroy previous instances to prevent memory leaks and rendering issues
   if (costChartInstance) costChartInstance.destroy();
   if (productionChartInstance) productionChartInstance.destroy();
@@ -2507,16 +2508,10 @@ function initCharts() {
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
 
-  const completedThisMonth = productionOrders.filter(o => {
-    if (o.status !== 'Completada' || !o.completed_at) return false;
-    const orderDate = new Date(o.completed_at);
-    return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
-  });
-
-  // --- Data for Top 5 charts ---
+  // --- Data for Top 5 charts (now uses pre-filtered list for final products) ---
   const costMap = {};
   const prodMap = {};
-  completedThisMonth.forEach(o => {
+  finalProductOrdersThisMonth.forEach(o => {
       if (!costMap[o.product_name]) {
           costMap[o.product_name] = { total_cost: 0, total_qty: 0 };
       }
@@ -2530,14 +2525,17 @@ function initCharts() {
   const monthLabels = Array.from({ length: daysInMonth }, (_, i) => i + 1);
   const dailyProductionData = Array(daysInMonth).fill(0);
   const dailyOvercostData = Array(daysInMonth).fill(0);
-  const intermediateProducts = getIntermediateProductCodes();
 
+  // Daily overcost uses ALL completed orders
   completedThisMonth.forEach(o => {
-      const dayOfMonth = new Date(o.completed_at).getDate() - 1; // 0-indexed for array
+      const dayOfMonth = new Date(o.completed_at).getDate() - 1;
       dailyOvercostData[dayOfMonth] += o.overcost || 0;
-      if (!intermediateProducts.has(o.product_code)) {
-          dailyProductionData[dayOfMonth] += o.quantity_produced || 0;
-      }
+  });
+
+  // Daily production uses only FINAL product orders
+  finalProductOrdersThisMonth.forEach(o => {
+      const dayOfMonth = new Date(o.completed_at).getDate() - 1;
+      dailyProductionData[dayOfMonth] += o.quantity_produced || 0;
   });
 
   // --- Render Top 5 Production (Bar Chart) ---
@@ -2553,7 +2551,7 @@ function initCharts() {
         options: {
             scales: {
                 y: {
-                    suggestedMax: maxProdValue * 1.15, // Add 15% padding to y-axis
+                    suggestedMax: maxProdValue * 1.15,
                     title: { display: true, text: 'Cantidad' }
                 }
             },
@@ -2586,7 +2584,7 @@ function initCharts() {
             scales: {
                 y: {
                     title: { display: true, text: 'Cantidad' },
-                    suggestedMax: maxDailyProd * 1.15 // Add 15% padding
+                    suggestedMax: maxDailyProd * 1.15
                 }
             },
             plugins: {
@@ -2595,10 +2593,10 @@ function initCharts() {
                 datalabels: {
                     display: true,
                     align: 'top',
-                    color: '#333', // Black text
+                    color: '#333',
                     formatter: (value) => Math.round(value),
                     display: (context) => context.dataset.data[context.dataIndex] > 0,
-                    backgroundColor: null // No background
+                    backgroundColor: null
                 }
             }
         }
@@ -2620,7 +2618,7 @@ function initCharts() {
                 y: {
                     beginAtZero: true,
                     ticks: { callback: (value) => formatCurrency(value) },
-                    suggestedMax: maxCostValue * 1.15, // Add 15% padding
+                    suggestedMax: maxCostValue * 1.15,
                     title: { display: true, text: 'US$' }
                 }
             },
@@ -2661,10 +2659,10 @@ function initCharts() {
                 datalabels: {
                     display: true,
                     align: 'top',
-                    color: '#333', // Black text
+                    color: '#333',
                     formatter: (value) => formatCurrency(value),
                     display: (context) => context.dataset.data[context.dataIndex] !== 0,
-                    backgroundColor: null // No background
+                    backgroundColor: null
                 }
             }
         }
