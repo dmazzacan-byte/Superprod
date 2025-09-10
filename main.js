@@ -290,7 +290,7 @@ function applyRoleRestrictions() {
         'productsPage': true,
         'materialsPage': true,
         // 'recipesPage': true, // Supervisors can now view recipes
-        'reportsPage': true,
+        // 'reportsPage': true, // Supervisors can now view reports
         'settingsPage': true
     };
 
