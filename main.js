@@ -2590,16 +2590,15 @@ function initCharts() {
                 }
             },
             plugins: {
-                legend: { display: false }, // Remove legend
+                legend: { display: false },
                 tooltip: { callbacks: { label: (tooltipItem) => `Unidades: ${Math.round(tooltipItem.raw)}` } },
                 datalabels: {
                     display: true,
                     align: 'top',
-                    backgroundColor: 'rgba(75, 192, 192, 0.7)',
-                    borderRadius: 4,
-                    color: 'white',
+                    color: '#333', // Black text
                     formatter: (value) => Math.round(value),
-                    display: (context) => context.dataset.data[context.dataIndex] > 0
+                    display: (context) => context.dataset.data[context.dataIndex] > 0,
+                    backgroundColor: null // No background
                 }
             }
         }
@@ -2657,16 +2656,15 @@ function initCharts() {
                 }
             },
             plugins: {
-                legend: { display: false }, // Remove legend
+                legend: { display: false },
                 tooltip: { callbacks: { label: (tooltipItem) => formatCurrency(tooltipItem.raw) } },
                 datalabels: {
                     display: true,
                     align: 'top',
-                    backgroundColor: 'rgba(255, 99, 132, 0.7)',
-                    borderRadius: 4,
-                    color: 'white',
+                    color: '#333', // Black text
                     formatter: (value) => formatCurrency(value),
-                    display: (context) => context.dataset.data[context.dataIndex] !== 0
+                    display: (context) => context.dataset.data[context.dataIndex] !== 0,
+                    backgroundColor: null // No background
                 }
             }
         }
