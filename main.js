@@ -50,11 +50,33 @@ async function getUserRole(uid) {
 
 onAuthStateChanged(auth, async (user) => {
     if (user) {
-        currentUserRole = await getUserRole(user.uid);
-        loginView.classList.add('d-none');
-        appView.classList.remove('d-none');
-        userDataDiv.textContent = `${user.email} (${currentUserRole})`;
-        await initializeAppContent();
+        try {
+            currentUserRole = await getUserRole(user.uid);
+
+            // If user is authenticated but has no role, deny access and sign out.
+            if (!currentUserRole) {
+                console.error(`Authentication error: User ${user.email} has no role assigned in Firestore.`);
+                Toastify({
+                    text: 'Acceso denegado. No tiene un rol asignado. Contacte a un administrador.',
+                    backgroundColor: 'var(--danger-color)',
+                    duration: 8000
+                }).showToast();
+                await signOut(auth);
+                // The onAuthStateChanged will fire again with user=null, showing the login screen.
+                return;
+            }
+
+            // If role is valid, proceed to show the app
+            loginView.classList.add('d-none');
+            appView.classList.remove('d-none');
+            userDataDiv.textContent = `${user.email} (${currentUserRole})`;
+            await initializeAppContent();
+
+        } catch (error) {
+            console.error("A critical error occurred during the login process:", error);
+            Toastify({ text: 'Ocurrió un error crítico al iniciar sesión. Por favor, intente de nuevo.', backgroundColor: 'var(--danger-color)', duration: 8000 }).showToast();
+            await signOut(auth);
+        }
     } else {
         currentUserRole = null;
         loginView.classList.remove('d-none');
