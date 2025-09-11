@@ -182,34 +182,10 @@ body {
 #operatorReportTableBodyFinal th, #operatorReportTableBodyFinal td,
 #operatorReportTableBodyIntermediate th, #operatorReportTableBodyIntermediate td,
 #productReportTableBodyFinal th, #productReportTableBodyFinal td,
-#productReportTableBodyIntermediate th, #productReportTableBodyIntermediate td {
+#productReportTableBodyIntermediate th, #productReportTableBodyIntermediate td,
+#equipoReportTableBody th, #equipoReportTableBody td {
     padding: 0.5rem 0.4rem;
     font-size: 0.85rem;
-    text-align: right;
+    text-align: center;
     vertical-align: middle;
-}
-
-#productReportTableBodyFinal th:nth-child(1), #productReportTableBodyFinal td:nth-child(1),
-#productReportTableBodyIntermediate th:nth-child(1), #productReportTableBodyIntermediate td:nth-child(1),
-#operatorReportTableBodyFinal th:nth-child(1), #operatorReportTableBodyFinal td:nth-child(1),
-#operatorReportTableBodyIntermediate th:nth-child(1), #operatorReportTableBodyIntermediate td:nth-child(1) {
-    text-align: left;
-}
-
-/* Custom styles for report analysis tables to manage column widths */
-#operatorReportTableBodyFinal th, #operatorReportTableBodyFinal td,
-#operatorReportTableBodyIntermediate th, #operatorReportTableBodyIntermediate td,
-#productReportTableBodyFinal th, #productReportTableBodyFinal td,
-#productReportTableBodyIntermediate th, #productReportTableBodyIntermediate td {
-    padding: 0.5rem 0.4rem;
-    font-size: 0.85rem;
-    text-align: right;
-    vertical-align: middle;
-}
-
-#productReportTableBodyFinal th:nth-child(1), #productReportTableBodyFinal td:nth-child(1),
-#productReportTableBodyIntermediate th:nth-child(1), #productReportTableBodyIntermediate td:nth-child(1),
-#operatorReportTableBodyFinal th:nth-child(1), #operatorReportTableBodyFinal td:nth-child(1),
-#operatorReportTableBodyIntermediate th:nth-child(1), #operatorReportTableBodyIntermediate td:nth-child(1) {
-    text-align: left;
 }
