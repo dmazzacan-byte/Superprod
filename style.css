@@ -117,6 +117,20 @@ body {
   vertical-align: middle;
 }
 
+/* Gantt Customizations */
+.gantt .bar-pending .bar {
+    fill: var(--warning-color);
+}
+.gantt .bar-completed .bar {
+    fill: var(--success-color);
+}
+.gantt-popup-contents {
+    padding: 10px;
+    font-size: 12px;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
 @media print {
     body {
         font-size: 10pt;

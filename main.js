@@ -423,6 +423,9 @@ async function initializeAppContent() {
             console.log('Loading production orders content...');
             loadProductionOrders();
             populateOrderFormSelects();
+        } else if (pageId === 'planningPage') {
+            console.log('Loading planning page content...');
+            loadPlanningPage();
         } else if (pageId === 'reportsPage') {
             console.log('Loading reports content...');
             loadReports();
@@ -1261,7 +1264,15 @@ document.getElementById('productionOrderForm').addEventListener('submit', async 
   const qty   = parseInt(document.getElementById('orderQuantity').value);
   const opId  = document.getElementById('orderOperatorSelect').value;
   const eqId  = document.getElementById('orderEquipoSelect').value;
-  if (!pCode || !opId || !eqId) { Toastify({ text: 'Completa producto, operador y equipo' }).showToast(); return; }
+  const startDate = document.getElementById('orderStartDate').value;
+  const endDate = document.getElementById('orderEndDate').value;
+
+  if (!pCode || !opId || !eqId || !startDate || !endDate) { Toastify({ text: 'Por favor, complete todos los campos, incluyendo las fechas planificadas.' }).showToast(); return; }
+  if (new Date(startDate) > new Date(endDate)) {
+      Toastify({ text: 'La fecha de inicio no puede ser posterior a la fecha de fin.', backgroundColor: 'var(--danger-color)' }).showToast();
+      return;
+  }
+
   const prod = products.find(p => p.codigo === pCode);
   if (!recipes[pCode]) { Toastify({ text: `Sin receta para ${prod.descripcion}` }).showToast(); return; }
   const stdCost = calculateRecipeCost(recipes[pCode]) * qty;
@@ -1280,6 +1291,8 @@ document.getElementById('productionOrderForm').addEventListener('submit', async 
     overcost: null,
     created_at: new Date().toISOString().slice(0, 10),
     completed_at: null,
+    planned_start_date: startDate,
+    planned_end_date: endDate,
     status: 'Pendiente',
     materials_used: recipes[pCode].map(i => ({ material_code: i.code, quantity: i.quantity * qty, type: i.type }))
   };
@@ -2672,4 +2685,139 @@ function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
         }
     });
   }
+}
+
+/* ----------  PLANIFICACIÓN  ---------- */
+let gantt = null;
+
+function loadPlanningPage() {
+    const ganttElement = document.querySelector("#gantt");
+    if (!ganttElement) {
+        console.error("Gantt container not found");
+        return;
+    }
+    ganttElement.innerHTML = ''; // Clear previous gantt chart
+
+    const ganttTasks = productionOrders
+        .filter(order => order.planned_start_date && order.planned_end_date)
+        .map(order => {
+            return {
+                id: String(order.order_id),
+                name: `${order.order_id}: ${order.product_name}`,
+                start: order.planned_start_date,
+                end: order.planned_end_date,
+                progress: order.status === 'Completada' ? 100 : 0,
+                custom_class: order.status === 'Completada' ? 'bar-completed' : 'bar-pending' // Custom class for styling
+            };
+        });
+
+    if (ganttTasks.length > 0) {
+        // Ensure the Gantt constructor is available
+        if (typeof Gantt === 'undefined') {
+            console.error('Gantt library is not loaded.');
+            ganttElement.innerHTML = '<p class="text-center text-danger mt-4">Error: La biblioteca de Gantt no se ha cargado.</p>';
+            return;
+        }
+
+        gantt = new Gantt("#gantt", ganttTasks, {
+            header_height: 50,
+            column_width: 30,
+            step: 24,
+            view_modes: ['Day', 'Week', 'Month'],
+            bar_height: 20,
+            bar_corner_radius: 3,
+            arrow_curve: 5,
+            padding: 18,
+            view_mode: 'Week',
+            date_format: 'YYYY-MM-DD',
+            language: 'es',
+            custom_popup_html: function(task) {
+              const order = productionOrders.find(o => String(o.order_id) === task.id);
+              if (!order) return `<strong>Orden ${task.id}</strong>`;
+              return `
+                <div class="gantt-popup-contents" style="padding: 10px; font-size: 12px; border-radius: 4px;">
+                  <strong>${task.name}</strong>
+                  <hr style="margin: 5px 0;">
+                  <p><strong>Equipo:</strong> ${equipos.find(e => e.id === order.equipo_id)?.name || 'N/A'}</p>
+                  <p><strong>Plan:</strong> ${task.start} ➞ ${task.end}</p>
+                  <p><strong>Estado:</strong> ${order.status}</p>
+                </div>
+              `;
+            }
+        });
+
+        const viewModeSelect = document.getElementById('gantt-view-mode');
+        if (viewModeSelect) {
+            viewModeSelect.onchange = () => {
+                if (gantt) {
+                    gantt.change_view_mode(viewModeSelect.value)
+                }
+            };
+        }
+
+    } else {
+         ganttElement.innerHTML = '<p class="text-center text-muted mt-4">No hay órdenes de producción con fechas planificadas para mostrar.</p>';
+    }
+    updatePlanningKPIs();
+}
+
+function updatePlanningKPIs() {
+    // 1. On-Time Completion Rate
+    const completedWithPlan = productionOrders.filter(o => o.status === 'Completada' && o.planned_end_date && o.completed_at);
+    const onTimeCard = document.getElementById('onTimeCompletionCard');
+    if (completedWithPlan.length > 0) {
+        const onTimeCount = completedWithPlan.filter(o => new Date(o.completed_at) <= new Date(o.planned_end_date)).length;
+        const onTimeRate = (onTimeCount / completedWithPlan.length) * 100;
+        if(onTimeCard) onTimeCard.textContent = `${onTimeRate.toFixed(1)}%`;
+    } else {
+        if(onTimeCard) onTimeCard.textContent = 'N/A';
+    }
+
+    // 2. Schedule Adherence
+    const adherenceCard = document.getElementById('scheduleAdherenceCard');
+    if (completedWithPlan.length > 0) {
+        const totalDeviation = completedWithPlan.reduce((acc, o) => {
+            const completed = new Date(o.completed_at);
+            const planned = new Date(o.planned_end_date);
+            const diffTime = completed - planned;
+            const diffDays = diffTime / (1000 * 60 * 60 * 24);
+            return acc + diffDays;
+        }, 0);
+        const avgDeviation = totalDeviation / completedWithPlan.length;
+        const sign = avgDeviation > 0 ? '+' : '';
+        if(adherenceCard) adherenceCard.textContent = `${sign}${avgDeviation.toFixed(1)} días`;
+    } else {
+        if(adherenceCard) adherenceCard.textContent = 'N/A';
+    }
+
+    // 3. Resource Utilization (for the next 30 days)
+    const utilizationCard = document.getElementById('resourceUtilizationCard');
+    if (equipos.length > 0) {
+        const today = new Date();
+        const next30Days = new Date();
+        next30Days.setDate(today.getDate() + 30);
+
+        const totalAvailableDays = equipos.length * 30;
+        let scheduledDays = 0;
+
+        productionOrders.filter(o => o.status === 'Pendiente' && o.planned_start_date && o.planned_end_date).forEach(o => {
+            const start = new Date(o.planned_start_date);
+            const end = new Date(o.planned_end_date);
+
+            if (start < next30Days && end > today) {
+                const effectiveStart = start < today ? today : start;
+                const effectiveEnd = end > next30Days ? next30Days : end;
+                const duration = (effectiveEnd - effectiveStart) / (1000 * 60 * 60 * 24);
+                if(duration > 0) {
+                    scheduledDays += duration;
+                }
+            }
+        });
+
+        const utilization = totalAvailableDays > 0 ? (scheduledDays / totalAvailableDays) * 100 : 0;
+        if(utilizationCard) utilizationCard.textContent = `${utilization.toFixed(1)}%`;
+
+    } else {
+        if(utilizationCard) utilizationCard.textContent = '0%';
+    }
 }
