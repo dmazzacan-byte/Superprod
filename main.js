@@ -601,6 +601,14 @@ document.getElementById('productForm').addEventListener('submit', async (e) => {
   const unit = document.getElementById('productUnit').value.trim();
   if (!code || !desc) return;
 
+  if (!isEditingProduct) {
+    const codeExists = products.some(p => p.codigo === code) || materials.some(m => m.codigo === code);
+    if (codeExists) {
+        Toastify({ text: `Error: El código ${code} ya existe como producto o material.`, backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
+        return;
+    }
+  }
+
   const productData = {
       descripcion: desc,
       unidad: unit
@@ -683,6 +691,19 @@ document.getElementById('materialForm').addEventListener('submit', async (e) => 
   const exist = parseFloat(document.getElementById('materialExistence').value);
   const cost = parseFloat(document.getElementById('materialCost').value);
   if (!code || !desc) return;
+
+  if (exist < 0 || cost < 0) {
+    Toastify({ text: 'Error: La existencia y el costo no pueden ser negativos.', backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
+    return;
+  }
+
+  if (!isEditingMaterial) {
+    const codeExists = materials.some(m => m.codigo === code) || products.some(p => p.codigo === code);
+    if (codeExists) {
+        Toastify({ text: `Error: El código ${code} ya existe como material o producto.`, backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
+        return;
+    }
+  }
 
   const materialData = {
       descripcion: desc,
@@ -1055,26 +1076,100 @@ function loadProductionOrders(filter = '') {
     });
 }
 
+async function deleteOrderAndReverseStock(oid) {
+    const orderToDelete = productionOrders.find(o => o.order_id === oid);
+    if (!orderToDelete) {
+        Toastify({ text: `Error: Orden ${oid} no encontrada.`, backgroundColor: 'var(--danger-color)' }).showToast();
+        return;
+    }
+
+    if (!confirm(`¿Está seguro de que desea eliminar la orden ${oid}? Esta acción es irreversible y ajustará el inventario.`)) {
+        return;
+    }
+
+    const orderVales = vales.filter(v => v.order_id === oid);
+    const materialsToUpdate = new Map();
+
+    // 1. Revert stock from the main order if it was completed
+    if (orderToDelete.status === 'Completada' && orderToDelete.quantity_produced > 0) {
+        const recipe = recipes[orderToDelete.product_code] || [];
+        const baseMaterials = getBaseMaterials(orderToDelete.product_code, orderToDelete.quantity_produced);
+
+        baseMaterials.forEach(bm => {
+            const material = materials.find(m => m.codigo === bm.code);
+            if (material) {
+                const current = materialsToUpdate.get(bm.code) || { ...material };
+                current.existencia += bm.quantity;
+                materialsToUpdate.set(bm.code, current);
+            }
+        });
+    }
+
+    // 2. Revert stock from all associated vales
+    orderVales.forEach(vale => {
+        vale.materials.forEach(valeMat => {
+            const material = materials.find(m => m.codigo === valeMat.material_code);
+            if (material) {
+                const current = materialsToUpdate.get(valeMat.material_code) || { ...material };
+                // If it was a 'salida', add stock back. If it was 'devolucion', remove it.
+                const adjustment = vale.type === 'salida' ? valeMat.quantity : -valeMat.quantity;
+                current.existencia += adjustment;
+                materialsToUpdate.set(valeMat.material_code, current);
+            }
+        });
+    });
+
+    try {
+        // 3. Create all Firestore update/delete promises
+        const promises = [];
+
+        // Promises to update material stocks
+        materialsToUpdate.forEach((material, code) => {
+            const docRef = doc(db, "materials", code);
+            promises.push(updateDoc(docRef, { existencia: material.existencia }));
+        });
+
+        // Promises to delete vales
+        orderVales.forEach(vale => {
+            const docRef = doc(db, "vales", vale.vale_id);
+            promises.push(deleteDoc(docRef));
+        });
+
+        // Promise to delete the production order itself
+        promises.push(deleteDoc(doc(db, "productionOrders", oid.toString())));
+
+        // 4. Execute all promises
+        await Promise.all(promises);
+
+        // 5. Update local state
+        materials = await loadCollection('materials', 'codigo');
+        vales = vales.filter(v => v.order_id !== oid);
+        productionOrders = productionOrders.filter(o => o.order_id !== oid);
+
+        // 6. Refresh UI
+        loadProductionOrders();
+        loadMaterials();
+        updateDashboard();
+
+        Toastify({ text: `Orden ${oid} y sus vales han sido eliminados. El inventario ha sido ajustado.`, backgroundColor: 'var(--success-color)' }).showToast();
+
+    } catch (error) {
+        console.error(`Error deleting order ${oid} and reversing stock:`, error);
+        Toastify({ text: 'Error crítico al eliminar la orden. Revise la consola.', backgroundColor: 'var(--danger-color)', duration: 8000 }).showToast();
+    }
+}
+
+
 document.getElementById('productionOrdersTableBody').addEventListener('click', async e => {
     const btn = e.target.closest('button'); if (!btn) return;
     const oid = parseInt(btn.dataset.orderId);
+
     if (btn.classList.contains('view-details-btn')) {
       showOrderDetails(oid);
     } else if (btn.classList.contains('pdf-btn')) {
       await generateOrderPDF(oid);
     } else if (btn.classList.contains('delete-order-btn')) {
-      if (confirm(`¿Eliminar orden ${oid}?`)) {
-        try {
-            await deleteDoc(doc(db, "productionOrders", oid.toString()));
-            productionOrders = productionOrders.filter(o => o.order_id !== oid);
-            loadProductionOrders();
-            updateDashboard();
-            Toastify({ text: 'Orden eliminada', backgroundColor: 'var(--success-color)' }).showToast();
-        } catch(error) {
-            console.error("Error deleting order: ", error);
-            Toastify({ text: 'Error al eliminar orden', backgroundColor: 'var(--danger-color)' }).showToast();
-        }
-      }
+      await deleteOrderAndReverseStock(oid);
     } else if (btn.classList.contains('complete-order-btn')) {
       const ord = productionOrders.find(o => o.order_id === oid);
       document.getElementById('closeHiddenOrderId').value = oid;
@@ -2204,7 +2299,7 @@ document.getElementById('operatorsList').addEventListener('click', async (e) => 
         }
     }
   }
-  if (btn.classList.contains('edit-operator-btn')) {
+  if (btn.classList.contains('edit-btn')) {
     isEditingOperator = true; currentOperatorId = id;
     const op = operators.find(op => op.id === id);
     document.getElementById('operatorId').value = op.id;
