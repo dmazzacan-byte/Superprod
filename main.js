@@ -419,6 +419,14 @@ async function initializeAppContent() {
             console.log('Loading recipes content...');
             loadRecipes();
             populateRecipeProductSelect();
+        } else if (pageId === 'demandPlannerPage') {
+            console.log('Loading demand planner content...');
+            const firstSelect = document.querySelector('.forecast-product');
+            if (firstSelect) {
+                populatePlannerProductSelects(firstSelect);
+            }
+            document.getElementById('suggestedOrdersCard').style.display = 'none';
+            document.getElementById('suggestedOrdersTableBody').innerHTML = '';
         } else if (pageId === 'productionOrdersPage') {
             console.log('Loading production orders content...');
             loadProductionOrders();
@@ -1350,6 +1358,48 @@ function showOrderDetails(oid) {
     orderDetailsModal.show();
 }
 
+async function createProductionOrder(pCode, qty, opId, eqId) {
+    const prod = products.find(p => p.codigo === pCode);
+    if (!prod) {
+        Toastify({ text: `Error: Producto con código ${pCode} no encontrado.` }).showToast();
+        return false;
+    }
+    if (!recipes[pCode]) {
+        Toastify({ text: `Sin receta para ${prod.descripcion}` }).showToast();
+        return false;
+    }
+
+    const stdCost = calculateRecipeCost(recipes[pCode]) * qty;
+    const newOrder = {
+        order_id: generateSequentialOrderId(),
+        product_code: pCode,
+        product_name: prod.descripcion,
+        quantity: qty,
+        quantity_produced: null,
+        operator_id: opId,
+        equipo_id: eqId,
+        cost_standard_unit: calculateRecipeCost(recipes[pCode]),
+        cost_standard: stdCost,
+        cost_extra: 0,
+        cost_real: null,
+        overcost: null,
+        created_at: new Date().toISOString().slice(0, 10),
+        completed_at: null,
+        status: 'Pendiente',
+        materials_used: recipes[pCode].map(i => ({ material_code: i.code, quantity: i.quantity * qty, type: i.type }))
+    };
+
+    try {
+        await setDoc(doc(db, "productionOrders", newOrder.order_id.toString()), newOrder);
+        productionOrders.push(newOrder);
+        return true; // Indicate success
+    } catch (error) {
+        console.error("Error creating order: ", error);
+        Toastify({ text: `Error al crear orden para ${pCode}`, backgroundColor: 'var(--danger-color)' }).showToast();
+        return false; // Indicate failure
+    }
+}
+
 document.getElementById('productionOrderForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const pCode = document.getElementById('orderProductSelect').value;
@@ -1357,38 +1407,14 @@ document.getElementById('productionOrderForm').addEventListener('submit', async 
   const opId  = document.getElementById('orderOperatorSelect').value;
   const eqId  = document.getElementById('orderEquipoSelect').value;
   if (!pCode || !opId || !eqId) { Toastify({ text: 'Completa producto, operador y equipo' }).showToast(); return; }
-  const prod = products.find(p => p.codigo === pCode);
-  if (!recipes[pCode]) { Toastify({ text: `Sin receta para ${prod.descripcion}` }).showToast(); return; }
-  const stdCost = calculateRecipeCost(recipes[pCode]) * qty;
-  const newOrder = {
-    order_id: generateSequentialOrderId(),
-    product_code: pCode,
-    product_name: prod.descripcion,
-    quantity: qty,
-    quantity_produced: null,
-    operator_id: opId,
-    equipo_id: eqId,
-    cost_standard_unit: calculateRecipeCost(recipes[pCode]),
-    cost_standard: stdCost,
-    cost_extra: 0,
-    cost_real: null,
-    overcost: null,
-    created_at: new Date().toISOString().slice(0, 10),
-    completed_at: null,
-    status: 'Pendiente',
-    materials_used: recipes[pCode].map(i => ({ material_code: i.code, quantity: i.quantity * qty, type: i.type }))
-  };
 
-  try {
-    await setDoc(doc(db, "productionOrders", newOrder.order_id.toString()), newOrder);
-    productionOrders.push(newOrder);
+  const success = await createProductionOrder(pCode, qty, opId, eqId);
+
+  if (success) {
     loadProductionOrders();
     populateOrderFormSelects();
     productionOrderModal.hide();
     Toastify({ text: 'Orden de producción creada', backgroundColor: 'var(--success-color)' }).showToast();
-  } catch (error) {
-    console.error("Error creating order: ", error);
-    Toastify({ text: 'Error al crear orden', backgroundColor: 'var(--danger-color)' }).showToast();
   }
 });
 document.getElementById('confirmCloseOrderForm').addEventListener('submit', e => {
@@ -2768,3 +2794,151 @@ function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
     });
   }
 }
+
+/* ---------- PLANIFICADOR DE DEMANDA ---------- */
+function populatePlannerProductSelects(selectElement) {
+    selectElement.innerHTML = '<option value="" disabled selected>Seleccione un producto...</option>';
+    // Filter for products that are also in the materials list, as these are the ones with stock.
+    const stockableProducts = products.filter(p => materials.some(m => m.codigo === p.codigo));
+
+    stockableProducts.forEach(p => {
+        const option = new Option(`${p.codigo} - ${p.descripcion}`, p.codigo);
+        selectElement.add(option);
+    });
+}
+
+function addForecastEntryRow() {
+    const container = document.getElementById('forecast-entries');
+    const newEntry = document.createElement('div');
+    newEntry.className = 'row g-3 align-items-center forecast-entry mb-2';
+    newEntry.innerHTML = `
+        <div class="col-md-6">
+            <select class="form-select forecast-product"></select>
+        </div>
+        <div class="col-md-4">
+            <input type="number" class="form-control forecast-quantity" min="1" placeholder="Ej: 100">
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+            <button type="button" class="btn btn-danger w-100 remove-forecast-btn"><i class="fas fa-trash"></i></button>
+        </div>
+    `;
+    const newSelect = newEntry.querySelector('.forecast-product');
+    populatePlannerProductSelects(newSelect);
+    container.appendChild(newEntry);
+}
+
+document.getElementById('addForecastEntryBtn')?.addEventListener('click', addForecastEntryRow);
+
+document.getElementById('forecast-entries')?.addEventListener('click', (e) => {
+    if (e.target.closest('.remove-forecast-btn')) {
+        const entry = e.target.closest('.forecast-entry');
+        // Do not remove the last entry
+        if (document.querySelectorAll('.forecast-entry').length > 1) {
+            entry.remove();
+        }
+    }
+});
+
+document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
+    const entries = document.querySelectorAll('.forecast-entry');
+    const forecast = [];
+    let hasInvalidEntry = false;
+
+    entries.forEach(entry => {
+        const productCode = entry.querySelector('.forecast-product').value;
+        const quantity = parseInt(entry.querySelector('.forecast-quantity').value, 10);
+
+        if (productCode && quantity > 0) {
+            forecast.push({ productCode, quantity });
+        } else {
+            hasInvalidEntry = true;
+        }
+    });
+
+    if (hasInvalidEntry) {
+        Toastify({ text: 'Por favor, complete todas las filas del pronóstico antes de calcular.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    if (forecast.length === 0) {
+        Toastify({ text: 'No hay pronóstico para calcular. Agregue al menos un producto.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    const suggestedOrdersTbody = document.getElementById('suggestedOrdersTableBody');
+    suggestedOrdersTbody.innerHTML = '';
+    let suggestionsMade = false;
+
+    forecast.forEach(item => {
+        const product = products.find(p => p.codigo === item.productCode);
+        const materialInfo = materials.find(m => m.codigo === item.productCode);
+        const currentStock = materialInfo ? materialInfo.existencia : 0;
+        const netRequirement = item.quantity - currentStock;
+
+        if (netRequirement > 0) {
+            suggestionsMade = true;
+            const row = `
+                <tr>
+                    <td><input type="checkbox" class="suggestion-checkbox" data-product-code="${item.productCode}" data-quantity="${netRequirement}" checked></td>
+                    <td>${product.descripcion} (${item.productCode})</td>
+                    <td>${netRequirement}</td>
+                    <td>${currentStock}</td>
+                    <td>${item.quantity}</td>
+                </tr>
+            `;
+            suggestedOrdersTbody.insertAdjacentHTML('beforeend', row);
+        }
+    });
+
+    const suggestedOrdersCard = document.getElementById('suggestedOrdersCard');
+    if (suggestionsMade) {
+        suggestedOrdersCard.style.display = 'block';
+        // Populate operator and equipo dropdowns
+        const opSel = document.getElementById('plannerOperatorSelect');
+        opSel.innerHTML = '<option value="" disabled selected>Seleccione Operador</option>';
+        operators.forEach(o => opSel.add(new Option(o.name, o.id)));
+
+        const eqSel = document.getElementById('plannerEquipoSelect');
+        eqSel.innerHTML = '<option value="" disabled selected>Seleccione Equipo</option>';
+        equipos.forEach(e => eqSel.add(new Option(e.name, e.id)));
+
+    } else {
+        suggestedOrdersCard.style.display = 'none';
+        Toastify({ text: 'No se requiere producción nueva. El inventario actual satisface el pronóstico.', backgroundColor: 'var(--info-color)', duration: 5000 }).showToast();
+    }
+});
+
+document.getElementById('createSelectedOrdersBtn')?.addEventListener('click', async () => {
+    const operatorId = document.getElementById('plannerOperatorSelect').value;
+    const equipoId = document.getElementById('plannerEquipoSelect').value;
+
+    if (!operatorId || !equipoId) {
+        Toastify({ text: 'Por favor, seleccione un operador y un equipo para asignar a las órdenes.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    const checkboxes = document.querySelectorAll('.suggestion-checkbox:checked');
+    if (checkboxes.length === 0) {
+        Toastify({ text: 'No hay órdenes sugeridas seleccionadas para crear.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    let createdCount = 0;
+    for (const checkbox of checkboxes) {
+        const productCode = checkbox.dataset.productCode;
+        const quantity = parseInt(checkbox.dataset.quantity, 10);
+        const success = await createProductionOrder(productCode, quantity, operatorId, equipoId);
+        if (success) {
+            createdCount++;
+        }
+    }
+
+    if (createdCount > 0) {
+        Toastify({ text: `${createdCount} órdenes de producción creadas con éxito.`, backgroundColor: 'var(--success-color)' }).showToast();
+        loadProductionOrders(); // Refresh the main orders list
+        // Hide and reset the planner UI
+        document.getElementById('suggestedOrdersCard').style.display = 'none';
+        document.getElementById('suggestedOrdersTableBody').innerHTML = '';
+        document.getElementById('demandPlannerForm').reset();
+    }
+});
