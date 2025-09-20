@@ -86,6 +86,7 @@
                     <h4 class="text-white text-center my-3">Superproducción</h4>
                     <ul class="nav flex-column">
                         <li class="nav-item"><a class="nav-link active" href="#dashboardPage" data-page="dashboardPage"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#demandPlannerPage" data-page="demandPlannerPage"><i class="fas fa-bullseye"></i> Planificador</a></li>
                         <li class="nav-item"><a class="nav-link" href="#productsPage" data-page="productsPage"><i class="fas fa-boxes"></i> Productos</a></li>
                         <li class="nav-item"><a class="nav-link" href="#materialsPage" data-page="materialsPage"><i class="fas fa-cubes"></i> Materiales</a></li>
                         <li class="nav-item"><a class="nav-link" href="#recipesPage" data-page="recipesPage"><i class="fas fa-book"></i> Recetas</a></li>
@@ -137,6 +138,68 @@
                     </div>
                     <div class="row g-4 mt-4">
                         <div class="col-12"><div class="card shadow-sm"><div class="card-header bg-warning-subtle d-flex justify-content-between align-items-center"><h5 class="mb-0 text-dark"><i class="fas fa-exclamation-triangle me-2"></i>Alertas de Bajo Inventario</h5><div class="d-flex align-items-center"><label for="lowStockThreshold" class="me-2 text-dark fw-bold small">Límite:</label><input type="number" id="lowStockThreshold" class="form-control form-control-sm" value="10" style="width: 80px;"></div></div><div class="card-body"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>Material</th><th>Existencia Actual</th><th>Unidad</th><th>Productos Afectados</th></tr></thead><tbody id="lowStockTableBody"></tbody></table></div></div></div></div>
+                    </div>
+                </div>
+
+                <!-- Planificador de Demanda -->
+                <div class="page-content" id="demandPlannerPage" style="display: none;">
+                    <h1 class="mt-4">Planificador de Demanda</h1>
+                    <div class="card shadow-sm mt-4">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="fas fa-tasks me-2"></i>Paso 1: Ingresar Pronóstico de Ventas</h5>
+                        </div>
+                        <div class="card-body">
+                            <form id="demandPlannerForm">
+                                <div id="forecast-entries">
+                                    <div class="row g-3 align-items-center forecast-entry mb-2">
+                                        <div class="col-md-6">
+                                            <label class="form-label">Producto</label>
+                                            <select class="form-select forecast-product"></select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Cantidad Requerida</label>
+                                            <input type="number" class="form-control forecast-quantity" min="1" placeholder="Ej: 100">
+                                        </div>
+                                        <div class="col-md-2 d-flex align-items-end">
+                                            <button type="button" class="btn btn-danger w-100 remove-forecast-btn"><i class="fas fa-trash"></i></button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-success mt-2" id="addForecastEntryBtn"><i class="fas fa-plus"></i> Añadir Producto</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-center my-4">
+                        <button class="btn btn-primary btn-lg me-3" id="calculatePlanBtn"><i class="fas fa-calculator me-2"></i>Calcular Plan</button>
+                        <button class="btn btn-secondary btn-lg" id="newPlanBtn"><i class="fas fa-sync-alt me-2"></i>Nuevo Plan</button>
+                    </div>
+
+                    <div class="card shadow-sm mt-4" id="suggestedOrdersCard" style="display: none;">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="fas fa-lightbulb me-2"></i>Paso 2: Órdenes de Producción Sugeridas</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th><input type="checkbox" id="selectAllSuggestions" checked></th>
+                                            <th>Producto</th>
+                                            <th>Necesidad Neta</th>
+                                            <th>Inventario</th>
+                                            <th>Pronóstico</th>
+                                            <th>Operador</th>
+                                            <th>Equipo</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="suggestedOrdersTableBody">
+                                        <!-- Las filas se generarán con JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            <button class="btn btn-success btn-lg mt-3" id="createSelectedOrdersBtn"><i class="fas fa-check-circle me-2"></i>Crear Órdenes Seleccionadas</button>
+                        </div>
                     </div>
                 </div>
 
@@ -364,7 +427,7 @@
 <!-- MODALES -->
 <div class="modal fade" id="userModal" tabindex="-1" aria-labelledby="userModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="userModalLabel">Añadir/Editar Usuario</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="userForm"><div class="modal-body"><p class="text-muted small">Para añadir un nuevo usuario, primero créelo en la Consola de Firebase Authentication. Luego, copie el <strong>UID</strong> de ese usuario desde la consola y péguelo aquí, junto con su correo y rol.</p><div class="mb-3"><label for="userUid" class="form-label">User UID</label><input type="text" class="form-control" id="userUid" required placeholder="Copiar UID de Firebase Console"></div><div class="mb-3"><label for="userEmail" class="form-label">Correo Electrónico</label><input type="email" class="form-control" id="userEmail" required></div><div class="mb-3"><label for="userRole" class="form-label">Rol</label><select id="userRole" class="form-select" required><option value="Supervisor">Supervisor</option><option value="Administrator">Administrador</option></select></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
 <div class="modal fade" id="productModal" tabindex="-1" aria-labelledby="productModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="productModalLabel">Añadir Producto</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="productForm"><div class="modal-body"><div class="mb-3"><label for="productCode" class="form-label">Código</label><input type="text" class="form-control" id="productCode" required></div><div class="mb-3"><label for="productDescription" class="form-label">Descripción</label><input type="text" class="form-control" id="productDescription" required></div><div class="mb-3"><label for="productUnit" class="form-label">Unidad</label><input type="text" class="form-control" id="productUnit" required></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
-<div class="modal fade" id="materialModal" tabindex="-1" aria-labelledby="materialModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="materialModalLabel">Añadir Material</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="materialForm"><div class="modal-body"><div class="mb-3"><label for="materialCode" class="form-label">Código</label><input type="text" class="form-control" id="materialCode" required></div><div class="mb-3"><label for="materialDescription" class="form-label">Descripción</label><input type="text" class="form-control" id="materialDescription" required></div><div class="mb-3"><label for="materialUnit" class="form-label">Unidad</label><input type="text" class="form-control" id="materialUnit" required></div><div class="mb-3"><label for="materialExistence" class="form-label">Existencia</label><input type="number" class="form-control" id="materialExistence" step="0.01" required></div><div class="mb-3"><label for="materialCost" class="form-label">Costo</label><input type="number" class="form-control" id="materialCost" step="0.01" required></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
+<div class="modal fade" id="materialModal" tabindex="-1" aria-labelledby="materialModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="materialModalLabel">Añadir Material</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="materialForm"><div class="modal-body"><div class="mb-3"><label for="materialCode" class="form-label">Código</label><input type="text" class="form-control" id="materialCode" required></div><div class="mb-3"><label for="materialDescription" class="form-label">Descripción</label><input type="text" class="form-control" id="materialDescription" required></div><div class="mb-3"><label for="materialUnit" class="form-label">Unidad</label><input type="text" class="form-control" id="materialUnit" required></div><div class="mb-3"><label for="materialExistence" class="form-label">Existencia</label><input type="number" class="form-control" id="materialExistence" step="0.01" min="0" required></div><div class="mb-3"><label for="materialCost" class="form-label">Costo</label><input type="number" class="form-control" id="materialCost" step="0.01" min="0" required></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
 
 <!-- Modal Añadir Receta -->
 <div class="modal fade" id="addRecipeModal" tabindex="-1" aria-labelledby="addRecipeModalLabel" aria-hidden="true">
@@ -466,6 +529,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.5.23/dist/jspdf.plugin.autotable.min.js"></script>
 <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
-<script type="module" src="main.js"></script>
+<script type="module" src="main_v2.js"></script>
 </body>
 </html>
