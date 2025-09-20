@@ -170,13 +170,14 @@
                         </div>
                     </div>
 
-                    <div class="text-center my-4">
-                        <button class="btn btn-primary btn-lg" id="calculatePlanBtn"><i class="fas fa-calculator me-2"></i>Paso 2: Calcular Plan de Producción</button>
+                    <div class="d-flex justify-content-center my-4">
+                        <button class="btn btn-primary btn-lg me-3" id="calculatePlanBtn"><i class="fas fa-calculator me-2"></i>Calcular Plan</button>
+                        <button class="btn btn-secondary btn-lg" id="newPlanBtn"><i class="fas fa-sync-alt me-2"></i>Nuevo Plan</button>
                     </div>
 
                     <div class="card shadow-sm mt-4" id="suggestedOrdersCard" style="display: none;">
                         <div class="card-header">
-                            <h5 class="mb-0"><i class="fas fa-lightbulb me-2"></i>Paso 3: Órdenes de Producción Sugeridas</h5>
+                            <h5 class="mb-0"><i class="fas fa-lightbulb me-2"></i>Paso 2: Órdenes de Producción Sugeridas</h5>
                         </div>
                         <div class="card-body">
                             <div class="table-responsive">
@@ -185,25 +186,17 @@
                                         <tr>
                                             <th><input type="checkbox" id="selectAllSuggestions" checked></th>
                                             <th>Producto</th>
-                                            <th>Necesidad Neta (Unidades)</th>
-                                            <th>Inventario Actual</th>
+                                            <th>Necesidad Neta</th>
+                                            <th>Inventario</th>
                                             <th>Pronóstico</th>
+                                            <th>Operador</th>
+                                            <th>Equipo</th>
                                         </tr>
                                     </thead>
                                     <tbody id="suggestedOrdersTableBody">
                                         <!-- Las filas se generarán con JS -->
                                     </tbody>
                                 </table>
-                            </div>
-                            <div class="row mt-3 g-3">
-                                <div class="col-md-6">
-                                    <label for="plannerOperatorSelect" class="form-label"><strong>Asignar Operador a Todas las Órdenes</strong></label>
-                                    <select id="plannerOperatorSelect" class="form-select"></select>
-                                </div>
-                                <div class="col-md-6">
-                                    <label for="plannerEquipoSelect" class="form-label"><strong>Asignar Equipo a Todas las Órdenes</strong></label>
-                                    <select id="plannerEquipoSelect" class="form-select"></select>
-                                </div>
                             </div>
                             <button class="btn btn-success btn-lg mt-3" id="createSelectedOrdersBtn"><i class="fas fa-check-circle me-2"></i>Crear Órdenes Seleccionadas</button>
                         </div>
@@ -536,6 +529,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.5.23/dist/jspdf.plugin.autotable.min.js"></script>
 <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
-<script type="module" src="main.js"></script>
+<script type="module" src="main_v2.js"></script>
 </body>
 </html>
