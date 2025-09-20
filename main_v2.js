@@ -3030,8 +3030,11 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
         }
     });
 
-    document.getElementById('materialShortageTableBody').closest('.card').style.display = hasShortage ? 'block' : 'none';
-    document.querySelector('#materialCheckModal .alert').style.display = hasShortage ? 'block' : 'none';
+    document.getElementById('materialShortageCard').style.display = hasShortage ? 'block' : 'none';
+    document.getElementById('materialCheckShortageAlert').style.display = hasShortage ? 'block' : 'none';
+    document.getElementById('materialCheckSuccessAlert').style.display = hasShortage ? 'none' : 'block';
+
+    document.getElementById('continuePlanBtn').disabled = hasShortage;
 
     document.getElementById('continuePlanBtn').onclick = () => {
         materialCheckModal.hide();
