@@ -596,7 +596,7 @@ function loadProducts(filter = '') {
 }
 document.getElementById('productForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const code = document.getElementById('productCode').value.trim();
+  const code = document.getElementById('productCode').value.trim().toUpperCase();
   const desc = document.getElementById('productDescription').value.trim();
   const unit = document.getElementById('productUnit').value.trim();
   if (!code || !desc) return;
@@ -685,7 +685,7 @@ function loadMaterials() {
 }
 document.getElementById('materialForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const code = document.getElementById('materialCode').value.trim();
+  const code = document.getElementById('materialCode').value.trim().toUpperCase();
   const desc = document.getElementById('materialDescription').value.trim();
   const unit = document.getElementById('materialUnit').value.trim();
   const exist = parseFloat(document.getElementById('materialExistence').value);
