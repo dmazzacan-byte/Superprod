@@ -2285,7 +2285,7 @@ function loadOperators() {
 }
 document.getElementById('operatorForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const id   = document.getElementById('operatorId').value.trim();
+  const id   = document.getElementById('operatorId').value.trim().toUpperCase();
   const name = document.getElementById('operatorName').value.trim();
   if (!id || !name) return;
 
@@ -2350,7 +2350,7 @@ function loadEquipos() {
 }
 document.getElementById('equipoForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const id   = document.getElementById('equipoId').value.trim();
+  const id   = document.getElementById('equipoId').value.trim().toUpperCase();
   const name = document.getElementById('equipoName').value.trim();
   if (!id || !name) return;
   const equipoData = { name };
@@ -2460,9 +2460,10 @@ document.getElementById('productFile').addEventListener('change', async (e) => {
   reader.onload = async (ev) => {
     const wb = XLSX.read(ev.target.result, { type: 'binary' });
     const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-    const importedProducts = json.map(r => ({ codigo: r.codigo || r.Código, descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad || '' }));
+    const importedProducts = json.map(r => ({ codigo: (r.codigo || r.Código)?.toString().toUpperCase(), descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad || '' }));
 
     for (const product of importedProducts) {
+        if (!product.codigo) continue; // Skip products without a code
         await setDoc(doc(db, "products", product.codigo), {
             descripcion: product.descripcion,
             unidad: product.unidad
@@ -2483,9 +2484,10 @@ document.getElementById('materialFile').addEventListener('change', async (e) => 
   reader.onload = async (ev) => {
     const wb = XLSX.read(ev.target.result, { type: 'binary' });
     const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-    const importedMaterials = json.map(r => ({ codigo: r.codigo || r.Código, descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad, existencia: parseFloat(r.existencia || r.Existencia || 0), costo: parseFloat(r.costo || r.Costo || 0) }));
+    const importedMaterials = json.map(r => ({ codigo: (r.codigo || r.Código)?.toString().toUpperCase(), descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad, existencia: parseFloat(r.existencia || r.Existencia || 0), costo: parseFloat(r.costo || r.Costo || 0) }));
 
     for (const material of importedMaterials) {
+        if (!material.codigo) continue; // Skip materials without a code
         await setDoc(doc(db, "materials", material.codigo), {
             descripcion: material.descripcion,
             unidad: material.unidad,
@@ -2514,11 +2516,14 @@ document.getElementById('recipeFile').addEventListener('change', async (e) => {
     const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
     const importedRecipes = {};
     json.forEach(r => {
-      const prod = r.producto || r.Producto;
+      const prod = (r.producto || r.Producto)?.toString().toUpperCase();
+      if (!prod) return; // Skip rows without a product code
       if (!importedRecipes[prod]) importedRecipes[prod] = [];
       const tipoExcel = (r.tipo || r.Tipo || 'material').toLowerCase();
       const tipo = tipoExcel === 'producto' ? 'product' : 'material';
-      importedRecipes[prod].push({ type: tipo, code: r.codigo || r.Código, quantity: parseFloat(r.cantidad || r.Cantidad) });
+      const code = (r.codigo || r.Código)?.toString().toUpperCase();
+      if (!code) return; // Skip ingredients without a code
+      importedRecipes[prod].push({ type: tipo, code: code, quantity: parseFloat(r.cantidad || r.Cantidad) });
     });
 
     for (const [productId, recipeItems] of Object.entries(importedRecipes)) {
@@ -2832,12 +2837,39 @@ document.getElementById('addForecastEntryBtn')?.addEventListener('click', addFor
 document.getElementById('forecast-entries')?.addEventListener('click', (e) => {
     if (e.target.closest('.remove-forecast-btn')) {
         const entry = e.target.closest('.forecast-entry');
-        // Do not remove the last entry
-        if (document.querySelectorAll('.forecast-entry').length > 1) {
-            entry.remove();
-        }
+        // Allow removing any entry. If it's the last one, it will be gone.
+        // The user can add a new one if needed.
+        entry.remove();
     }
 });
+
+function getGrossRequirements(initialForecast) {
+    const grossRequirements = new Map();
+
+    function explodeBOM(productCode, requiredQty) {
+        // Add requirement for the product itself
+        const currentQty = grossRequirements.get(productCode) || 0;
+        grossRequirements.set(productCode, currentQty + requiredQty);
+
+        const recipe = recipes[productCode];
+        if (!recipe) return; // It's a raw material or a product without a recipe
+
+        // Recurse for sub-products
+        recipe.forEach(ingredient => {
+            if (ingredient.type === 'product') {
+                const subProductQty = ingredient.quantity * requiredQty;
+                explodeBOM(ingredient.code, subProductQty);
+            }
+        });
+    }
+
+    initialForecast.forEach(item => {
+        explodeBOM(item.productCode, item.quantity);
+    });
+
+    return grossRequirements;
+}
+
 
 document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
     const entries = document.querySelectorAll('.forecast-entry');
@@ -2849,8 +2881,15 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
         const quantity = parseInt(entry.querySelector('.forecast-quantity').value, 10);
 
         if (productCode && quantity > 0) {
-            forecast.push({ productCode, quantity });
-        } else {
+            // Avoid adding duplicate products to the initial forecast
+            const existing = forecast.find(f => f.productCode === productCode);
+            if (existing) {
+                existing.quantity += quantity;
+            } else {
+                forecast.push({ productCode, quantity });
+            }
+        } else if (productCode || quantity) {
+            // Only flag as invalid if one field is filled but not the other
             hasInvalidEntry = true;
         }
     });
@@ -2865,25 +2904,30 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
         return;
     }
 
+    const grossRequirements = getGrossRequirements(forecast);
+
     const suggestedOrdersTbody = document.getElementById('suggestedOrdersTableBody');
     suggestedOrdersTbody.innerHTML = '';
     let suggestionsMade = false;
 
-    forecast.forEach(item => {
-        const product = products.find(p => p.codigo === item.productCode);
-        const materialInfo = materials.find(m => m.codigo === item.productCode);
+    grossRequirements.forEach((grossQty, productCode) => {
+        const product = products.find(p => p.codigo === productCode);
+        // Only suggest orders for items that are products (not raw materials)
+        if (!product) return;
+
+        const materialInfo = materials.find(m => m.codigo === productCode);
         const currentStock = materialInfo ? materialInfo.existencia : 0;
-        const netRequirement = item.quantity - currentStock;
+        const netRequirement = grossQty - currentStock;
 
         if (netRequirement > 0) {
             suggestionsMade = true;
             const row = `
                 <tr>
-                    <td><input type="checkbox" class="suggestion-checkbox" data-product-code="${item.productCode}" data-quantity="${netRequirement}" checked></td>
-                    <td>${product.descripcion} (${item.productCode})</td>
-                    <td>${netRequirement}</td>
-                    <td>${currentStock}</td>
-                    <td>${item.quantity}</td>
+                    <td><input type="checkbox" class="suggestion-checkbox" data-product-code="${productCode}" data-quantity="${netRequirement}" checked></td>
+                    <td>${product.descripcion} (${productCode})</td>
+                    <td>${netRequirement.toFixed(2)}</td>
+                    <td>${currentStock.toFixed(2)}</td>
+                    <td>${grossQty.toFixed(2)}</td>
                 </tr>
             `;
             suggestedOrdersTbody.insertAdjacentHTML('beforeend', row);
@@ -2893,7 +2937,6 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
     const suggestedOrdersCard = document.getElementById('suggestedOrdersCard');
     if (suggestionsMade) {
         suggestedOrdersCard.style.display = 'block';
-        // Populate operator and equipo dropdowns
         const opSel = document.getElementById('plannerOperatorSelect');
         opSel.innerHTML = '<option value="" disabled selected>Seleccione Operador</option>';
         operators.forEach(o => opSel.add(new Option(o.name, o.id)));
@@ -2901,7 +2944,6 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
         const eqSel = document.getElementById('plannerEquipoSelect');
         eqSel.innerHTML = '<option value="" disabled selected>Seleccione Equipo</option>';
         equipos.forEach(e => eqSel.add(new Option(e.name, e.id)));
-
     } else {
         suggestedOrdersCard.style.display = 'none';
         Toastify({ text: 'No se requiere producción nueva. El inventario actual satisface el pronóstico.', backgroundColor: 'var(--info-color)', duration: 5000 }).showToast();
@@ -2936,9 +2978,14 @@ document.getElementById('createSelectedOrdersBtn')?.addEventListener('click', as
     if (createdCount > 0) {
         Toastify({ text: `${createdCount} órdenes de producción creadas con éxito.`, backgroundColor: 'var(--success-color)' }).showToast();
         loadProductionOrders(); // Refresh the main orders list
+
         // Hide and reset the planner UI
         document.getElementById('suggestedOrdersCard').style.display = 'none';
         document.getElementById('suggestedOrdersTableBody').innerHTML = '';
-        document.getElementById('demandPlannerForm').reset();
+
+        // Clear forecast entries, leaving one blank row
+        const forecastEntriesContainer = document.getElementById('forecast-entries');
+        forecastEntriesContainer.innerHTML = '';
+        addForecastEntryRow();
     }
 });
