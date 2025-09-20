@@ -419,6 +419,14 @@ async function initializeAppContent() {
             console.log('Loading recipes content...');
             loadRecipes();
             populateRecipeProductSelect();
+        } else if (pageId === 'demandPlannerPage') {
+            console.log('Loading demand planner content...');
+            const firstSelect = document.querySelector('.forecast-product');
+            if (firstSelect) {
+                populatePlannerProductSelects(firstSelect);
+            }
+            document.getElementById('suggestedOrdersCard').style.display = 'none';
+            document.getElementById('suggestedOrdersTableBody').innerHTML = '';
         } else if (pageId === 'productionOrdersPage') {
             console.log('Loading production orders content...');
             loadProductionOrders();
@@ -596,10 +604,18 @@ function loadProducts(filter = '') {
 }
 document.getElementById('productForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const code = document.getElementById('productCode').value.trim();
+  const code = document.getElementById('productCode').value.trim().toUpperCase();
   const desc = document.getElementById('productDescription').value.trim();
   const unit = document.getElementById('productUnit').value.trim();
   if (!code || !desc) return;
+
+  if (!isEditingProduct) {
+    const codeExists = products.some(p => p.codigo === code) || materials.some(m => m.codigo === code);
+    if (codeExists) {
+        Toastify({ text: `Error: El código ${code} ya existe como producto o material.`, backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
+        return;
+    }
+  }
 
   const productData = {
       descripcion: desc,
@@ -677,12 +693,25 @@ function loadMaterials() {
 }
 document.getElementById('materialForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const code = document.getElementById('materialCode').value.trim();
+  const code = document.getElementById('materialCode').value.trim().toUpperCase();
   const desc = document.getElementById('materialDescription').value.trim();
   const unit = document.getElementById('materialUnit').value.trim();
   const exist = parseFloat(document.getElementById('materialExistence').value);
   const cost = parseFloat(document.getElementById('materialCost').value);
   if (!code || !desc) return;
+
+  if (exist < 0 || cost < 0) {
+    Toastify({ text: 'Error: La existencia y el costo no pueden ser negativos.', backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
+    return;
+  }
+
+  if (!isEditingMaterial) {
+    const codeExists = materials.some(m => m.codigo === code) || products.some(p => p.codigo === code);
+    if (codeExists) {
+        Toastify({ text: `Error: El código ${code} ya existe como material o producto.`, backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
+        return;
+    }
+  }
 
   const materialData = {
       descripcion: desc,
@@ -1055,26 +1084,100 @@ function loadProductionOrders(filter = '') {
     });
 }
 
+async function deleteOrderAndReverseStock(oid) {
+    const orderToDelete = productionOrders.find(o => o.order_id === oid);
+    if (!orderToDelete) {
+        Toastify({ text: `Error: Orden ${oid} no encontrada.`, backgroundColor: 'var(--danger-color)' }).showToast();
+        return;
+    }
+
+    if (!confirm(`¿Está seguro de que desea eliminar la orden ${oid}? Esta acción es irreversible y ajustará el inventario.`)) {
+        return;
+    }
+
+    const orderVales = vales.filter(v => v.order_id === oid);
+    const materialsToUpdate = new Map();
+
+    // 1. Revert stock from the main order if it was completed
+    if (orderToDelete.status === 'Completada' && orderToDelete.quantity_produced > 0) {
+        const recipe = recipes[orderToDelete.product_code] || [];
+        const baseMaterials = getBaseMaterials(orderToDelete.product_code, orderToDelete.quantity_produced);
+
+        baseMaterials.forEach(bm => {
+            const material = materials.find(m => m.codigo === bm.code);
+            if (material) {
+                const current = materialsToUpdate.get(bm.code) || { ...material };
+                current.existencia += bm.quantity;
+                materialsToUpdate.set(bm.code, current);
+            }
+        });
+    }
+
+    // 2. Revert stock from all associated vales
+    orderVales.forEach(vale => {
+        vale.materials.forEach(valeMat => {
+            const material = materials.find(m => m.codigo === valeMat.material_code);
+            if (material) {
+                const current = materialsToUpdate.get(valeMat.material_code) || { ...material };
+                // If it was a 'salida', add stock back. If it was 'devolucion', remove it.
+                const adjustment = vale.type === 'salida' ? valeMat.quantity : -valeMat.quantity;
+                current.existencia += adjustment;
+                materialsToUpdate.set(valeMat.material_code, current);
+            }
+        });
+    });
+
+    try {
+        // 3. Create all Firestore update/delete promises
+        const promises = [];
+
+        // Promises to update material stocks
+        materialsToUpdate.forEach((material, code) => {
+            const docRef = doc(db, "materials", code);
+            promises.push(updateDoc(docRef, { existencia: material.existencia }));
+        });
+
+        // Promises to delete vales
+        orderVales.forEach(vale => {
+            const docRef = doc(db, "vales", vale.vale_id);
+            promises.push(deleteDoc(docRef));
+        });
+
+        // Promise to delete the production order itself
+        promises.push(deleteDoc(doc(db, "productionOrders", oid.toString())));
+
+        // 4. Execute all promises
+        await Promise.all(promises);
+
+        // 5. Update local state
+        materials = await loadCollection('materials', 'codigo');
+        vales = vales.filter(v => v.order_id !== oid);
+        productionOrders = productionOrders.filter(o => o.order_id !== oid);
+
+        // 6. Refresh UI
+        loadProductionOrders();
+        loadMaterials();
+        updateDashboard();
+
+        Toastify({ text: `Orden ${oid} y sus vales han sido eliminados. El inventario ha sido ajustado.`, backgroundColor: 'var(--success-color)' }).showToast();
+
+    } catch (error) {
+        console.error(`Error deleting order ${oid} and reversing stock:`, error);
+        Toastify({ text: 'Error crítico al eliminar la orden. Revise la consola.', backgroundColor: 'var(--danger-color)', duration: 8000 }).showToast();
+    }
+}
+
+
 document.getElementById('productionOrdersTableBody').addEventListener('click', async e => {
     const btn = e.target.closest('button'); if (!btn) return;
     const oid = parseInt(btn.dataset.orderId);
+
     if (btn.classList.contains('view-details-btn')) {
       showOrderDetails(oid);
     } else if (btn.classList.contains('pdf-btn')) {
       await generateOrderPDF(oid);
     } else if (btn.classList.contains('delete-order-btn')) {
-      if (confirm(`¿Eliminar orden ${oid}?`)) {
-        try {
-            await deleteDoc(doc(db, "productionOrders", oid.toString()));
-            productionOrders = productionOrders.filter(o => o.order_id !== oid);
-            loadProductionOrders();
-            updateDashboard();
-            Toastify({ text: 'Orden eliminada', backgroundColor: 'var(--success-color)' }).showToast();
-        } catch(error) {
-            console.error("Error deleting order: ", error);
-            Toastify({ text: 'Error al eliminar orden', backgroundColor: 'var(--danger-color)' }).showToast();
-        }
-      }
+      await deleteOrderAndReverseStock(oid);
     } else if (btn.classList.contains('complete-order-btn')) {
       const ord = productionOrders.find(o => o.order_id === oid);
       document.getElementById('closeHiddenOrderId').value = oid;
@@ -1255,6 +1358,48 @@ function showOrderDetails(oid) {
     orderDetailsModal.show();
 }
 
+async function createProductionOrder(pCode, qty, opId, eqId) {
+    const prod = products.find(p => p.codigo === pCode);
+    if (!prod) {
+        Toastify({ text: `Error: Producto con código ${pCode} no encontrado.` }).showToast();
+        return false;
+    }
+    if (!recipes[pCode]) {
+        Toastify({ text: `Sin receta para ${prod.descripcion}` }).showToast();
+        return false;
+    }
+
+    const stdCost = calculateRecipeCost(recipes[pCode]) * qty;
+    const newOrder = {
+        order_id: generateSequentialOrderId(),
+        product_code: pCode,
+        product_name: prod.descripcion,
+        quantity: qty,
+        quantity_produced: null,
+        operator_id: opId,
+        equipo_id: eqId,
+        cost_standard_unit: calculateRecipeCost(recipes[pCode]),
+        cost_standard: stdCost,
+        cost_extra: 0,
+        cost_real: null,
+        overcost: null,
+        created_at: new Date().toISOString().slice(0, 10),
+        completed_at: null,
+        status: 'Pendiente',
+        materials_used: recipes[pCode].map(i => ({ material_code: i.code, quantity: i.quantity * qty, type: i.type }))
+    };
+
+    try {
+        await setDoc(doc(db, "productionOrders", newOrder.order_id.toString()), newOrder);
+        productionOrders.push(newOrder);
+        return true; // Indicate success
+    } catch (error) {
+        console.error("Error creating order: ", error);
+        Toastify({ text: `Error al crear orden para ${pCode}`, backgroundColor: 'var(--danger-color)' }).showToast();
+        return false; // Indicate failure
+    }
+}
+
 document.getElementById('productionOrderForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const pCode = document.getElementById('orderProductSelect').value;
@@ -1262,38 +1407,14 @@ document.getElementById('productionOrderForm').addEventListener('submit', async 
   const opId  = document.getElementById('orderOperatorSelect').value;
   const eqId  = document.getElementById('orderEquipoSelect').value;
   if (!pCode || !opId || !eqId) { Toastify({ text: 'Completa producto, operador y equipo' }).showToast(); return; }
-  const prod = products.find(p => p.codigo === pCode);
-  if (!recipes[pCode]) { Toastify({ text: `Sin receta para ${prod.descripcion}` }).showToast(); return; }
-  const stdCost = calculateRecipeCost(recipes[pCode]) * qty;
-  const newOrder = {
-    order_id: generateSequentialOrderId(),
-    product_code: pCode,
-    product_name: prod.descripcion,
-    quantity: qty,
-    quantity_produced: null,
-    operator_id: opId,
-    equipo_id: eqId,
-    cost_standard_unit: calculateRecipeCost(recipes[pCode]),
-    cost_standard: stdCost,
-    cost_extra: 0,
-    cost_real: null,
-    overcost: null,
-    created_at: new Date().toISOString().slice(0, 10),
-    completed_at: null,
-    status: 'Pendiente',
-    materials_used: recipes[pCode].map(i => ({ material_code: i.code, quantity: i.quantity * qty, type: i.type }))
-  };
 
-  try {
-    await setDoc(doc(db, "productionOrders", newOrder.order_id.toString()), newOrder);
-    productionOrders.push(newOrder);
+  const success = await createProductionOrder(pCode, qty, opId, eqId);
+
+  if (success) {
     loadProductionOrders();
     populateOrderFormSelects();
     productionOrderModal.hide();
     Toastify({ text: 'Orden de producción creada', backgroundColor: 'var(--success-color)' }).showToast();
-  } catch (error) {
-    console.error("Error creating order: ", error);
-    Toastify({ text: 'Error al crear orden', backgroundColor: 'var(--danger-color)' }).showToast();
   }
 });
 document.getElementById('confirmCloseOrderForm').addEventListener('submit', e => {
@@ -2164,7 +2285,7 @@ function loadOperators() {
 }
 document.getElementById('operatorForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const id   = document.getElementById('operatorId').value.trim();
+  const id   = document.getElementById('operatorId').value.trim().toUpperCase();
   const name = document.getElementById('operatorName').value.trim();
   if (!id || !name) return;
 
@@ -2204,7 +2325,7 @@ document.getElementById('operatorsList').addEventListener('click', async (e) => 
         }
     }
   }
-  if (btn.classList.contains('edit-operator-btn')) {
+  if (btn.classList.contains('edit-btn')) {
     isEditingOperator = true; currentOperatorId = id;
     const op = operators.find(op => op.id === id);
     document.getElementById('operatorId').value = op.id;
@@ -2229,7 +2350,7 @@ function loadEquipos() {
 }
 document.getElementById('equipoForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const id   = document.getElementById('equipoId').value.trim();
+  const id   = document.getElementById('equipoId').value.trim().toUpperCase();
   const name = document.getElementById('equipoName').value.trim();
   if (!id || !name) return;
   const equipoData = { name };
@@ -2339,9 +2460,10 @@ document.getElementById('productFile').addEventListener('change', async (e) => {
   reader.onload = async (ev) => {
     const wb = XLSX.read(ev.target.result, { type: 'binary' });
     const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-    const importedProducts = json.map(r => ({ codigo: r.codigo || r.Código, descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad || '' }));
+    const importedProducts = json.map(r => ({ codigo: (r.codigo || r.Código)?.toString().toUpperCase(), descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad || '' }));
 
     for (const product of importedProducts) {
+        if (!product.codigo) continue; // Skip products without a code
         await setDoc(doc(db, "products", product.codigo), {
             descripcion: product.descripcion,
             unidad: product.unidad
@@ -2362,9 +2484,10 @@ document.getElementById('materialFile').addEventListener('change', async (e) => 
   reader.onload = async (ev) => {
     const wb = XLSX.read(ev.target.result, { type: 'binary' });
     const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-    const importedMaterials = json.map(r => ({ codigo: r.codigo || r.Código, descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad, existencia: parseFloat(r.existencia || r.Existencia || 0), costo: parseFloat(r.costo || r.Costo || 0) }));
+    const importedMaterials = json.map(r => ({ codigo: (r.codigo || r.Código)?.toString().toUpperCase(), descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad, existencia: parseFloat(r.existencia || r.Existencia || 0), costo: parseFloat(r.costo || r.Costo || 0) }));
 
     for (const material of importedMaterials) {
+        if (!material.codigo) continue; // Skip materials without a code
         await setDoc(doc(db, "materials", material.codigo), {
             descripcion: material.descripcion,
             unidad: material.unidad,
@@ -2393,11 +2516,14 @@ document.getElementById('recipeFile').addEventListener('change', async (e) => {
     const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
     const importedRecipes = {};
     json.forEach(r => {
-      const prod = r.producto || r.Producto;
+      const prod = (r.producto || r.Producto)?.toString().toUpperCase();
+      if (!prod) return; // Skip rows without a product code
       if (!importedRecipes[prod]) importedRecipes[prod] = [];
       const tipoExcel = (r.tipo || r.Tipo || 'material').toLowerCase();
       const tipo = tipoExcel === 'producto' ? 'product' : 'material';
-      importedRecipes[prod].push({ type: tipo, code: r.codigo || r.Código, quantity: parseFloat(r.cantidad || r.Cantidad) });
+      const code = (r.codigo || r.Código)?.toString().toUpperCase();
+      if (!code) return; // Skip ingredients without a code
+      importedRecipes[prod].push({ type: tipo, code: code, quantity: parseFloat(r.cantidad || r.Cantidad) });
     });
 
     for (const [productId, recipeItems] of Object.entries(importedRecipes)) {
@@ -2673,3 +2799,223 @@ function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
     });
   }
 }
+
+/* ---------- PLANIFICADOR DE DEMANDA ---------- */
+function populatePlannerProductSelects(selectElement) {
+    selectElement.innerHTML = '<option value="" disabled selected>Seleccione un producto...</option>';
+    // Filter for products that are also in the materials list, as these are the ones with stock.
+    const stockableProducts = products.filter(p => materials.some(m => m.codigo === p.codigo));
+
+    stockableProducts.forEach(p => {
+        const option = new Option(`${p.codigo} - ${p.descripcion}`, p.codigo);
+        selectElement.add(option);
+    });
+}
+
+function addForecastEntryRow() {
+    const container = document.getElementById('forecast-entries');
+    const newEntry = document.createElement('div');
+    newEntry.className = 'row g-3 align-items-center forecast-entry mb-2';
+    newEntry.innerHTML = `
+        <div class="col-md-6">
+            <select class="form-select forecast-product"></select>
+        </div>
+        <div class="col-md-4">
+            <input type="number" class="form-control forecast-quantity" min="1" placeholder="Ej: 100">
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+            <button type="button" class="btn btn-danger w-100 remove-forecast-btn"><i class="fas fa-trash"></i></button>
+        </div>
+    `;
+    const newSelect = newEntry.querySelector('.forecast-product');
+    populatePlannerProductSelects(newSelect);
+    container.appendChild(newEntry);
+}
+
+document.getElementById('addForecastEntryBtn')?.addEventListener('click', addForecastEntryRow);
+
+document.getElementById('forecast-entries')?.addEventListener('click', (e) => {
+    if (e.target.closest('.remove-forecast-btn')) {
+        const entry = e.target.closest('.forecast-entry');
+        // Allow removing any entry. If it's the last one, it will be gone.
+        // The user can add a new one if needed.
+        entry.remove();
+    }
+});
+
+function getGrossRequirements(initialForecast) {
+    const grossRequirements = new Map();
+
+    function explodeBOM(productCode, requiredQty) {
+        // Add requirement for the product itself
+        const currentQty = grossRequirements.get(productCode) || 0;
+        grossRequirements.set(productCode, currentQty + requiredQty);
+
+        const recipe = recipes[productCode];
+        if (!recipe) return; // It's a raw material or a product without a recipe
+
+        // Recurse for sub-products
+        recipe.forEach(ingredient => {
+            if (ingredient.type === 'product') {
+                const subProductQty = ingredient.quantity * requiredQty;
+                explodeBOM(ingredient.code, subProductQty);
+            }
+        });
+    }
+
+    initialForecast.forEach(item => {
+        explodeBOM(item.productCode, item.quantity);
+    });
+
+    return grossRequirements;
+}
+
+
+document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
+    const entries = document.querySelectorAll('.forecast-entry');
+    const forecast = [];
+    let hasInvalidEntry = false;
+
+    entries.forEach(entry => {
+        const productCode = entry.querySelector('.forecast-product').value;
+        const quantity = parseInt(entry.querySelector('.forecast-quantity').value, 10);
+
+        if (productCode && quantity > 0) {
+            // Avoid adding duplicate products to the initial forecast
+            const existing = forecast.find(f => f.productCode === productCode);
+            if (existing) {
+                existing.quantity += quantity;
+            } else {
+                forecast.push({ productCode, quantity });
+            }
+        } else if (productCode || quantity) {
+            // Only flag as invalid if one field is filled but not the other
+            hasInvalidEntry = true;
+        }
+    });
+
+    if (hasInvalidEntry) {
+        Toastify({ text: 'Por favor, complete todas las filas del pronóstico antes de calcular.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    if (forecast.length === 0) {
+        Toastify({ text: 'No hay pronóstico para calcular. Agregue al menos un producto.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    const grossRequirements = getGrossRequirements(forecast);
+
+    const suggestedOrdersTbody = document.getElementById('suggestedOrdersTableBody');
+    suggestedOrdersTbody.innerHTML = '';
+    let suggestionsMade = false;
+
+    grossRequirements.forEach((grossQty, productCode) => {
+        const product = products.find(p => p.codigo === productCode);
+        // Only suggest orders for items that are products (not raw materials)
+        if (!product) return;
+
+        const materialInfo = materials.find(m => m.codigo === productCode);
+        const currentStock = materialInfo ? materialInfo.existencia : 0;
+        const netRequirement = grossQty - currentStock;
+
+        if (netRequirement > 0) {
+            suggestionsMade = true;
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><input type="checkbox" class="suggestion-checkbox" data-product-code="${productCode}" data-quantity="${Math.ceil(netRequirement)}" checked></td>
+                <td>${product.descripcion} (${productCode})</td>
+                <td>${netRequirement.toFixed(2)}</td>
+                <td>${currentStock.toFixed(2)}</td>
+                <td>${grossQty.toFixed(2)}</td>
+            `;
+
+            // Create and append operator dropdown
+            const operatorCell = document.createElement('td');
+            const operatorSelect = document.createElement('select');
+            operatorSelect.className = 'form-select form-select-sm planner-operator-select';
+            operatorSelect.innerHTML = '<option value="">Seleccione...</option>';
+            operators.forEach(o => operatorSelect.add(new Option(o.name, o.id)));
+            operatorCell.appendChild(operatorSelect);
+            row.appendChild(operatorCell);
+
+            // Create and append equipment dropdown
+            const equipoCell = document.createElement('td');
+            const equipoSelect = document.createElement('select');
+            equipoSelect.className = 'form-select form-select-sm planner-equipo-select';
+            equipoSelect.innerHTML = '<option value="">Seleccione...</option>';
+            equipos.forEach(e => equipoSelect.add(new Option(e.name, e.id)));
+            equipoCell.appendChild(equipoSelect);
+            row.appendChild(equipoCell);
+
+            suggestedOrdersTbody.appendChild(row);
+        }
+    });
+
+    const suggestedOrdersCard = document.getElementById('suggestedOrdersCard');
+    if (suggestionsMade) {
+        suggestedOrdersCard.style.display = 'block';
+    } else {
+        suggestedOrdersCard.style.display = 'none';
+        Toastify({ text: 'No se requiere producción nueva. El inventario actual satisface el pronóstico.', backgroundColor: 'var(--info-color)', duration: 5000 }).showToast();
+    }
+});
+
+document.getElementById('createSelectedOrdersBtn')?.addEventListener('click', async () => {
+    const checkedCheckboxes = [...document.querySelectorAll('.suggestion-checkbox:checked')];
+    if (checkedCheckboxes.length === 0) {
+        Toastify({ text: 'No hay órdenes sugeridas seleccionadas para crear.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    let createdCount = 0;
+    const rowsToRemove = [];
+
+    for (const checkbox of checkedCheckboxes) {
+        const row = checkbox.closest('tr');
+        const operatorId = row.querySelector('.planner-operator-select').value;
+        const equipoId = row.querySelector('.planner-equipo-select').value;
+        const productCode = checkbox.dataset.productCode;
+        const quantity = parseInt(checkbox.dataset.quantity, 10);
+
+        if (!operatorId || !equipoId) {
+            Toastify({ text: `Por favor, seleccione operador y equipo para el producto ${productCode}.`, backgroundColor: 'var(--warning-color)' }).showToast();
+            continue; // Skip this one, but try the others
+        }
+
+        const success = await createProductionOrder(productCode, quantity, operatorId, equipoId);
+        if (success) {
+            createdCount++;
+            rowsToRemove.push(row);
+        }
+    }
+
+    if (createdCount > 0) {
+        Toastify({ text: `${createdCount} órdenes de producción creadas con éxito.`, backgroundColor: 'var(--success-color)' }).showToast();
+        loadProductionOrders(); // Refresh the main orders list
+
+        // Remove only the rows for which orders were successfully created
+        rowsToRemove.forEach(row => row.remove());
+
+        // Hide the card if no suggestions are left
+        if (document.getElementById('suggestedOrdersTableBody').children.length === 0) {
+            document.getElementById('suggestedOrdersCard').style.display = 'none';
+        }
+    }
+});
+
+document.getElementById('newPlanBtn')?.addEventListener('click', () => {
+    // Clear forecast entries and add a fresh one
+    const forecastEntriesContainer = document.getElementById('forecast-entries');
+    forecastEntriesContainer.innerHTML = '';
+    addForecastEntryRow();
+
+    // Clear suggestion table
+    const suggestedOrdersTbody = document.getElementById('suggestedOrdersTableBody');
+    suggestedOrdersTbody.innerHTML = '';
+
+    // Hide the suggestions card
+    document.getElementById('suggestedOrdersCard').style.display = 'none';
+
+    Toastify({ text: 'Planificador reiniciado.', backgroundColor: 'var(--info-color)' }).showToast();
+});
