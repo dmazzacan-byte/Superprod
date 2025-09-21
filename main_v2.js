@@ -1434,15 +1434,27 @@ async function completeOrder(oid, realQty) {
     const orderToUpdate = { ...productionOrders[idx] };
     const materialsToUpdate = new Map();
 
-    // Calculate consumed materials based on recipe
+    // 1. Increment stock of the finished product
+    const finishedProductCode = orderToUpdate.product_code;
+    const finishedProductMaterial = materials.find(m => m.codigo === finishedProductCode);
+    if (finishedProductMaterial) {
+        const updatedProduct = materialsToUpdate.get(finishedProductCode) || { ...finishedProductMaterial };
+        updatedProduct.existencia += realQty;
+        materialsToUpdate.set(finishedProductCode, updatedProduct);
+    }
+
+    // 2. Decrement stock of all direct ingredients (materials and intermediate products)
     (orderToUpdate.materials_used || []).forEach(orderMat => {
-        if (orderMat.type !== 'material') return;
+        // The check `if (orderMat.type !== 'material')` was removed to allow discounting intermediate products.
         const mIdx = materials.findIndex(m => m.codigo === orderMat.material_code);
         if (mIdx !== -1) {
             const originalMaterial = materials[mIdx];
+            // Calculate how much of this ingredient is needed per unit of the final product
             const perUnitQty = (orderToUpdate.quantity > 0) ? (orderMat.quantity / orderToUpdate.quantity) : 0;
+            // Calculate the total consumed quantity for the real production amount
             const consumedQty = perUnitQty * realQty;
 
+            // Get the material from our update map or create a new entry from a copy
             const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
             updatedMaterial.existencia -= consumedQty;
             materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
@@ -1454,13 +1466,14 @@ async function completeOrder(oid, realQty) {
     orderToUpdate.status = 'Completada';
     orderToUpdate.completed_at = new Date().toISOString().slice(0, 10);
 
-    // Perform cost calculations based on user-defined logic
+    // Corrected cost calculations
     const standardCostForRealQty = (orderToUpdate.cost_standard_unit || 0) * realQty;
-    const plannedCost = orderToUpdate.cost_standard || 0;
     const extraCostFromVales = orderToUpdate.cost_extra || 0;
 
-    orderToUpdate.cost_real = plannedCost + extraCostFromVales;
-    orderToUpdate.overcost = orderToUpdate.cost_real - standardCostForRealQty;
+    // Real cost is the standard cost for what was actually produced, plus any extra costs from vales.
+    orderToUpdate.cost_real = standardCostForRealQty + extraCostFromVales;
+    // Overcost is the difference between real and standard, which simplifies to the extra cost.
+    orderToUpdate.overcost = extraCostFromVales;
 
     try {
         // Save all changes to Firestore
@@ -1499,15 +1512,24 @@ async function reopenOrder(oid) {
 
     const orderToUpdate = { ...productionOrders[idx] };
     const materialsToUpdate = new Map();
+    const realQty = orderToUpdate.quantity_produced || 0;
 
-    // Restore stock from the original completed order
+    // 1. Decrement stock of the finished product that was added on completion
+    const finishedProductCode = orderToUpdate.product_code;
+    const finishedProductMaterial = materials.find(m => m.codigo === finishedProductCode);
+    if (finishedProductMaterial) {
+        const updatedProduct = materialsToUpdate.get(finishedProductCode) || { ...finishedProductMaterial };
+        updatedProduct.existencia -= realQty;
+        materialsToUpdate.set(finishedProductCode, updatedProduct);
+    }
+
+    // 2. Restore stock for all consumed ingredients (materials and intermediate products)
     (orderToUpdate.materials_used || []).forEach(orderMat => {
-        if (orderMat.type !== 'material') return;
         const mIdx = materials.findIndex(m => m.codigo === orderMat.material_code);
         if (mIdx !== -1) {
             const originalMaterial = materials[mIdx];
             const perUnitQty = (orderToUpdate.quantity > 0) ? (orderMat.quantity / orderToUpdate.quantity) : 0;
-            const consumedQty = perUnitQty * (orderToUpdate.quantity_produced || 0);
+            const consumedQty = perUnitQty * realQty;
 
             const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
             updatedMaterial.existencia += consumedQty;
@@ -2803,10 +2825,21 @@ function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
 /* ---------- PLANIFICADOR DE DEMANDA ---------- */
 function populatePlannerProductSelects(selectElement) {
     selectElement.innerHTML = '<option value="" disabled selected>Seleccione un producto...</option>';
-    // Filter for products that are also in the materials list, as these are the ones with stock.
-    const stockableProducts = products.filter(p => materials.some(m => m.codigo === p.codigo));
 
-    stockableProducts.forEach(p => {
+    // Get a set of all product codes that are used as ingredients in other recipes.
+    const intermediateProductCodes = getIntermediateProductCodes();
+
+    // Filter products to find only final, manufacturable products.
+    const finalProducts = products.filter(p => {
+        // Condition 1: The product must have a recipe.
+        const hasRecipe = recipes[p.codigo];
+        // Condition 2: The product must NOT be an intermediate product.
+        const isFinalProduct = !intermediateProductCodes.has(p.codigo);
+
+        return hasRecipe && isFinalProduct;
+    });
+
+    finalProducts.forEach(p => {
         const option = new Option(`${p.codigo} - ${p.descripcion}`, p.codigo);
         selectElement.add(option);
     });
