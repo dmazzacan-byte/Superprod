@@ -2560,31 +2560,59 @@ async function generateAllRecipesPDF() {
 
         if (!product || !recipeItems) continue;
 
+        const totalRecipeCost = calculateRecipeCost(recipeItems);
+
         // --- Render Page Header ---
         doc.setFontSize(18);
         doc.text(`Receta para: ${product.descripcion}`, 15, 20);
         doc.setFontSize(10);
         doc.text(`Código: ${product.codigo}`, 15, 27);
         doc.text(`Fecha: ${formattedDate}`, 185, 27, null, null, 'right');
+        doc.setFontSize(11);
+        doc.setFont(undefined, 'bold');
+        doc.text(`Costo Total de Receta: ${formatCurrency(totalRecipeCost)}`, 15, 34);
+        doc.setFont(undefined, 'normal');
+
 
         // --- Render Ingredients Table ---
         const bodyRows = recipeItems.map(item => {
             let desc = 'N/A';
+            let unitCost = 0;
             const itemType = item.type === 'product' ? 'Producto' : 'Material';
-            const sourceList = item.type === 'product' ? products : materials;
-            const foundItem = sourceList.find(i => i.codigo === item.code);
-            if (foundItem) {
-                desc = foundItem.descripcion;
+
+            if (item.type === 'product') {
+                const p = products.find(prod => prod.codigo === item.code);
+                if (p) desc = p.descripcion;
+                unitCost = calculateRecipeCost(recipes[item.code] || []);
+            } else {
+                const m = materials.find(mat => mat.codigo === item.code);
+                if (m) {
+                    desc = m.descripcion;
+                    unitCost = m.costo;
+                }
             }
-            return [itemType, item.code, desc, item.quantity.toFixed(4)];
+            const totalCost = item.quantity * unitCost;
+            return [
+                itemType,
+                item.code,
+                desc,
+                item.quantity.toFixed(4),
+                formatCurrency(unitCost),
+                formatCurrency(totalCost)
+            ];
         });
 
         doc.autoTable({
-            head: [['Tipo', 'Código', 'Descripción', 'Cantidad']],
+            head: [['Tipo', 'Código', 'Descripción', 'Cantidad', 'Costo Unit.', 'Costo Total']],
             body: bodyRows,
-            startY: 35,
+            startY: 40,
             headStyles: { fillColor: [41, 128, 185] }, // Blue header
-            styles: { fontSize: 9 },
+            styles: { fontSize: 8 },
+            columnStyles: {
+                3: { halign: 'right' },
+                4: { halign: 'right' },
+                5: { halign: 'right' }
+            }
         });
 
         // --- Render Signature Line ---
