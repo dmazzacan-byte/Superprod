@@ -2535,7 +2535,77 @@ document.getElementById('exportRecipesBtn').addEventListener('click', () => {
   Object.keys(recipes).forEach(prodCode => recipes[prodCode].forEach(ing => flat.push({ producto: prodCode, tipo: ing.type, codigo: ing.code, cantidad: ing.quantity })));
   downloadExcel('recetas.xlsx', 'Recetas', flat);
 });
+
+async function generateAllRecipesPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const now = new Date();
+    const formattedDate = now.toLocaleDateString('es-ES');
+    const sortedRecipeIds = Object.keys(recipes).sort();
+
+    if (sortedRecipeIds.length === 0) {
+        Toastify({ text: 'No hay recetas para exportar.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    let isFirstPage = true;
+
+    for (const productId of sortedRecipeIds) {
+        if (!isFirstPage) {
+            doc.addPage();
+        }
+
+        const product = products.find(p => p.codigo === productId);
+        const recipeItems = recipes[productId];
+
+        if (!product || !recipeItems) continue;
+
+        // --- Render Page Header ---
+        doc.setFontSize(18);
+        doc.text(`Receta para: ${product.descripcion}`, 15, 20);
+        doc.setFontSize(10);
+        doc.text(`Código: ${product.codigo}`, 15, 27);
+        doc.text(`Fecha: ${formattedDate}`, 185, 27, null, null, 'right');
+
+        // --- Render Ingredients Table ---
+        const bodyRows = recipeItems.map(item => {
+            let desc = 'N/A';
+            const itemType = item.type === 'product' ? 'Producto' : 'Material';
+            const sourceList = item.type === 'product' ? products : materials;
+            const foundItem = sourceList.find(i => i.codigo === item.code);
+            if (foundItem) {
+                desc = foundItem.descripcion;
+            }
+            return [itemType, item.code, desc, item.quantity.toFixed(4)];
+        });
+
+        doc.autoTable({
+            head: [['Tipo', 'Código', 'Descripción', 'Cantidad']],
+            body: bodyRows,
+            startY: 35,
+            headStyles: { fillColor: [41, 128, 185] }, // Blue header
+            styles: { fontSize: 9 },
+        });
+
+        // --- Render Signature Line ---
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const signatureY = pageHeight - 25; // 25mm from bottom
+
+        doc.setLineWidth(0.2);
+        doc.line(15, signatureY, 85, signatureY); // Line from 15mm to 85mm
+        doc.setFontSize(10);
+        doc.text('Aprobado por:', 15, signatureY + 5);
+
+        isFirstPage = false;
+    }
+
+    doc.save('recetario_completo.pdf');
+}
+
+
 document.getElementById('importRecipesBtn').addEventListener('click', () => document.getElementById('recipeFile').click());
+document.getElementById('exportAllRecipesPdfBtn').addEventListener('click', generateAllRecipesPDF);
+
 document.getElementById('recipeFile').addEventListener('change', async (e) => {
   const file = e.target.files[0]; if (!file) return;
   const reader = new FileReader();
