@@ -2871,41 +2871,9 @@ function getGrossRequirements(initialForecast) {
 }
 
 
-document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
-    const entries = document.querySelectorAll('.forecast-entry');
-    const forecast = [];
-    let hasInvalidEntry = false;
+const materialCheckModal = new bootstrap.Modal(document.getElementById('materialCheckModal'));
 
-    entries.forEach(entry => {
-        const productCode = entry.querySelector('.forecast-product').value;
-        const quantity = parseInt(entry.querySelector('.forecast-quantity').value, 10);
-
-        if (productCode && quantity > 0) {
-            // Avoid adding duplicate products to the initial forecast
-            const existing = forecast.find(f => f.productCode === productCode);
-            if (existing) {
-                existing.quantity += quantity;
-            } else {
-                forecast.push({ productCode, quantity });
-            }
-        } else if (productCode || quantity) {
-            // Only flag as invalid if one field is filled but not the other
-            hasInvalidEntry = true;
-        }
-    });
-
-    if (hasInvalidEntry) {
-        Toastify({ text: 'Por favor, complete todas las filas del pronóstico antes de calcular.', backgroundColor: 'var(--warning-color)' }).showToast();
-        return;
-    }
-
-    if (forecast.length === 0) {
-        Toastify({ text: 'No hay pronóstico para calcular. Agregue al menos un producto.', backgroundColor: 'var(--warning-color)' }).showToast();
-        return;
-    }
-
-    const grossRequirements = getGrossRequirements(forecast);
-
+function displaySuggestedOrders(grossRequirements) {
     const suggestedOrdersTbody = document.getElementById('suggestedOrdersTableBody');
     suggestedOrdersTbody.innerHTML = '';
     let suggestionsMade = false;
@@ -2959,6 +2927,118 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
         suggestedOrdersCard.style.display = 'none';
         Toastify({ text: 'No se requiere producción nueva. El inventario actual satisface el pronóstico.', backgroundColor: 'var(--info-color)', duration: 5000 }).showToast();
     }
+}
+
+document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
+    const entries = document.querySelectorAll('.forecast-entry');
+    const forecast = [];
+    let hasInvalidEntry = false;
+
+    entries.forEach(entry => {
+        const productCode = entry.querySelector('.forecast-product').value;
+        const quantity = parseInt(entry.querySelector('.forecast-quantity').value, 10);
+
+        if (productCode && quantity > 0) {
+            // Avoid adding duplicate products to the initial forecast
+            const existing = forecast.find(f => f.productCode === productCode);
+            if (existing) {
+                existing.quantity += quantity;
+            } else {
+                forecast.push({ productCode, quantity });
+            }
+        } else if (productCode || quantity) {
+            // Only flag as invalid if one field is filled but not the other
+            hasInvalidEntry = true;
+        }
+    });
+
+    if (hasInvalidEntry) {
+        Toastify({ text: 'Por favor, complete todas las filas del pronóstico antes de calcular.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    if (forecast.length === 0) {
+        Toastify({ text: 'No hay pronóstico para calcular. Agregue al menos un producto.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    const grossRequirements = getGrossRequirements(forecast);
+
+    // --- NEW: Material Availability Check ---
+    const totalRawMaterials = new Map();
+    forecast.forEach(f => {
+        const baseMats = getBaseMaterials(f.productCode, f.quantity);
+        baseMats.forEach(mat => {
+            const currentQty = totalRawMaterials.get(mat.code) || 0;
+            totalRawMaterials.set(mat.code, currentQty + mat.quantity);
+        });
+    });
+
+    if (totalRawMaterials.size === 0) {
+        // No materials required, proceed directly, but still show suggested orders
+        displaySuggestedOrders(grossRequirements);
+        return;
+    }
+
+    const materialCheckResults = [];
+    let hasShortage = false;
+
+    totalRawMaterials.forEach((requiredQty, code) => {
+        const material = materials.find(m => m.codigo === code);
+        const stock = material ? material.existencia : 0;
+        const balance = stock - requiredQty;
+        if (balance < 0) hasShortage = true;
+
+        materialCheckResults.push({
+            code,
+            description: material ? material.descripcion : 'N/A',
+            required: requiredQty,
+            stock,
+            balance
+        });
+    });
+
+    // Populate and show the modal
+    const fullBody = document.getElementById('materialFullTableBody');
+    const shortageBody = document.getElementById('materialShortageTableBody');
+    fullBody.innerHTML = '';
+    shortageBody.innerHTML = '';
+
+    materialCheckResults.sort((a, b) => a.code.localeCompare(b.code));
+
+    materialCheckResults.forEach(res => {
+        const balanceColor = res.balance < 0 ? 'text-danger fw-bold' : '';
+        fullBody.innerHTML += `
+            <tr>
+                <td>${res.code}</td>
+                <td>${res.description}</td>
+                <td>${res.required.toFixed(2)}</td>
+                <td>${res.stock.toFixed(2)}</td>
+                <td class="${balanceColor}">${res.balance.toFixed(2)}</td>
+            </tr>
+        `;
+        if (res.balance < 0) {
+            shortageBody.innerHTML += `
+                <tr>
+                    <td>${res.code}</td>
+                    <td>${res.description}</td>
+                    <td>${res.required.toFixed(2)}</td>
+                    <td>${res.stock.toFixed(2)}</td>
+                    <td class="text-danger fw-bold">${(res.balance * -1).toFixed(2)}</td>
+                </tr>
+            `;
+        }
+    });
+
+    document.getElementById('materialShortageTableBody').closest('.card').style.display = hasShortage ? 'block' : 'none';
+    document.querySelector('#materialCheckModal .alert').style.display = hasShortage ? 'block' : 'none';
+
+    document.getElementById('continuePlanBtn').onclick = () => {
+        materialCheckModal.hide();
+        displaySuggestedOrders(grossRequirements);
+    };
+
+    materialCheckModal.show();
 });
 
 document.getElementById('createSelectedOrdersBtn')?.addEventListener('click', async () => {
