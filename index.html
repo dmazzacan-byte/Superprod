@@ -425,6 +425,78 @@
 </div>
 
 <!-- MODALES -->
+<!-- Modal de Verificación de Materiales -->
+<div class="modal fade" id="materialCheckModal" tabindex="-1" aria-labelledby="materialCheckModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="materialCheckModalLabel"><i class="fas fa-clipboard-check me-2"></i>Verificación de Disponibilidad de Materiales</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning" role="alert">
+                    <h4 class="alert-heading">¡Atención!</h4>
+                    <p>Se ha detectado un faltante en algunos materiales necesarios para cumplir con el plan de producción. A continuación se muestra el detalle.</p>
+                    <hr>
+                    <p class="mb-0">Puede continuar y generar las órdenes de producción (se crearán aunque falten materiales) o cancelar para ajustar el plan.</p>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-header bg-danger text-white">
+                        <h6 class="mb-0">Materiales con Faltante</h6>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-striped mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Código</th>
+                                        <th>Descripción</th>
+                                        <th>Requerido</th>
+                                        <th>En Stock</th>
+                                        <th>Faltante</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="materialShortageTableBody">
+                                    <!-- Filas generadas por JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">Listado Completo de Materiales Requeridos</h6>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Código</th>
+                                        <th>Descripción</th>
+                                        <th>Requerido</th>
+                                        <th>En Stock</th>
+                                        <th>Balance</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="materialFullTableBody">
+                                    <!-- Filas generadas por JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancelPlanBtn">Cancelar Plan</button>
+                <button type="button" class="btn btn-primary" id="continuePlanBtn">Continuar y Crear Órdenes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="userModal" tabindex="-1" aria-labelledby="userModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="userModalLabel">Añadir/Editar Usuario</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="userForm"><div class="modal-body"><p class="text-muted small">Para añadir un nuevo usuario, primero créelo en la Consola de Firebase Authentication. Luego, copie el <strong>UID</strong> de ese usuario desde la consola y péguelo aquí, junto con su correo y rol.</p><div class="mb-3"><label for="userUid" class="form-label">User UID</label><input type="text" class="form-control" id="userUid" required placeholder="Copiar UID de Firebase Console"></div><div class="mb-3"><label for="userEmail" class="form-label">Correo Electrónico</label><input type="email" class="form-control" id="userEmail" required></div><div class="mb-3"><label for="userRole" class="form-label">Rol</label><select id="userRole" class="form-select" required><option value="Supervisor">Supervisor</option><option value="Administrator">Administrador</option></select></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
 <div class="modal fade" id="productModal" tabindex="-1" aria-labelledby="productModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="productModalLabel">Añadir Producto</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="productForm"><div class="modal-body"><div class="mb-3"><label for="productCode" class="form-label">Código</label><input type="text" class="form-control" id="productCode" required></div><div class="mb-3"><label for="productDescription" class="form-label">Descripción</label><input type="text" class="form-control" id="productDescription" required></div><div class="mb-3"><label for="productUnit" class="form-label">Unidad</label><input type="text" class="form-control" id="productUnit" required></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
 <div class="modal fade" id="materialModal" tabindex="-1" aria-labelledby="materialModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="materialModalLabel">Añadir Material</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="materialForm"><div class="modal-body"><div class="mb-3"><label for="materialCode" class="form-label">Código</label><input type="text" class="form-control" id="materialCode" required></div><div class="mb-3"><label for="materialDescription" class="form-label">Descripción</label><input type="text" class="form-control" id="materialDescription" required></div><div class="mb-3"><label for="materialUnit" class="form-label">Unidad</label><input type="text" class="form-control" id="materialUnit" required></div><div class="mb-3"><label for="materialExistence" class="form-label">Existencia</label><input type="number" class="form-control" id="materialExistence" step="0.01" min="0" required></div><div class="mb-3"><label for="materialCost" class="form-label">Costo</label><input type="number" class="form-control" id="materialCost" step="0.01" min="0" required></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
