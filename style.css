@@ -27,20 +27,45 @@ body {
     box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
 }
 
-.sidebar .position-sticky {
+#userInfoHeader {
+    position: fixed;
+    top: 10px;
+    right: 20px;
+    z-index: 1031; /* Higher than sidebar */
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    background-color: var(--card-background);
+    border-radius: 50px; /* Pill shape */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    color: var(--text-color);
+    font-weight: 500;
+}
+
+#userInfoHeader #logoutBtn {
+    background-color: var(--danger-color);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#userInfoHeader #logoutBtn:hover {
+    background-color: #bf2600; /* Darker red on hover */
+}
+
+
+.sidebar .position-sticky {
     height: 100%;
 }
 
 .sidebar .nav.flex-column {
-    flex-shrink: 0; /* Prevent the nav from shrinking */
-}
-
-.sidebar-footer {
-    margin-top: auto; /* Pushes the footer to the bottom */
-    flex-shrink: 0; /* Prevent the footer from shrinking */
-    padding: 1rem;
+    /* No special styles needed now */
 }
 
 .nav-link {

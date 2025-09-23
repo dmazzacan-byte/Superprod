@@ -79,6 +79,12 @@
 
 <!-- Main App View -->
 <div id="appView" class="d-none">
+    <div id="userInfoHeader">
+        <span id="userData" class="me-3"></span>
+        <button id="logoutBtn" class="btn btn-danger" title="Cerrar Sesión">
+            <i class="fas fa-power-off"></i>
+        </button>
+    </div>
     <div class="container-fluid">
         <div class="row">
             <nav id="sidebar" class="col-lg-2 col-md-3 d-md-block sidebar collapse">
@@ -94,10 +100,6 @@
                         <li class="nav-item"><a class="nav-link" href="#reportsPage" data-page="reportsPage"><i class="fas fa-chart-pie"></i> Reportes</a></li>
                         <li class="nav-item"><a class="nav-link" href="#settingsPage" data-page="settingsPage"><i class="fas fa-cog"></i> Configuración</a></li>
                     </ul>
-                    <div class="sidebar-footer text-center text-white small p-3">
-                        <div id="userData" class="mb-2">...</div>
-                        <button id="logoutBtn" class="btn btn-sm btn-outline-light w-100">Cerrar Sesión</button>
-                    </div>
                 </div>
             </nav>
 

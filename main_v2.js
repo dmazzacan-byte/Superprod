@@ -65,7 +65,7 @@ onAuthStateChanged(auth, async (user) => {
 
             loginView.classList.add('d-none');
             appView.classList.remove('d-none');
-            userDataDiv.textContent = `${user.email} (${currentUserRole})`;
+            userDataDiv.textContent = user.email;
             await initializeAppContent();
 
         } catch (error) {
