@@ -1434,40 +1434,58 @@ async function completeOrder(oid, realQty) {
     const orderToUpdate = { ...productionOrders[idx] };
     const materialsToUpdate = new Map();
 
-    // Calculate consumed materials based on recipe
-    (orderToUpdate.materials_used || []).forEach(orderMat => {
-        if (orderMat.type !== 'material') return;
-        const mIdx = materials.findIndex(m => m.codigo === orderMat.material_code);
+    // 1. Calculate consumption of all base materials using the recursive helper
+    const baseMaterialsConsumed = getBaseMaterials(orderToUpdate.product_code, realQty);
+
+    baseMaterialsConsumed.forEach(mat => {
+        const mIdx = materials.findIndex(m => m.codigo === mat.code);
         if (mIdx !== -1) {
             const originalMaterial = materials[mIdx];
-            const perUnitQty = (orderToUpdate.quantity > 0) ? (orderMat.quantity / orderToUpdate.quantity) : 0;
-            const consumedQty = perUnitQty * realQty;
-
             const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
-            updatedMaterial.existencia -= consumedQty;
+            updatedMaterial.existencia -= mat.quantity;
             materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
         }
     });
 
-    // Update order properties
+    // 2. Increase stock of the finished product
+    const finishedProductIdx = materials.findIndex(m => m.codigo === orderToUpdate.product_code);
+    if (finishedProductIdx !== -1) {
+        const originalMaterial = materials[finishedProductIdx];
+        const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
+        updatedMaterial.existencia += realQty;
+        materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
+    } else {
+        // This case might happen if a "Product" isn't also a "Material".
+        // Depending on business logic, you might want to create it or show an error.
+        // For now, we log a warning.
+        console.warn(`El producto final ${orderToUpdate.product_code} no se encontró en la lista de materiales. No se pudo actualizar su inventario.`);
+    }
+
+
+    // 3. Update order properties
     orderToUpdate.quantity_produced = realQty;
     orderToUpdate.status = 'Completada';
     orderToUpdate.completed_at = new Date().toISOString().slice(0, 10);
 
     // Perform cost calculations based on user-defined logic
     const standardCostForRealQty = (orderToUpdate.cost_standard_unit || 0) * realQty;
-    const plannedCost = orderToUpdate.cost_standard || 0;
-    const extraCostFromVales = orderToUpdate.cost_extra || 0;
+    // The "real cost" should be the standard cost for the quantity produced, plus any extra costs from vales.
+    orderToUpdate.cost_real = standardCostForRealQty + (orderToUpdate.cost_extra || 0);
+    orderToUpdate.overcost = orderToUpdate.cost_extra || 0;
 
-    orderToUpdate.cost_real = plannedCost + extraCostFromVales;
-    orderToUpdate.overcost = orderToUpdate.cost_real - standardCostForRealQty;
 
     try {
         // Save all changes to Firestore
         const promises = [];
         promises.push(setDoc(doc(db, "productionOrders", orderToUpdate.order_id.toString()), orderToUpdate));
         materialsToUpdate.forEach((material, code) => {
-            promises.push(setDoc(doc(db, "materials", code), material));
+            // Ensure we don't save negative stock
+            const materialData = { ...material };
+            if (materialData.existencia < 0) {
+                console.warn(`El inventario para ${code} es negativo (${materialData.existencia}). Se guardará como 0.`);
+                materialData.existencia = 0;
+            }
+            promises.push(setDoc(doc(db, "materials", code), materialData));
         });
 
         await Promise.all(promises);
@@ -1499,21 +1517,31 @@ async function reopenOrder(oid) {
 
     const orderToUpdate = { ...productionOrders[idx] };
     const materialsToUpdate = new Map();
+    const quantityToReverse = orderToUpdate.quantity_produced || 0;
 
-    // Restore stock from the original completed order
-    (orderToUpdate.materials_used || []).forEach(orderMat => {
-        if (orderMat.type !== 'material') return;
-        const mIdx = materials.findIndex(m => m.codigo === orderMat.material_code);
-        if (mIdx !== -1) {
-            const originalMaterial = materials[mIdx];
-            const perUnitQty = (orderToUpdate.quantity > 0) ? (orderMat.quantity / orderToUpdate.quantity) : 0;
-            const consumedQty = perUnitQty * (orderToUpdate.quantity_produced || 0);
+    if (quantityToReverse > 0) {
+        // 1. Restore stock of all base materials
+        const baseMaterialsToRestore = getBaseMaterials(orderToUpdate.product_code, quantityToReverse);
+        baseMaterialsToRestore.forEach(mat => {
+            const mIdx = materials.findIndex(m => m.codigo === mat.code);
+            if (mIdx !== -1) {
+                const originalMaterial = materials[mIdx];
+                const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
+                updatedMaterial.existencia += mat.quantity;
+                materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
+            }
+        });
 
+        // 2. Decrease stock of the finished product that is being "un-completed"
+        const finishedProductIdx = materials.findIndex(m => m.codigo === orderToUpdate.product_code);
+        if (finishedProductIdx !== -1) {
+            const originalMaterial = materials[finishedProductIdx];
             const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
-            updatedMaterial.existencia += consumedQty;
+            updatedMaterial.existencia -= quantityToReverse;
             materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
         }
-    });
+    }
+
 
     // Vales are independent transactions and their stock adjustments should not be reversed when an order is reopened.
     // The cost_extra associated with them remains on the order.
@@ -2507,7 +2535,105 @@ document.getElementById('exportRecipesBtn').addEventListener('click', () => {
   Object.keys(recipes).forEach(prodCode => recipes[prodCode].forEach(ing => flat.push({ producto: prodCode, tipo: ing.type, codigo: ing.code, cantidad: ing.quantity })));
   downloadExcel('recetas.xlsx', 'Recetas', flat);
 });
+
+async function generateAllRecipesPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const now = new Date();
+    const formattedDate = now.toLocaleDateString('es-ES');
+    const sortedRecipeIds = Object.keys(recipes).sort();
+
+    if (sortedRecipeIds.length === 0) {
+        Toastify({ text: 'No hay recetas para exportar.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    let isFirstPage = true;
+
+    for (const productId of sortedRecipeIds) {
+        if (!isFirstPage) {
+            doc.addPage();
+        }
+
+        const product = products.find(p => p.codigo === productId);
+        const recipeItems = recipes[productId];
+
+        if (!product || !recipeItems) continue;
+
+        const totalRecipeCost = calculateRecipeCost(recipeItems);
+
+        // --- Render Page Header ---
+        doc.setFontSize(18);
+        doc.text(`Receta para: ${product.descripcion}`, 15, 20);
+        doc.setFontSize(10);
+        doc.text(`Código: ${product.codigo}`, 15, 27);
+        doc.text(`Fecha: ${formattedDate}`, 185, 27, null, null, 'right');
+        doc.setFontSize(11);
+        doc.setFont(undefined, 'bold');
+        doc.text(`Costo Total de Receta: ${formatCurrency(totalRecipeCost)}`, 15, 34);
+        doc.setFont(undefined, 'normal');
+
+
+        // --- Render Ingredients Table ---
+        const bodyRows = recipeItems.map(item => {
+            let desc = 'N/A';
+            let unitCost = 0;
+            const itemType = item.type === 'product' ? 'Producto' : 'Material';
+
+            if (item.type === 'product') {
+                const p = products.find(prod => prod.codigo === item.code);
+                if (p) desc = p.descripcion;
+                unitCost = calculateRecipeCost(recipes[item.code] || []);
+            } else {
+                const m = materials.find(mat => mat.codigo === item.code);
+                if (m) {
+                    desc = m.descripcion;
+                    unitCost = m.costo;
+                }
+            }
+            const totalCost = item.quantity * unitCost;
+            return [
+                itemType,
+                item.code,
+                desc,
+                item.quantity.toFixed(4),
+                formatCurrency(unitCost),
+                formatCurrency(totalCost)
+            ];
+        });
+
+        doc.autoTable({
+            head: [['Tipo', 'Código', 'Descripción', 'Cantidad', 'Costo Unit.', 'Costo Total']],
+            body: bodyRows,
+            startY: 40,
+            headStyles: { fillColor: [41, 128, 185] }, // Blue header
+            styles: { fontSize: 8 },
+            columnStyles: {
+                3: { halign: 'right' },
+                4: { halign: 'right' },
+                5: { halign: 'right' }
+            }
+        });
+
+        // --- Render Signature Line ---
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const signatureY = pageHeight - 25; // 25mm from bottom
+
+        doc.setLineWidth(0.2);
+        doc.line(15, signatureY, 85, signatureY); // Line from 15mm to 85mm
+        doc.setFontSize(10);
+        doc.text('Aprobado por:', 15, signatureY + 5);
+
+        isFirstPage = false;
+    }
+
+    doc.save('recetario_completo.pdf');
+}
+
+
 document.getElementById('importRecipesBtn').addEventListener('click', () => document.getElementById('recipeFile').click());
+document.getElementById('exportAllRecipesPdfBtn').addEventListener('click', generateAllRecipesPDF);
+
 document.getElementById('recipeFile').addEventListener('change', async (e) => {
   const file = e.target.files[0]; if (!file) return;
   const reader = new FileReader();
@@ -2803,10 +2929,19 @@ function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
 /* ---------- PLANIFICADOR DE DEMANDA ---------- */
 function populatePlannerProductSelects(selectElement) {
     selectElement.innerHTML = '<option value="" disabled selected>Seleccione un producto...</option>';
-    // Filter for products that are also in the materials list, as these are the ones with stock.
-    const stockableProducts = products.filter(p => materials.some(m => m.codigo === p.codigo));
 
-    stockableProducts.forEach(p => {
+    // 1. Get all product codes that are used as ingredients in other recipes
+    const intermediateProducts = getIntermediateProductCodes();
+
+    // 2. Filter products to get only final products that have a recipe
+    const finalProductsWithRecipe = products.filter(p => {
+        const hasRecipe = recipes[p.codigo] && recipes[p.codigo].length > 0;
+        const isFinalProduct = !intermediateProducts.has(p.codigo);
+        return hasRecipe && isFinalProduct;
+    });
+
+    // 3. Populate the select element with the filtered list
+    finalProductsWithRecipe.forEach(p => {
         const option = new Option(`${p.codigo} - ${p.descripcion}`, p.codigo);
         selectElement.add(option);
     });
@@ -2880,7 +3015,6 @@ function displaySuggestedOrders(grossRequirements) {
 
     grossRequirements.forEach((grossQty, productCode) => {
         const product = products.find(p => p.codigo === productCode);
-        // Only suggest orders for items that are products (not raw materials)
         if (!product) return;
 
         const materialInfo = materials.find(m => m.codigo === productCode);
@@ -2889,16 +3023,33 @@ function displaySuggestedOrders(grossRequirements) {
 
         if (netRequirement > 0) {
             suggestionsMade = true;
+            const roundedNetReq = Math.ceil(netRequirement);
             const row = document.createElement('tr');
+
+            // Cells for checkbox, product info, stock, and forecast
             row.innerHTML = `
-                <td><input type="checkbox" class="suggestion-checkbox" data-product-code="${productCode}" data-quantity="${Math.ceil(netRequirement)}" checked></td>
+                <td><input type="checkbox" class="suggestion-checkbox" data-product-code="${productCode}" checked></td>
                 <td>${product.descripcion} (${productCode})</td>
-                <td>${netRequirement.toFixed(2)}</td>
-                <td>${currentStock.toFixed(2)}</td>
-                <td>${grossQty.toFixed(2)}</td>
             `;
 
-            // Create and append operator dropdown
+            // Cell for Net Requirement (now an input)
+            const netReqCell = document.createElement('td');
+            const netReqInput = document.createElement('input');
+            netReqInput.type = 'number';
+            netReqInput.className = 'form-control form-control-sm suggested-order-qty';
+            netReqInput.value = roundedNetReq;
+            netReqInput.min = 1;
+            netReqInput.dataset.originalNetReq = roundedNetReq; // Store original value
+            netReqCell.appendChild(netReqInput);
+            row.appendChild(netReqCell);
+
+            // Append the rest of the cells
+            row.insertAdjacentHTML('beforeend', `
+                <td>${currentStock.toFixed(2)}</td>
+                <td>${grossQty.toFixed(2)}</td>
+            `);
+
+            // Operator and Equipment dropdowns
             const operatorCell = document.createElement('td');
             const operatorSelect = document.createElement('select');
             operatorSelect.className = 'form-select form-select-sm planner-operator-select';
@@ -2907,7 +3058,6 @@ function displaySuggestedOrders(grossRequirements) {
             operatorCell.appendChild(operatorSelect);
             row.appendChild(operatorCell);
 
-            // Create and append equipment dropdown
             const equipoCell = document.createElement('td');
             const equipoSelect = document.createElement('select');
             equipoSelect.className = 'form-select form-select-sm planner-equipo-select';
@@ -3056,28 +3206,41 @@ document.getElementById('createSelectedOrdersBtn')?.addEventListener('click', as
         const operatorId = row.querySelector('.planner-operator-select').value;
         const equipoId = row.querySelector('.planner-equipo-select').value;
         const productCode = checkbox.dataset.productCode;
-        const quantity = parseInt(checkbox.dataset.quantity, 10);
+        const qtyInput = row.querySelector('.suggested-order-qty');
+        const originalNetReq = parseInt(qtyInput.dataset.originalNetReq, 10);
+        const quantityToCreate = parseInt(qtyInput.value, 10);
 
         if (!operatorId || !equipoId) {
-            Toastify({ text: `Por favor, seleccione operador y equipo para el producto ${productCode}.`, backgroundColor: 'var(--warning-color)' }).showToast();
-            continue; // Skip this one, but try the others
+            Toastify({ text: `Seleccione operador y equipo para ${productCode}.`, backgroundColor: 'var(--warning-color)' }).showToast();
+            continue;
+        }
+        if (isNaN(quantityToCreate) || quantityToCreate <= 0) {
+            Toastify({ text: `La cantidad para ${productCode} debe ser un número positivo.`, backgroundColor: 'var(--warning-color)' }).showToast();
+            continue;
         }
 
-        const success = await createProductionOrder(productCode, quantity, operatorId, equipoId);
+        const success = await createProductionOrder(productCode, quantityToCreate, operatorId, equipoId);
         if (success) {
             createdCount++;
-            rowsToRemove.push(row);
+            if (quantityToCreate >= originalNetReq) {
+                // If created quantity is same or more, remove the row
+                rowsToRemove.push(row);
+            } else {
+                // If created quantity is less, update the row
+                const remainingQty = originalNetReq - quantityToCreate;
+                qtyInput.value = remainingQty;
+                qtyInput.dataset.originalNetReq = remainingQty;
+                checkbox.checked = false; // Uncheck to prevent re-creation on next click
+            }
         }
     }
 
     if (createdCount > 0) {
-        Toastify({ text: `${createdCount} órdenes de producción creadas con éxito.`, backgroundColor: 'var(--success-color)' }).showToast();
+        Toastify({ text: `${createdCount} órdenes de producción creadas.`, backgroundColor: 'var(--success-color)' }).showToast();
         loadProductionOrders(); // Refresh the main orders list
 
-        // Remove only the rows for which orders were successfully created
         rowsToRemove.forEach(row => row.remove());
 
-        // Hide the card if no suggestions are left
         if (document.getElementById('suggestedOrdersTableBody').children.length === 0) {
             document.getElementById('suggestedOrdersCard').style.display = 'none';
         }
