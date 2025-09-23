@@ -28,16 +28,22 @@ body {
 }
 
 .sidebar .position-sticky {
-    display: flex;
-    flex-direction: column;
+    position: relative;
     height: 100%;
-    padding-bottom: 1rem; /* Add padding at the bottom */
+    padding-bottom: 100px; /* Make space for the absolute positioned footer */
 }
 
 .sidebar .nav.flex-column {
-    flex-grow: 1; /* This makes the nav list take up available space, pushing the footer down */
+    overflow-y: auto; /* Allow nav items to scroll if they exceed viewport height */
+    max-height: calc(100% - 80px); /* Adjust max-height to not overlap with title/footer */
 }
 
+.sidebar-footer {
+    position: absolute;
+    bottom: 1rem;
+    left: 1rem;
+    right: 1rem;
+}
 
 .nav-link {
     color: #c1c7d0; /* Lighter text for better readability on dark background */
