@@ -28,21 +28,19 @@ body {
 }
 
 .sidebar .position-sticky {
-    position: relative;
+    display: flex;
+    flex-direction: column;
     height: 100%;
-    padding-bottom: 100px; /* Make space for the absolute positioned footer */
 }
 
 .sidebar .nav.flex-column {
-    overflow-y: auto; /* Allow nav items to scroll if they exceed viewport height */
-    max-height: calc(100% - 80px); /* Adjust max-height to not overlap with title/footer */
+    flex-shrink: 0; /* Prevent the nav from shrinking */
 }
 
 .sidebar-footer {
-    position: absolute;
-    bottom: 1rem;
-    left: 1rem;
-    right: 1rem;
+    margin-top: auto; /* Pushes the footer to the bottom */
+    flex-shrink: 0; /* Prevent the footer from shrinking */
+    padding: 1rem;
 }
 
 .nav-link {
