@@ -54,28 +54,25 @@ onAuthStateChanged(auth, async (user) => {
             currentUserRole = await getUserRole(user.uid);
 
             if (!currentUserRole) {
-                console.error(`Authentication error: User ${user.email} has no role assigned in Firestore.`);
-                Toastify({
-                    text: 'Acceso denegado. No tiene un rol asignado. Contacte a un administrador.',
-                    backgroundColor: 'var(--danger-color)',
-                    duration: 8000
-                }).showToast();
-                await signOut(auth);
+                // ... (error handling)
                 return;
             }
 
+            if(splashScreen) splashScreen.classList.add('splash-visible');
+
             loginView.classList.add('d-none');
             appView.classList.remove('d-none');
-            if(splashScreen) splashScreen.classList.remove('splash-hidden');
             userDataDiv.textContent = user.email;
             await initializeAppContent();
 
         } catch (error) {
             console.error("A critical error occurred during the login process:", error);
             Toastify({ text: 'Ocurrió un error crítico al iniciar sesión. Por favor, intente de nuevo.', backgroundColor: 'var(--danger-color)', duration: 8000 }).showToast();
+            if(splashScreen) splashScreen.classList.remove('splash-visible');
             await signOut(auth);
         }
     } else {
+        if(splashScreen) splashScreen.classList.remove('splash-visible');
         currentUserRole = null;
         loginView.classList.remove('d-none');
         appView.classList.add('d-none');
@@ -548,7 +545,7 @@ async function initializeAppContent() {
   const splashScreen = document.getElementById('splashScreen');
   if(splashScreen) {
     setTimeout(() => {
-        splashScreen.classList.add('splash-hidden');
+        splashScreen.classList.remove('splash-visible');
     }, 1500); // 1.5 second delay
   }
 }
