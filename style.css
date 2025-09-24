@@ -68,6 +68,11 @@ body {
     height: 100%;
 }
 
+.sidebar h4 {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+}
+
 .sidebar .nav.flex-column {
     /* No special styles needed now */
 }
