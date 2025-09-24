@@ -212,6 +212,14 @@ body {
     font-size: 0.75rem;
 }
 
+#traspasoModal .form-text {
+    font-size: 0.9rem;
+}
+
+#traspasoStockOrigen {
+    color: var(--primary-color);
+}
+
 @media print {
     body {
         font-size: 10pt;

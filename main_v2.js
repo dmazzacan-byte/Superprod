@@ -115,6 +115,7 @@ let materials  = [];
 let vales      = [];
 let users      = [];
 let almacenes = [];
+let traspasos = [];
 
 let costChartInstance = null, productionChartInstance = null, dailyProductionChartInstance = null, dailyOvercostChartInstance = null;
 
@@ -158,13 +159,22 @@ async function migrateDataToMultiAlmacen() {
         return;
     }
 
-    Toastify({ text: 'Actualizando estructura de datos a multi-almacén...', duration: 5000, backgroundColor: 'var(--info-color)' }).showToast();
+    // This whole block now only runs once if the key is not in localStorage.
+    Toastify({ text: 'Primera ejecución: Actualizando estructura de datos a multi-almacén...', duration: 6000, backgroundColor: 'var(--info-color)' }).showToast();
 
+    // Ensure the GENERAL warehouse exists before proceeding
     let generalAlmacen = almacenes.find(a => a.id === 'GENERAL');
     if (!generalAlmacen) {
+        console.log("Creando almacén 'GENERAL' por primera vez.");
         generalAlmacen = { id: 'GENERAL', name: 'Almacén General', isDefault: false };
-        await setDoc(doc(db, "almacenes", "GENERAL"), generalAlmacen);
-        almacenes.push(generalAlmacen);
+        try {
+            await setDoc(doc(db, "almacenes", "GENERAL"), generalAlmacen);
+            almacenes.push(generalAlmacen); // Add to local array immediately
+        } catch (e) {
+            console.error("Error crítico al crear el almacén GENERAL. La migración no puede continuar.", e);
+            Toastify({ text: 'Error al crear almacén base. La migración falló.', backgroundColor: 'var(--danger-color)', duration: -1 }).showToast();
+            return;
+        }
     }
 
     const migrationPromises = [];
@@ -208,6 +218,7 @@ async function loadInitialData() {
             loadCollection('equipos', 'id'),
             loadCollection('vales', 'vale_id'),
             loadCollection('almacenes', 'id'),
+            loadCollection('traspasos', 'traspaso_id'),
             loadRecipesCollection()
         ];
 
@@ -223,6 +234,7 @@ async function loadInitialData() {
             equiposData,
             valesData,
             almacenesData,
+            traspasosData,
             recipesData,
             usersData
         ] = await Promise.all(promises);
@@ -234,6 +246,7 @@ async function loadInitialData() {
         equipos = equiposData;
         vales = valesData;
         almacenes = almacenesData.sort((a, b) => a.id.localeCompare(b.id));
+        traspasos = traspasosData;
         recipes = recipesData;
         if (usersData) users = usersData;
 
@@ -914,6 +927,122 @@ document.getElementById('materialModal').addEventListener('hidden.bs.modal', () 
 });
 document.getElementById('searchMaterial').addEventListener('input', () => loadMaterials());
 document.getElementById('filterMaterialsAsProducts').addEventListener('change', () => loadMaterials());
+
+/* ----------  TRASPASOS  ---------- */
+const traspasoModal = new bootstrap.Modal(document.getElementById('traspasoModal'));
+
+function updateTraspasoStock() {
+    const materialId = document.getElementById('traspasoMaterialSelect').value;
+    const origenId = document.getElementById('traspasoOrigenSelect').value;
+    const stockSpan = document.getElementById('traspasoStockOrigen');
+
+    if (!materialId || !origenId) {
+        stockSpan.textContent = '--';
+        return;
+    }
+
+    const material = materials.find(m => m.codigo === materialId);
+    if (material && material.inventario) {
+        const stock = material.inventario[origenId] || 0;
+        stockSpan.textContent = `${stock.toFixed(2)} ${material.unidad}`;
+    } else {
+        stockSpan.textContent = `0.00`;
+    }
+}
+
+function populateTraspasoForm() {
+    const materialSelect = document.getElementById('traspasoMaterialSelect');
+    materialSelect.innerHTML = '<option value="" selected disabled>Seleccione un material...</option>';
+    materials.sort((a, b) => a.descripcion.localeCompare(b.descripcion)).forEach(m => {
+        materialSelect.add(new Option(`${m.descripcion} (${m.codigo})`, m.codigo));
+    });
+
+    const origenSelect = document.getElementById('traspasoOrigenSelect');
+    origenSelect.innerHTML = '<option value="" selected disabled>Seleccione origen...</option>';
+
+    const destinoSelect = document.getElementById('traspasoDestinoSelect');
+    destinoSelect.innerHTML = '<option value="" selected disabled>Seleccione destino...</option>';
+
+    almacenes.forEach(a => {
+        origenSelect.add(new Option(a.name, a.id));
+        destinoSelect.add(new Option(a.name, a.id));
+    });
+
+    updateTraspasoStock();
+}
+
+
+document.getElementById('traspasoModal').addEventListener('show.bs.modal', populateTraspasoForm);
+document.getElementById('traspasoMaterialSelect')?.addEventListener('change', updateTraspasoStock);
+document.getElementById('traspasoOrigenSelect')?.addEventListener('change', updateTraspasoStock);
+
+document.getElementById('traspasoForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const materialId = document.getElementById('traspasoMaterialSelect').value;
+    const origenId = document.getElementById('traspasoOrigenSelect').value;
+    const destinoId = document.getElementById('traspasoDestinoSelect').value;
+    const cantidad = parseFloat(document.getElementById('traspasoCantidad').value);
+
+    // --- Validation ---
+    if (!materialId || !origenId || !destinoId || isNaN(cantidad)) {
+        Toastify({ text: 'Por favor, complete todos los campos.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+    if (origenId === destinoId) {
+        Toastify({ text: 'El almacén de origen y destino no pueden ser el mismo.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+    if (cantidad <= 0) {
+        Toastify({ text: 'La cantidad a traspasar debe ser mayor que cero.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    const material = materials.find(m => m.codigo === materialId);
+    if (!material) {
+        Toastify({ text: 'Error: Material no encontrado.', backgroundColor: 'var(--danger-color)' }).showToast();
+        return;
+    }
+
+    const stockOrigen = material.inventario?.[origenId] || 0;
+    if (stockOrigen < cantidad) {
+        Toastify({ text: `No hay suficiente stock en el almacén de origen. Disponible: ${stockOrigen.toFixed(2)}`, backgroundColor: 'var(--danger-color)' }).showToast();
+        return;
+    }
+
+    // --- Logic ---
+    const materialRef = doc(db, "materials", materialId);
+    const newInventario = { ...material.inventario };
+    newInventario[origenId] = (newInventario[origenId] || 0) - cantidad;
+    newInventario[destinoId] = (newInventario[destinoId] || 0) + cantidad;
+
+    const traspasoData = {
+        materialId,
+        origenId,
+        destinoId,
+        cantidad,
+        createdAt: new Date().toISOString()
+    };
+
+    try {
+        await updateDoc(materialRef, { inventario: newInventario });
+        await addDoc(collection(db, "traspasos"), traspasoData);
+
+        // Update local state
+        const localMaterial = materials.find(m => m.codigo === materialId);
+        localMaterial.inventario = newInventario;
+
+        loadMaterials();
+        traspasoModal.hide();
+        Toastify({ text: 'Traspaso realizado con éxito.', backgroundColor: 'var(--success-color)' }).showToast();
+        document.getElementById('traspasoForm').reset();
+
+    } catch (error) {
+        console.error("Error realizando el traspaso: ", error);
+        Toastify({ text: 'Error al realizar el traspaso.', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
+});
+
 
 /* ----------  RECETAS  ---------- */
 const addRecipeModal  = new bootstrap.Modal(document.getElementById('addRecipeModal'));

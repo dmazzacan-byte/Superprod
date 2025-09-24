@@ -267,7 +267,10 @@
                 <div class="page-content" id="materialsPage" style="display: none;">
                     <h1 class="mt-4">Materiales</h1>
                     <div class="d-flex justify-content-between mb-3 mt-4">
-                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#materialModal"><i class="fas fa-plus me-2"></i> Añadir Material</button>
+                        <div>
+                            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#materialModal"><i class="fas fa-plus me-2"></i> Añadir Material</button>
+                            <button class="btn btn-info" data-bs-toggle="modal" data-bs-target="#traspasoModal"><i class="fas fa-exchange-alt me-2"></i> Realizar Traspaso</button>
+                        </div>
                         <div class="d-flex">
                             <button class="btn btn-secondary me-2" id="importMaterialsBtn"><i class="fas fa-upload me-2"></i> Importar</button>
                             <input type="file" id="materialFile" accept=".csv, .xlsx" class="d-none">
@@ -658,6 +661,45 @@
 <div class="modal fade" id="equipoModal" tabindex="-1" aria-labelledby="equipoModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="equipoModalLabel">Añadir Equipo</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="equipoForm"><div class="modal-body"><div class="mb-3"><label for="equipoId" class="form-label">ID del Equipo</label><input type="text" class="form-control" id="equipoId" required></div><div class="mb-3"><label for="equipoName" class="form-label">Nombre del Equipo</label><input type="text" class="form-control" id="equipoName" required></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
 
 <div class="modal fade" id="almacenModal" tabindex="-1" aria-labelledby="almacenModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="almacenModalLabel">Añadir Almacén</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="almacenForm"><div class="modal-body"><div class="mb-3"><label for="almacenId" class="form-label">ID del Almacén</label><input type="text" class="form-control" id="almacenId" required></div><div class="mb-3"><label for="almacenName" class="form-label">Nombre del Almacén</label><input type="text" class="form-control" id="almacenName" required></div><div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="almacenDefault"><label class="form-check-label" for="almacenDefault">Almacén por defecto para producción</label></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
+
+<!-- Modal Traspaso de Materiales -->
+<div class="modal fade" id="traspasoModal" tabindex="-1" aria-labelledby="traspasoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="traspasoModalLabel">Traspaso de Material entre Almacenes</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="traspasoForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="traspasoMaterialSelect" class="form-label">Material a Traspasar</label>
+                        <select class="form-select" id="traspasoMaterialSelect" required></select>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="traspasoOrigenSelect" class="form-label">Almacén Origen</label>
+                            <select class="form-select" id="traspasoOrigenSelect" required></select>
+                            <div class="form-text">Existencia: <span id="traspasoStockOrigen" class="fw-bold">--</span></div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="traspasoDestinoSelect" class="form-label">Almacén Destino</label>
+                            <select class="form-select" id="traspasoDestinoSelect" required></select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="traspasoCantidad" class="form-label">Cantidad a Traspasar</label>
+                        <input type="number" class="form-control" id="traspasoCantidad" min="0.01" step="0.01" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Confirmar Traspaso</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
