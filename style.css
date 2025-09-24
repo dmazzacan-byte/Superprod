@@ -249,3 +249,42 @@ body {
         color: inherit;
     }
 }
+
+/* ---------- Splash Screen Styles ---------- */
+#splashScreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: #172B4D;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    opacity: 1;
+    transition: opacity 0.5s ease-in-out;
+    pointer-events: all;
+}
+
+#splashScreen.splash-hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.splash-title {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+    font-size: 4rem;
+    color: #ffffff;
+    margin: 0;
+}
+
+.splash-tagline {
+    font-family: 'Lato', sans-serif;
+    font-weight: 400;
+    font-size: 1.25rem;
+    color: rgba(255, 255, 255, 0.8);
+    margin-top: 0.5rem;
+}

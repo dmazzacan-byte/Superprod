@@ -48,6 +48,7 @@ async function getUserRole(uid) {
 }
 
 onAuthStateChanged(auth, async (user) => {
+    const splashScreen = document.getElementById('splashScreen');
     if (user) {
         try {
             currentUserRole = await getUserRole(user.uid);
@@ -65,6 +66,7 @@ onAuthStateChanged(auth, async (user) => {
 
             loginView.classList.add('d-none');
             appView.classList.remove('d-none');
+            if(splashScreen) splashScreen.classList.remove('splash-hidden');
             userDataDiv.textContent = user.email;
             await initializeAppContent();
 
@@ -541,6 +543,14 @@ async function initializeAppContent() {
 
   document.getElementById('lowStockThreshold').addEventListener('input', dashboardUpdateHandler);
   document.getElementById('dashboardAlmacenFilter').addEventListener('change', dashboardUpdateHandler);
+
+  // Hide splash screen after a delay
+  const splashScreen = document.getElementById('splashScreen');
+  if(splashScreen) {
+    setTimeout(() => {
+        splashScreen.classList.add('splash-hidden');
+    }, 1500); // 1.5 second delay
+  }
 }
 
 /* ----------  DASHBOARD  ---------- */
