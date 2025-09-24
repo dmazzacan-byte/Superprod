@@ -3117,10 +3117,10 @@ document.getElementById('recipeFile').addEventListener('change', async (e) => {
 
 /* ----------  BACKUP / RESTORE  ---------- */
 document.getElementById('backupBtn').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify({ products, materials, recipes, productionOrders, operators, equipos, vales }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ products, materials, recipes, productionOrders, operators, equipos, vales, traspasos }, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'superproduccion_backup.json'; a.click();
+  a.href = url; a.download = `operis_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
   URL.revokeObjectURL(url);
 });
 document.getElementById('restoreBtn').addEventListener('click', () => document.getElementById('importBackupFile').click());
