@@ -1917,7 +1917,7 @@ async function generateOrderPDF(oid) {
     const doc = new jsPDF();
 
     let logoHeight = 0;
-    const logoData = localStorage.getItem('companyLogo');
+    const logoData = await getLogoUrl();
     if (logoData) {
         const getImageDimensions = (dataUrl) => new Promise(resolve => {
             const img = new Image();
@@ -2004,7 +2004,7 @@ async function generateValePDF(vale) {
   const doc = new jsPDF();
 
   let logoHeight = 0;
-  const logoData = localStorage.getItem('companyLogo');
+  const logoData = await getLogoUrl();
   if (logoData) {
       const getImageDimensions = (dataUrl) => new Promise(resolve => {
           const img = new Image();
@@ -2899,22 +2899,38 @@ document.getElementById('almacenModal').addEventListener('hidden.bs.modal', () =
 
 
 /* ----------  LOGO  ---------- */
+async function getLogoUrl() {
+    const cachedLogo = localStorage.getItem('companyLogo');
+    if (cachedLogo) {
+        return cachedLogo;
+    }
+
+    try {
+        const logoUrl = await getDownloadURL(ref(storage, 'company_logo'));
+        localStorage.setItem('companyLogo', logoUrl); // Cache it for next time
+        return logoUrl;
+    } catch (error) {
+        if (error.code === 'storage/object-not-found') {
+            // This is not an error, it just means no logo has been uploaded.
+            return null;
+        }
+        console.error("Error fetching logo URL from Firebase Storage:", error);
+        return null;
+    }
+}
+
 async function loadLogo() {
     const logoPreview = document.getElementById('logoPreview');
     const noLogoText = document.getElementById('noLogoText');
-    try {
-        const logoUrl = await getDownloadURL(ref(storage, 'company_logo'));
+    const logoUrl = await getLogoUrl();
+
+    if (logoUrl) {
         logoPreview.src = logoUrl;
         logoPreview.style.display = 'block';
         noLogoText.style.display = 'none';
-        localStorage.setItem('companyLogo', logoUrl); // cache it
-    } catch (error) {
-        if (error.code === 'storage/object-not-found') {
-            logoPreview.style.display = 'none';
-            noLogoText.style.display = 'block';
-        } else {
-            console.error("Error loading logo:", error);
-        }
+    } else {
+        logoPreview.style.display = 'none';
+        noLogoText.style.display = 'block';
     }
 }
 document.getElementById('logoUpload').addEventListener('change', async (e) => {
@@ -3021,6 +3037,7 @@ async function generateAllRecipesPDF() {
     }
 
     let isFirstPage = true;
+    const logoData = await getLogoUrl(); // Get the logo URL once
 
     for (const productId of sortedRecipeIds) {
         if (!isFirstPage) {
@@ -3032,16 +3049,36 @@ async function generateAllRecipesPDF() {
 
         if (!product || !recipeItems) continue;
 
+        let logoHeight = 0;
+        if (logoData) {
+            const getImageDimensions = (dataUrl) => new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+                img.src = dataUrl;
+            });
+            const dims = await getImageDimensions(logoData);
+            const maxWidth = 40;
+            const maxHeight = 20;
+            const ratio = Math.min(maxWidth / dims.width, maxHeight / dims.height);
+            const w = dims.width * ratio;
+            const h = dims.height * ratio;
+            doc.addImage(logoData, 'PNG', 15, 10, w, h);
+            logoHeight = h;
+        }
+
         const totalRecipeCost = calculateRecipeCost(recipeItems);
 
+        let startY = logoHeight > 0 ? 15 + logoHeight : 20;
         doc.setFontSize(18);
-        doc.text(`Receta para: ${product.descripcion}`, 15, 20);
+        doc.text(`Receta para: ${product.descripcion}`, 15, startY);
+        startY += 7;
         doc.setFontSize(10);
-        doc.text(`Código: ${product.codigo}`, 15, 27);
-        doc.text(`Fecha: ${formattedDate}`, 185, 27, null, null, 'right');
+        doc.text(`Código: ${product.codigo}`, 15, startY);
+        doc.text(`Fecha: ${formattedDate}`, 185, startY, null, null, 'right');
+        startY += 7;
         doc.setFontSize(11);
         doc.setFont(undefined, 'bold');
-        doc.text(`Costo Total de Receta: ${formatCurrency(totalRecipeCost)}`, 15, 34);
+        doc.text(`Costo Total de Receta: ${formatCurrency(totalRecipeCost)}`, 15, startY);
         doc.setFont(undefined, 'normal');
 
         const bodyRows = recipeItems.map(item => {
@@ -3074,7 +3111,7 @@ async function generateAllRecipesPDF() {
         doc.autoTable({
             head: [['Tipo', 'Código', 'Descripción', 'Cantidad', 'Costo Unit.', 'Costo Total']],
             body: bodyRows,
-            startY: 40,
+            startY: startY + 5,
             headStyles: { fillColor: [41, 128, 185] },
             styles: { fontSize: 8 },
             columnStyles: {
