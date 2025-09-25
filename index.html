@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Superproducción - Gestión de Producción</title>
+    <title>Operis - Gestión de Producción</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&family=Lato:wght@400&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
@@ -48,13 +49,19 @@
 </head>
 <body>
 
+<div id="splashScreen">
+    <h1 class="splash-title">Operis</h1>
+    <p class="splash-tagline">Gestión de producción clara, simple y poderosa.</p>
+</div>
+
 <!-- Login View -->
 <div id="loginView" class="container">
     <div class="row justify-content-center align-items-center vh-100">
         <div class="col-md-6 col-lg-4">
             <div class="card shadow-lg">
                 <div class="card-body p-5">
-                    <h3 class="card-title text-center mb-4">Superproducción</h3>
+                    <h3 class="card-title text-center">Operis</h3>
+                    <p class="text-center text-muted mb-4">Gestión de producción clara, simple y poderosa.</p>
                     <form id="loginForm">
                         <div class="mb-3">
                             <label for="loginEmail" class="form-label">Correo Electrónico</label>
@@ -79,11 +86,17 @@
 
 <!-- Main App View -->
 <div id="appView" class="d-none">
+    <div id="userInfoHeader">
+        <span id="userData" class="me-3"></span>
+        <button id="logoutBtn" class="btn btn-danger" title="Cerrar Sesión">
+            <i class="fas fa-power-off"></i>
+        </button>
+    </div>
     <div class="container-fluid">
         <div class="row">
             <nav id="sidebar" class="col-lg-2 col-md-3 d-md-block sidebar collapse">
                 <div class="position-sticky">
-                    <h4 class="text-white text-center my-3">Superproducción</h4>
+                    <h4 class="text-white text-center my-3">Operis</h4>
                     <ul class="nav flex-column">
                         <li class="nav-item"><a class="nav-link active" href="#dashboardPage" data-page="dashboardPage"><i class="fas fa-chart-line"></i> Dashboard</a></li>
                         <li class="nav-item"><a class="nav-link" href="#demandPlannerPage" data-page="demandPlannerPage"><i class="fas fa-bullseye"></i> Planificador</a></li>
@@ -94,10 +107,6 @@
                         <li class="nav-item"><a class="nav-link" href="#reportsPage" data-page="reportsPage"><i class="fas fa-chart-pie"></i> Reportes</a></li>
                         <li class="nav-item"><a class="nav-link" href="#settingsPage" data-page="settingsPage"><i class="fas fa-cog"></i> Configuración</a></li>
                     </ul>
-                    <div class="sidebar-footer text-center text-white small p-3">
-                        <div id="userData" class="mb-2">...</div>
-                        <button id="logoutBtn" class="btn btn-sm btn-outline-light w-100">Cerrar Sesión</button>
-                    </div>
                 </div>
             </nav>
 
@@ -137,7 +146,38 @@
                         <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Sobrecosto Diario</h5></div><div class="card-body"><canvas id="dailyOvercostChart"></canvas></div></div></div>
                     </div>
                     <div class="row g-4 mt-4">
-                        <div class="col-12"><div class="card shadow-sm"><div class="card-header bg-warning-subtle d-flex justify-content-between align-items-center"><h5 class="mb-0 text-dark"><i class="fas fa-exclamation-triangle me-2"></i>Alertas de Bajo Inventario</h5><div class="d-flex align-items-center"><label for="lowStockThreshold" class="me-2 text-dark fw-bold small">Límite:</label><input type="number" id="lowStockThreshold" class="form-control form-control-sm" value="10" style="width: 80px;"></div></div><div class="card-body"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>Material</th><th>Existencia Actual</th><th>Unidad</th><th>Productos Afectados</th></tr></thead><tbody id="lowStockTableBody"></tbody></table></div></div></div></div>
+                        <div class="col-12">
+                            <div class="card shadow-sm">
+                                <div class="card-header bg-warning-subtle d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0 text-dark"><i class="fas fa-exclamation-triangle me-2"></i>Alertas de Bajo Inventario</h5>
+                                    <div class="d-flex align-items-center">
+                                        <div class="me-3">
+                                            <label for="dashboardAlmacenFilter" class="me-2 text-dark fw-bold small">Almacén:</label>
+                                            <select id="dashboardAlmacenFilter" class="form-select form-select-sm" style="width: 150px; display: inline-block;"></select>
+                                        </div>
+                                        <div>
+                                            <label for="lowStockThreshold" class="me-2 text-dark fw-bold small">Límite:</label>
+                                            <input type="number" id="lowStockThreshold" class="form-control form-control-sm" value="10" style="width: 80px; display: inline-block;">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-hover mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Material</th>
+                                                    <th>Existencia Actual</th>
+                                                    <th>Unidad</th>
+                                                    <th>Productos Afectados</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="lowStockTableBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -170,9 +210,21 @@
                         </div>
                     </div>
 
-                    <div class="d-flex justify-content-center my-4">
-                        <button class="btn btn-primary btn-lg me-3" id="calculatePlanBtn"><i class="fas fa-calculator me-2"></i>Calcular Plan</button>
-                        <button class="btn btn-secondary btn-lg" id="newPlanBtn"><i class="fas fa-sync-alt me-2"></i>Nuevo Plan</button>
+                    <div class="card shadow-sm mt-4">
+                        <div class="card-body">
+                            <div class="row align-items-end">
+                                <div class="col-md-4">
+                                    <label for="plannerAlmacenSelect" class="form-label fw-bold">Verificar Inventario Contra:</label>
+                                    <select id="plannerAlmacenSelect" class="form-select">
+                                        <!-- Opciones de almacén se llenarán con JS -->
+                                    </select>
+                                </div>
+                                <div class="col-md-8">
+                                     <button class="btn btn-primary btn-lg me-3" id="calculatePlanBtn"><i class="fas fa-calculator me-2"></i>Calcular Plan</button>
+                                     <button class="btn btn-secondary btn-lg" id="newPlanBtn"><i class="fas fa-sync-alt me-2"></i>Nuevo Plan</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="card shadow-sm mt-4" id="suggestedOrdersCard" style="display: none;">
@@ -222,7 +274,10 @@
                 <div class="page-content" id="materialsPage" style="display: none;">
                     <h1 class="mt-4">Materiales</h1>
                     <div class="d-flex justify-content-between mb-3 mt-4">
-                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#materialModal"><i class="fas fa-plus me-2"></i> Añadir Material</button>
+                        <div>
+                            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#materialModal"><i class="fas fa-plus me-2"></i> Añadir Material</button>
+                            <button class="btn btn-info" data-bs-toggle="modal" data-bs-target="#traspasoModal"><i class="fas fa-exchange-alt me-2"></i> Realizar Traspaso</button>
+                        </div>
                         <div class="d-flex">
                             <button class="btn btn-secondary me-2" id="importMaterialsBtn"><i class="fas fa-upload me-2"></i> Importar</button>
                             <input type="file" id="materialFile" accept=".csv, .xlsx" class="d-none">
@@ -238,7 +293,14 @@
                             </label>
                         </div>
                     </div>
-                    <div class="table-responsive"><table class="table table-striped table-hover"><thead><tr><th>Código</th><th>Descripción</th><th>Unidad</th><th>Existencia</th><th>Costo</th><th>Acciones</th></tr></thead><tbody id="materialsTableBody"></tbody></table></div>
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead id="materialsTableHead">
+                                <!-- Headers are now generated by JS -->
+                            </thead>
+                            <tbody id="materialsTableBody"></tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <!-- Recetas -->
@@ -413,6 +475,7 @@
                     <div class="row g-4 mt-2">
                         <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header d-flex justify-content-between align-items-center"><h5 class="mb-0">Gestión de Operadores</h5><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#operatorModal"><i class="fas fa-plus"></i></button></div><div class="card-body"><ul class="list-group list-group-flush" id="operatorsList"></ul></div></div></div>
                         <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header d-flex justify-content-between align-items-center"><h5 class="mb-0">Gestión de Equipos</h5><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#equipoModal"><i class="fas fa-plus"></i></button></div><div class="card-body"><ul class="list-group list-group-flush" id="equiposList"></ul></div></div></div>
+                        <div class="col-lg-6 mt-4"><div class="card shadow-sm h-100"><div class="card-header d-flex justify-content-between align-items-center"><h5 class="mb-0">Gestión de Almacenes</h5><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#almacenModal"><i class="fas fa-plus"></i></button></div><div class="card-body"><ul class="list-group list-group-flush" id="almacenesList"></ul></div></div></div>
                     </div>
                     <div class="row g-4 mt-4">
                     <div class="col-lg-6" id="userManagementCard" style="display: none;"><div class="card shadow-sm h-100"><div class="card-header d-flex justify-content-between align-items-center"><h5 class="mb-0">Gestión de Usuarios</h5><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#userModal"><i class="fas fa-plus"></i></button></div><div class="card-body"><ul class="list-group list-group-flush" id="usersList"></ul></div></div></div>
@@ -500,7 +563,9 @@
 
 <div class="modal fade" id="userModal" tabindex="-1" aria-labelledby="userModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="userModalLabel">Añadir/Editar Usuario</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="userForm"><div class="modal-body"><p class="text-muted small">Para añadir un nuevo usuario, primero créelo en la Consola de Firebase Authentication. Luego, copie el <strong>UID</strong> de ese usuario desde la consola y péguelo aquí, junto con su correo y rol.</p><div class="mb-3"><label for="userUid" class="form-label">User UID</label><input type="text" class="form-control" id="userUid" required placeholder="Copiar UID de Firebase Console"></div><div class="mb-3"><label for="userEmail" class="form-label">Correo Electrónico</label><input type="email" class="form-control" id="userEmail" required></div><div class="mb-3"><label for="userRole" class="form-label">Rol</label><select id="userRole" class="form-select" required><option value="Supervisor">Supervisor</option><option value="Administrator">Administrador</option></select></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
 <div class="modal fade" id="productModal" tabindex="-1" aria-labelledby="productModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="productModalLabel">Añadir Producto</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="productForm"><div class="modal-body"><div class="mb-3"><label for="productCode" class="form-label">Código</label><input type="text" class="form-control" id="productCode" required></div><div class="mb-3"><label for="productDescription" class="form-label">Descripción</label><input type="text" class="form-control" id="productDescription" required></div><div class="mb-3"><label for="productUnit" class="form-label">Unidad</label><input type="text" class="form-control" id="productUnit" required></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
-<div class="modal fade" id="materialModal" tabindex="-1" aria-labelledby="materialModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="materialModalLabel">Añadir Material</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="materialForm"><div class="modal-body"><div class="mb-3"><label for="materialCode" class="form-label">Código</label><input type="text" class="form-control" id="materialCode" required></div><div class="mb-3"><label for="materialDescription" class="form-label">Descripción</label><input type="text" class="form-control" id="materialDescription" required></div><div class="mb-3"><label for="materialUnit" class="form-label">Unidad</label><input type="text" class="form-control" id="materialUnit" required></div><div class="mb-3"><label for="materialExistence" class="form-label">Existencia</label><input type="number" class="form-control" id="materialExistence" step="0.01" min="0" required></div><div class="mb-3"><label for="materialCost" class="form-label">Costo</label><input type="number" class="form-control" id="materialCost" step="0.01" min="0" required></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
+<div class="modal fade" id="materialModal" tabindex="-1" aria-labelledby="materialModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="materialModalLabel">Añadir Material</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="materialForm"><div class="modal-body"><div class="mb-3"><label for="materialCode" class="form-label">Código</label><input type="text" class="form-control" id="materialCode" required></div><div class="mb-3"><label for="materialDescription" class="form-label">Descripción</label><input type="text" class="form-control" id="materialDescription" required></div><div class="mb-3"><label for="materialUnit" class="form-label">Unidad</label><input type="text" class="form-control" id="materialUnit" required></div><div id="materialInventario" class="mb-3">
+    <!-- Dynamic warehouse inventory fields will be injected here -->
+</div><div class="mb-3"><label for="materialCost" class="form-label">Costo</label><input type="number" class="form-control" id="materialCost" step="0.01" min="0" required></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
 
 <!-- Modal Añadir Receta -->
 <div class="modal fade" id="addRecipeModal" tabindex="-1" aria-labelledby="addRecipeModalLabel" aria-hidden="true">
@@ -556,9 +621,15 @@
                             <select class="form-select" id="editRecipeProductSelect" disabled></select>
                         </div>
                         <div class="col-md-6">
-                            <div class="d-flex align-items-end">
-                                <label for="recipeSimulationQty" class="form-label text-end me-2" style="flex-shrink: 0;">Simular Producción para (unidades):</label>
-                                <input type="number" id="recipeSimulationQty" class="form-control" placeholder="Ej: 100" style="width: 8em;">
+                            <div class="d-flex align-items-end justify-content-end">
+                                <div class="me-3">
+                                    <label for="recipeSimulationAlmacen" class="form-label">Simular desde Almacén:</label>
+                                    <select id="recipeSimulationAlmacen" class="form-select form-select-sm"></select>
+                                </div>
+                                <div>
+                                    <label for="recipeSimulationQty" class="form-label">Unidades:</label>
+                                    <input type="number" id="recipeSimulationQty" class="form-control form-control-sm" placeholder="Ej: 100" style="width: 8em;">
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -589,12 +660,53 @@
 </div>
 
 <!-- Resto de modales -->
-<div class="modal fade" id="productionOrderModal" tabindex="-1" aria-labelledby="productionOrderModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="productionOrderModalLabel">Crear Orden de Producción</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="productionOrderForm"><div class="modal-body"><div class="mb-3"><label for="orderProductSelect" class="form-label">Producto</label><select class="form-select" id="orderProductSelect" required></select></div><div class="mb-3"><label for="orderQuantity" class="form-label">Cantidad</label><input type="number" class="form-control" id="orderQuantity" min="1" required></div><div class="mb-3"><label for="orderEquipoSelect" class="form-label">Equipo</label><select class="form-select" id="orderEquipoSelect" required></select></div><div class="mb-3"><label for="orderOperatorSelect" class="form-label">Operador</label><select class="form-select" id="orderOperatorSelect" required></select></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Crear Orden</button></div></form></div></div></div>
+<div class="modal fade" id="productionOrderModal" tabindex="-1" aria-labelledby="productionOrderModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="productionOrderModalLabel">Crear Orden de Producción</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="productionOrderForm"><div class="modal-body"><div class="mb-3"><label for="orderProductSelect" class="form-label">Producto</label><select class="form-select" id="orderProductSelect" required></select></div><div class="mb-3"><label for="orderQuantity" class="form-label">Cantidad</label><input type="number" class="form-control" id="orderQuantity" min="1" required></div><div class="mb-3"><label for="orderAlmacenSelect" class="form-label">Almacén de Producción</label><select class="form-select" id="orderAlmacenSelect" required></select></div><div class="mb-3"><label for="orderEquipoSelect" class="form-label">Equipo</label><select class="form-select" id="orderEquipoSelect" required></select></div><div class="mb-3"><label for="orderOperatorSelect" class="form-label">Operador</label><select class="form-select" id="orderOperatorSelect" required></select></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Crear Orden</button></div></form></div></div></div>
 <div class="modal fade" id="orderDetailsModal" tabindex="-1" aria-labelledby="orderDetailsModalLabel" aria-hidden="true"><div class="modal-dialog modal-xl"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="orderDetailsModalLabel">Detalles de Orden de Producción</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><div class="row"><div class="col-md-6"><p><strong>ID de Orden:</strong> <span id="detailOrderId"></span></p><p><strong>Producto:</strong> <span id="detailProductName"></span></p><p><strong>Operador:</strong> <span id="detailOperatorName"></span></p><p><strong>Equipo:</strong> <span id="detailEquipoName"></span></p><p><strong>Estado:</strong> <span id="detailStatus" class="badge"></span></p></div><div class="col-md-6"><p><strong>Cantidad Planificada:</strong> <span id="detailQuantityPlanned"></span></p><p><strong>Cantidad Real Producida:</strong> <span id="detailQuantityProduced"></span></p><p><strong>Fecha de Creación:</strong> <span id="detailCreatedDate"></span></p><p><strong>Fecha de Finalización:</strong> <span id="detailCompletedDate"></span></p><p><strong>Vales Emitidos:</strong> <span id="detailValeCount" class="badge bg-info">0</span></p></div></div><hr><div class="row"><div class="col-md-4"><p><strong>Costo Estándar:</strong> <span id="detailStandardCost"></span></p></div><div class="col-md-4"><p><strong>Costo Extra (Vales):</strong> <span id="detailExtraCost"></span></p></div><div class="col-md-4"><p><strong>Costo Real Total:</strong> <span id="detailRealCost" class="fw-bold"></span></p></div></div><div class="alert alert-info d-flex justify-content-between align-items-center"><strong class="h5">Sobrecosto (Variación):</strong><strong class="h5" id="detailOvercost"></strong></div><h6 class="mt-4">Materiales Consolidados (Receta + Vales)</h6><div class="table-responsive"><table class="table table-sm table-bordered"><thead><tr><th>Código</th><th>Descripción</th><th class="th-multiline">Cantidad<br>(plan/real)</th><th class="th-multiline">Costo<br>(plan/real)</th></tr></thead><tbody id="detailMaterialsTableBody"></tbody></table></div><hr class="my-4"><div id="detailValesContainer"></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button></div></div></div></div>
-<div class="modal fade" id="valeModal" tabindex="-1" aria-labelledby="valeModalLabel" aria-hidden="true"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="valeModalLabel">Crear Vale para Orden #<span id="valeOrderId"></span></h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="valeForm"><div class="modal-body"><input type="hidden" id="valeHiddenOrderId"><div class="mb-3"><label for="valeType" class="form-label">Tipo de Vale</label><select id="valeType" class="form-select"><option value="salida">Salida de Almacén</option><option value="devolucion">Devolución a Almacén</option></select></div><p>Ingrese las cantidades de materiales (existentes o nuevos):</p><div class="table-responsive"><table class="table table-sm"><thead><tr><th style="width: 25%;">Código</th><th style="width: 35%;">Descripción</th><th style="width: 20%;">Existencia</th><th style="width: 20%;">Cantidad</th></tr></thead><tbody id="valeMaterialsTableBody"></tbody></table></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary">Guardar y Descargar PDF</button></div></form></div></div></div>
-<div class="modal fade" id="confirmCloseOrderModal" tabindex="-1" aria-labelledby="confirmCloseOrderModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="confirmCloseOrderModalLabel">Confirmar Cierre de Orden</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="confirmCloseOrderForm"><div class="modal-body"><p>Antes de cerrar la orden, confirme la <strong>cantidad real</strong> de unidades producidas.</p><input type="hidden" id="closeHiddenOrderId"><div class="mb-3"><label for="realQuantityInput" class="form-label">Cantidad Real Producida</label><input type="number" class="form-control" id="realQuantityInput" min="0" step="1" required></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-success">Confirmar y Cerrar Orden</button></div></form></div></div></div>
+<div class="modal fade" id="valeModal" tabindex="-1" aria-labelledby="valeModalLabel" aria-hidden="true"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="valeModalLabel">Crear Vale para Orden #<span id="valeOrderId"></span></h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="valeForm"><div class="modal-body"><input type="hidden" id="valeHiddenOrderId"><div class="row"><div class="col-md-6 mb-3"><label for="valeType" class="form-label">Tipo de Vale</label><select id="valeType" class="form-select"><option value="salida">Salida de Almacén</option><option value="devolucion">Devolución a Almacén</option></select></div><div class="col-md-6 mb-3"><label for="valeAlmacen" class="form-label">Almacén</label><select id="valeAlmacen" class="form-select" required></select></div></div><p>Ingrese las cantidades de materiales (existentes o nuevos):</p><div class="table-responsive"><table class="table table-sm"><thead><tr><th style="width: 25%;">Código</th><th style="width: 35%;">Descripción</th><th style="width: 20%;">Existencia</th><th style="width: 20%;">Cantidad</th></tr></thead><tbody id="valeMaterialsTableBody"></tbody></table></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary">Guardar y Descargar PDF</button></div></form></div></div></div>
+<div class="modal fade" id="confirmCloseOrderModal" tabindex="-1" aria-labelledby="confirmCloseOrderModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="confirmCloseOrderModalLabel">Confirmar Cierre de Orden</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="confirmCloseOrderForm"><div class="modal-body"><p>Antes de cerrar la orden, confirme la <strong>cantidad real</strong> de unidades producidas y el <strong>almacén</strong> a afectar.</p><input type="hidden" id="closeHiddenOrderId"><div class="mb-3"><label for="realQuantityInput" class="form-label">Cantidad Real Producida</label><input type="number" class="form-control" id="realQuantityInput" min="0" step="1" required></div><div class="mb-3"><label for="completionAlmacenSelect" class="form-label">Almacén de Producción</label><select id="completionAlmacenSelect" class="form-select" required></select><div class="form-text">Las materias primas se descontarán y el producto terminado se añadirá a este almacén.</div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-success">Confirmar y Cerrar Orden</button></div></form></div></div></div>
 <div class="modal fade" id="operatorModal" tabindex="-1" aria-labelledby="operatorModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="operatorModalLabel">Añadir Operador</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="operatorForm"><div class="modal-body"><div class="mb-3"><label for="operatorId" class="form-label">ID del Operador</label><input type="text" class="form-control" id="operatorId" required></div><div class="mb-3"><label for="operatorName" class="form-label">Nombre del Operador</label><input type="text" class="form-control" id="operatorName" required></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
 <div class="modal fade" id="equipoModal" tabindex="-1" aria-labelledby="equipoModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="equipoModalLabel">Añadir Equipo</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="equipoForm"><div class="modal-body"><div class="mb-3"><label for="equipoId" class="form-label">ID del Equipo</label><input type="text" class="form-control" id="equipoId" required></div><div class="mb-3"><label for="equipoName" class="form-label">Nombre del Equipo</label><input type="text" class="form-control" id="equipoName" required></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
+
+<div class="modal fade" id="almacenModal" tabindex="-1" aria-labelledby="almacenModalLabel" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="almacenModalLabel">Añadir Almacén</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form id="almacenForm"><div class="modal-body"><div class="mb-3"><label for="almacenId" class="form-label">ID del Almacén</label><input type="text" class="form-control" id="almacenId" required></div><div class="mb-3"><label for="almacenName" class="form-label">Nombre del Almacén</label><input type="text" class="form-control" id="almacenName" required></div><div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="almacenDefault"><label class="form-check-label" for="almacenDefault">Almacén por defecto para producción</label></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div></div>
+
+<!-- Modal Traspaso de Materiales -->
+<div class="modal fade" id="traspasoModal" tabindex="-1" aria-labelledby="traspasoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="traspasoModalLabel">Traspaso de Material entre Almacenes</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="traspasoForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="traspasoMaterialSelect" class="form-label">Material a Traspasar</label>
+                        <select class="form-select" id="traspasoMaterialSelect" required></select>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="traspasoOrigenSelect" class="form-label">Almacén Origen</label>
+                            <select class="form-select" id="traspasoOrigenSelect" required></select>
+                            <div class="form-text">Existencia: <span id="traspasoStockOrigen" class="fw-bold">--</span></div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="traspasoDestinoSelect" class="form-label">Almacén Destino</label>
+                            <select class="form-select" id="traspasoDestinoSelect" required></select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="traspasoCantidad" class="form-label">Cantidad a Traspasar</label>
+                        <input type="number" class="form-control" id="traspasoCantidad" min="0.01" step="0.01" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Confirmar Traspaso</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
