@@ -430,6 +430,7 @@ async function initializeAppContent() {
   }
 
   await loadInitialData();
+  await checkAndTriggerOnboarding();
   applyRoleRestrictions();
   const navLinks = document.querySelectorAll('.nav-link');
   const pages    = document.querySelectorAll('.page-content');
@@ -2283,6 +2284,12 @@ function populateReportFilters() {
     equipos.forEach(e => {
         equipoFilter.add(new Option(e.name, e.id));
     });
+
+    const almacenFilter = document.getElementById('reportAlmacenFilter');
+    almacenFilter.innerHTML = '<option value="all">Todos</option>';
+    almacenes.forEach(a => {
+        almacenFilter.add(new Option(a.name, a.id));
+    });
 }
 
 function loadReports() {
@@ -2307,6 +2314,7 @@ function generateAllReports() {
   const productId = document.getElementById('productFilter').value;
   const operatorId = document.getElementById('operatorFilter').value;
   const equipoId = document.getElementById('equipoFilter').value;
+  const almacenId = document.getElementById('reportAlmacenFilter').value;
 
   const filteredOrders = productionOrders.filter(o => {
     if (o.status !== 'Completada') return false;
@@ -2317,6 +2325,7 @@ function generateAllReports() {
     if (productId !== 'all' && o.product_code !== productId) return false;
     if (operatorId !== 'all' && o.operator_id !== operatorId) return false;
     if (equipoId !== 'all' && o.equipo_id !== equipoId) return false;
+    if (almacenId !== 'all' && o.almacen_produccion_id !== almacenId) return false;
     return true;
   });
 
@@ -3121,6 +3130,141 @@ document.getElementById('recipeFile').addEventListener('change', async (e) => {
   };
   reader.readAsBinaryString(file);
 });
+
+/* ----------  ONBOARDING  ---------- */
+const onboardingModal = new bootstrap.Modal(document.getElementById('onboardingModal'));
+let currentOnboardingStep = 1;
+
+async function checkAndTriggerOnboarding() {
+    const onboardingCompleted = localStorage.getItem('onboardingComplete_v1');
+    if (onboardingCompleted) {
+        return;
+    }
+
+    // Check if essential data is missing.
+    if (almacenes.length === 0 && operators.length === 0 && materials.length === 0) {
+        onboardingModal.show();
+    }
+}
+
+function navigateOnboarding(direction) {
+    const steps = document.querySelectorAll('.onboarding-step');
+    const currentStepElem = document.getElementById(`onboardingStep${currentOnboardingStep}`);
+
+    if (direction === 'next') {
+        if (currentOnboardingStep < steps.length) {
+            currentOnboardingStep++;
+        }
+    } else if (direction === 'prev') {
+        if (currentOnboardingStep > 1) {
+            currentOnboardingStep--;
+        }
+    }
+
+    steps.forEach(step => step.style.display = 'none');
+    document.getElementById(`onboardingStep${currentOnboardingStep}`).style.display = 'block';
+
+    const prevBtn = document.getElementById('onboardingPrevBtn');
+    const nextBtn = document.getElementById('onboardingNextBtn');
+
+    prevBtn.style.display = currentOnboardingStep > 1 ? 'inline-block' : 'none';
+    nextBtn.textContent = currentOnboardingStep === steps.length ? 'Finalizar' : 'Siguiente';
+}
+
+document.getElementById('onboardingNextBtn').addEventListener('click', async () => {
+    const steps = document.querySelectorAll('.onboarding-step').length;
+
+    if (currentOnboardingStep === 3) { // After Almacen step
+        const form = document.getElementById('onboardingAlmacenForm');
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+        const id = document.getElementById('onboardingAlmacenId').value.trim().toUpperCase();
+        const name = document.getElementById('onboardingAlmacenName').value.trim();
+        const isDefault = document.getElementById('onboardingAlmacenDefault').checked;
+        await setDoc(doc(db, "almacenes", id), { name, isDefault });
+        almacenes.push({ id, name, isDefault });
+    }
+
+    if (currentOnboardingStep === 4) { // After Operator step
+        const form = document.getElementById('onboardingOperatorForm');
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+        const id = document.getElementById('onboardingOperatorId').value.trim().toUpperCase();
+        const name = document.getElementById('onboardingOperatorName').value.trim();
+        await setDoc(doc(db, "operators", id), { name });
+        operators.push({ id, name });
+    }
+
+    if (currentOnboardingStep === 5) { // After Material step
+        const form = document.getElementById('onboardingMaterialForm');
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+        const code = document.getElementById('onboardingMaterialCode').value.trim().toUpperCase();
+        const desc = document.getElementById('onboardingMaterialDescription').value.trim();
+        const unit = document.getElementById('onboardingMaterialUnit').value.trim();
+        const cost = parseFloat(document.getElementById('onboardingMaterialCost').value);
+        const stock = parseFloat(document.getElementById('onboardingMaterialStock').value);
+        const almacenId = document.getElementById('onboardingAlmacenId').value.trim().toUpperCase();
+
+        const materialData = {
+            codigo: code,
+            descripcion: desc,
+            unidad: unit,
+            costo: cost,
+            inventario: { [almacenId]: stock }
+        };
+        await setDoc(doc(db, "materials", code), materialData);
+        materials.push(materialData);
+    }
+
+
+    if (currentOnboardingStep === steps) {
+        localStorage.setItem('onboardingComplete_v1', 'true');
+        onboardingModal.hide();
+        Toastify({ text: '¡Configuración inicial completada!', backgroundColor: 'var(--success-color)', duration: 5000 }).showToast();
+        // Refresh settings page if it's the current one, to show new data
+        if (document.getElementById('settingsPage').style.display !== 'none') {
+            loadAlmacenes();
+            loadOperators();
+        }
+    } else {
+        navigateOnboarding('next');
+    }
+});
+
+document.getElementById('onboardingPrevBtn').addEventListener('click', () => {
+    navigateOnboarding('prev');
+});
+
+document.getElementById('onboardingLogoUpload').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+        const storageRef = ref(storage, 'company_logo');
+        await uploadString(storageRef, reader.result, 'data_url');
+        const logoUrl = await getDownloadURL(storageRef);
+        localStorage.setItem('companyLogo', logoUrl); // cache it
+        const preview = document.getElementById('onboardingLogoPreview');
+        preview.src = logoUrl;
+        preview.style.display = 'block';
+        document.getElementById('onboardingNoLogoText').style.display = 'none';
+        Toastify({ text: 'Logo guardado correctamente', backgroundColor: 'var(--success-color)' }).showToast();
+    }
+    catch(error) {
+        console.error("Error uploading logo:", error);
+        Toastify({ text: 'Error al guardar el logo', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
+  };
+  reader.readAsDataURL(file);
+});
+
 
 /* ----------  BACKUP / RESTORE  ---------- */
 document.getElementById('backupBtn').addEventListener('click', () => {
