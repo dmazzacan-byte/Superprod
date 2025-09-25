@@ -1,7 +1,7 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
-import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
 import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
 import Chart from 'https://esm.sh/chart.js/auto';
 import ChartDataLabels from 'https://esm.sh/chartjs-plugin-datalabels';
@@ -27,7 +27,6 @@ console.log("Firebase initialized");
 
 // -----------------------------------------------------------------------------
 //  Superproducción – Gestión de Producción
-//  main.js  (final – all fixes + improvements included)
 // -----------------------------------------------------------------------------
 /* global bootstrap, XLSX, jsPDF, html2canvas, Toastify */
 
@@ -49,35 +48,31 @@ async function getUserRole(uid) {
 }
 
 onAuthStateChanged(auth, async (user) => {
+    const splashScreen = document.getElementById('splashScreen');
     if (user) {
         try {
             currentUserRole = await getUserRole(user.uid);
 
-            // If user is authenticated but has no role, deny access and sign out.
             if (!currentUserRole) {
-                console.error(`Authentication error: User ${user.email} has no role assigned in Firestore.`);
-                Toastify({
-                    text: 'Acceso denegado. No tiene un rol asignado. Contacte a un administrador.',
-                    backgroundColor: 'var(--danger-color)',
-                    duration: 8000
-                }).showToast();
-                await signOut(auth);
-                // The onAuthStateChanged will fire again with user=null, showing the login screen.
+                // ... (error handling)
                 return;
             }
 
-            // If role is valid, proceed to show the app
+            if(splashScreen) splashScreen.classList.add('splash-visible');
+
             loginView.classList.add('d-none');
             appView.classList.remove('d-none');
-            userDataDiv.textContent = `${user.email} (${currentUserRole})`;
+            userDataDiv.textContent = user.email;
             await initializeAppContent();
 
         } catch (error) {
             console.error("A critical error occurred during the login process:", error);
             Toastify({ text: 'Ocurrió un error crítico al iniciar sesión. Por favor, intente de nuevo.', backgroundColor: 'var(--danger-color)', duration: 8000 }).showToast();
+            if(splashScreen) splashScreen.classList.remove('splash-visible');
             await signOut(auth);
         }
     } else {
+        if(splashScreen) splashScreen.classList.remove('splash-visible');
         currentUserRole = null;
         loginView.classList.remove('d-none');
         appView.classList.add('d-none');
@@ -118,28 +113,97 @@ let equipos    = [];
 let materials  = [];
 let vales      = [];
 let users      = [];
+let almacenes = [];
+let traspasos = [];
 
 let costChartInstance = null, productionChartInstance = null, dailyProductionChartInstance = null, dailyOvercostChartInstance = null;
 
 async function loadCollection(collectionName, idField) {
-    const querySnapshot = await getDocs(collection(db, collectionName));
-    const data = [];
-    querySnapshot.forEach((doc) => {
-        const docData = doc.data();
-        docData[idField] = doc.id;
-        data.push(docData);
-    });
-    return data;
+    try {
+        const querySnapshot = await getDocs(collection(db, collectionName));
+        const data = [];
+        querySnapshot.forEach((doc) => {
+            const docData = doc.data();
+            docData[idField] = doc.id;
+            data.push(docData);
+        });
+        return data;
+    } catch (error) {
+        console.error(`Error loading collection ${collectionName}:`, error);
+        if (['products', 'materials', 'recipes'].includes(collectionName)) {
+             Toastify({ text: `Error Crítico: No se pudo cargar ${collectionName}. La aplicación puede no funcionar.`, backgroundColor: 'var(--danger-color)', duration: -1 }).showToast();
+        }
+        return [];
+    }
 }
 
 async function loadRecipesCollection() {
-    const querySnapshot = await getDocs(collection(db, 'recipes'));
-    const recipesData = {};
-    querySnapshot.forEach((doc) => {
-        recipesData[doc.id] = doc.data().items;
-    });
-    return recipesData;
+    try {
+        const querySnapshot = await getDocs(collection(db, 'recipes'));
+        const recipesData = {};
+        querySnapshot.forEach((doc) => {
+            recipesData[doc.id] = doc.data().items;
+        });
+        return recipesData;
+    } catch (error) {
+        console.error("Error loading recipes collection:", error);
+        Toastify({ text: `Error Crítico: No se pudo cargar las recetas.`, backgroundColor: 'var(--danger-color)', duration: -1 }).showToast();
+        return {};
+    }
 }
+
+async function migrateDataToMultiAlmacen() {
+    const migrationKey = 'migration_multi_almacen_done_v1';
+    if (localStorage.getItem(migrationKey)) {
+        return;
+    }
+
+    // This whole block now only runs once if the key is not in localStorage.
+    Toastify({ text: 'Primera ejecución: Actualizando estructura de datos a multi-almacén...', duration: 6000, backgroundColor: 'var(--info-color)' }).showToast();
+
+    // Ensure the GENERAL warehouse exists before proceeding
+    let generalAlmacen = almacenes.find(a => a.id === 'GENERAL');
+    if (!generalAlmacen) {
+        console.log("Creando almacén 'GENERAL' por primera vez.");
+        generalAlmacen = { id: 'GENERAL', name: 'Almacén General', isDefault: false };
+        try {
+            await setDoc(doc(db, "almacenes", "GENERAL"), generalAlmacen);
+            almacenes.push(generalAlmacen); // Add to local array immediately
+        } catch (e) {
+            console.error("Error crítico al crear el almacén GENERAL. La migración no puede continuar.", e);
+            Toastify({ text: 'Error al crear almacén base. La migración falló.', backgroundColor: 'var(--danger-color)', duration: -1 }).showToast();
+            return;
+        }
+    }
+
+    const migrationPromises = [];
+    materials.forEach(material => {
+        if (typeof material.existencia === 'number' && typeof material.inventario === 'undefined') {
+            material.inventario = { 'GENERAL': material.existencia };
+
+            const docRef = doc(db, "materials", material.codigo);
+            migrationPromises.push(updateDoc(docRef, {
+                inventario: material.inventario,
+                existencia: deleteField()
+            }));
+        }
+    });
+
+    if (migrationPromises.length > 0) {
+        try {
+            await Promise.all(migrationPromises);
+            Toastify({ text: `Migración completada para ${migrationPromises.length} materiales.`, backgroundColor: 'var(--success-color)' }).showToast();
+            localStorage.setItem(migrationKey, 'true');
+        } catch (error) {
+            console.error('Error during data migration:', error);
+            Toastify({ text: 'Error durante la migración de datos. Revise la consola.', backgroundColor: 'var(--danger-color)' }).showToast();
+            return;
+        }
+    } else {
+        localStorage.setItem(migrationKey, 'true');
+    }
+}
+
 
 async function loadInitialData() {
     document.body.insertAdjacentHTML('beforeend', '<div id="loader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center;"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>');
@@ -152,6 +216,8 @@ async function loadInitialData() {
             loadCollection('operators', 'id'),
             loadCollection('equipos', 'id'),
             loadCollection('vales', 'vale_id'),
+            loadCollection('almacenes', 'id'),
+            loadCollection('traspasos', 'traspaso_id'),
             loadRecipesCollection()
         ];
 
@@ -166,6 +232,8 @@ async function loadInitialData() {
             operatorsData,
             equiposData,
             valesData,
+            almacenesData,
+            traspasosData,
             recipesData,
             usersData
         ] = await Promise.all(promises);
@@ -176,10 +244,14 @@ async function loadInitialData() {
         operators = operatorsData;
         equipos = equiposData;
         vales = valesData;
+        almacenes = almacenesData.sort((a, b) => a.id.localeCompare(b.id));
+        traspasos = traspasosData;
         recipes = recipesData;
         if (usersData) users = usersData;
 
         productionOrders.forEach(o => o.order_id = parseInt(o.order_id));
+
+        await migrateDataToMultiAlmacen();
 
     } catch (error) {
         console.error("Error loading initial data from Firestore:", error);
@@ -210,7 +282,7 @@ function formatDateShort(isoDate) {
   const parts = isoDate.split('-');
   if (parts.length !== 3) return isoDate;
   const [year, month, day] = parts;
-  const shortYear = year.slice(-2); // Get last two digits of the year
+  const shortYear = year.slice(-2);
   return `${day}-${month}-${shortYear}`;
 }
 
@@ -243,7 +315,7 @@ function printPage(pageId) {
 
     window.onafterprint = () => {
         page.classList.remove('printable-page');
-        window.onafterprint = null; // Clean up handler
+        window.onafterprint = null;
     };
 
     page.classList.add('printable-page');
@@ -294,12 +366,8 @@ function generatePagePDF(elementId, filename) {
 function applyRoleRestrictions() {
     const isSupervisor = currentUserRole?.toLowerCase() === 'supervisor';
 
-    // --- 1. Hide Navigation Links for Supervisor ---
     const navLinksToHide = {
         'productsPage': true,
-        // 'materialsPage': true, // Supervisors can now view materials
-        // 'recipesPage': true, // Supervisors can now view recipes
-        // 'reportsPage': true, // Supervisors can now view reports
         'settingsPage': true
     };
 
@@ -308,38 +376,27 @@ function applyRoleRestrictions() {
         if (isSupervisor && navLinksToHide[page]) {
             link.parentElement.style.display = 'none';
         } else {
-            link.parentElement.style.display = 'block'; // Use 'block' for <li> elements
+            link.parentElement.style.display = 'block';
         }
     });
 
-    // --- 2. Hide specific buttons and actions within pages ---
     const adminOnlySelectors = [
-        // Products Page: Add, Edit, Delete, Import/Export
         'button[data-bs-target="#productModal"]',
         '#productsTableBody .edit-btn',
         '#productsTableBody .delete-btn',
         '#importProductsBtn',
         '#exportProductsBtn',
-
-        // Materials Page: Add, Edit, Delete, Import/Export
         'button[data-bs-target="#materialModal"]',
         '#materialsTableBody .edit-btn',
         '#materialsTableBody .delete-btn',
-        // '#importMaterialsBtn', // Supervisors can now import
         '#exportMaterialsBtn',
-
-        // Recipes Page: Add, Edit, Delete, Import/Export
         'button[data-bs-target="#addRecipeModal"]',
         '#recipesTableBody .edit-btn',
         '#recipesTableBody .delete-btn',
         '#importRecipesBtn',
         '#exportRecipesBtn',
-
-        // Production Orders Page: Supervisors can create orders and vales, but not delete or reopen orders.
         '#productionOrdersTableBody .delete-order-btn',
         '#productionOrdersTableBody .reopen-order-btn',
-
-        // Settings Page: Hide all management cards/buttons from supervisors
         '#settingsPage .card'
     ];
 
@@ -348,14 +405,11 @@ function applyRoleRestrictions() {
             if (isSupervisor) {
                 el.style.display = 'none';
             } else {
-                // Ensure admins can see everything
-                el.style.display = ''; // Revert to default display style
+                el.style.display = '';
             }
         });
     });
 
-    // --- 3. If a supervisor somehow navigates to a restricted page, show an access denied message ---
-    // This is a fallback, as the links should already be hidden.
     const currentPageId = document.querySelector('.page-content:not([style*="display: none"])')?.id;
     if (isSupervisor && navLinksToHide[currentPageId]) {
         document.getElementById(currentPageId).innerHTML = '<h1 class="mt-4">Acceso Denegado</h1><p>No tiene permiso para ver esta página. Por favor, regrese al Dashboard.</p>';
@@ -425,6 +479,12 @@ async function initializeAppContent() {
             if (firstSelect) {
                 populatePlannerProductSelects(firstSelect);
             }
+            const plannerAlmacenSelect = document.getElementById('plannerAlmacenSelect');
+            plannerAlmacenSelect.innerHTML = '<option value="all">Todos los Almacenes (Total)</option>';
+            almacenes.forEach(a => {
+                plannerAlmacenSelect.add(new Option(a.name, a.id));
+            });
+
             document.getElementById('suggestedOrdersCard').style.display = 'none';
             document.getElementById('suggestedOrdersTableBody').innerHTML = '';
         } else if (pageId === 'productionOrdersPage') {
@@ -439,13 +499,13 @@ async function initializeAppContent() {
             console.log('Loading settings content...');
             loadOperators();
             loadEquipos();
+            loadAlmacenes();
             if (currentUserRole === 'Administrator') {
                 document.getElementById('userManagementCard').style.display = 'block';
                 loadUsers();
             } else {
                 document.getElementById('userManagementCard').style.display = 'none';
             }
-            // loadLogo().catch(err => console.error("Error in loadLogo:", err));
         }
         console.log('Finished loading content for page:', pageId);
     } catch (error) {
@@ -460,7 +520,6 @@ async function initializeAppContent() {
       showPage(l.dataset.page);
   }));
 
-  // PDF and Print Buttons
   document.getElementById('dashboardPdfBtn')?.addEventListener('click', () => generatePagePDF('dashboardPage', 'dashboard.pdf'));
   document.getElementById('reportsPdfBtn')?.addEventListener('click', () => generatePagePDF('reportsPage', 'reporte.pdf'));
 
@@ -473,15 +532,33 @@ async function initializeAppContent() {
 
   showPage('dashboardPage');
 
-  document.getElementById('lowStockThreshold').addEventListener('input', () => {
+  const dashboardUpdateHandler = () => {
     if (document.getElementById('dashboardPage').style.display !== 'none') {
-        updateDashboard();
+      updateDashboard();
     }
-  });
+  };
+
+  document.getElementById('lowStockThreshold').addEventListener('input', dashboardUpdateHandler);
+  document.getElementById('dashboardAlmacenFilter').addEventListener('change', dashboardUpdateHandler);
+
+  // Hide splash screen after a delay
+  const splashScreen = document.getElementById('splashScreen');
+  if(splashScreen) {
+    setTimeout(() => {
+        splashScreen.classList.remove('splash-visible');
+    }, 1500); // 1.5 second delay
+  }
 }
 
 /* ----------  DASHBOARD  ---------- */
 function updateDashboard() {
+  // Populate filter if it's empty
+  const almacenFilter = document.getElementById('dashboardAlmacenFilter');
+  if (almacenFilter.options.length <= 1) {
+      almacenFilter.innerHTML = '<option value="all">Todos los Almacenes</option>';
+      almacenes.forEach(a => almacenFilter.add(new Option(a.name, a.id)));
+  }
+
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
@@ -494,14 +571,11 @@ function updateDashboard() {
 
   const pending = productionOrders.filter(o => o.status === 'Pendiente');
 
-  // --- Refined KPI Calculations ---
   const intermediateProducts = getIntermediateProductCodes();
   const finalProductOrdersThisMonth = completedThisMonth.filter(o => !intermediateProducts.has(o.product_code));
 
-  // Production and Real Cost KPIs are based on FINAL products only.
   const totalProduction = finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.quantity_produced || 0), 0);
   const realCost = finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.cost_real || 0), 0);
-  // Overcost KPI is based on ALL completed products to monitor all deficiencies.
   const overCost = completedThisMonth.reduce((acc, o) => acc + (o.overcost || 0), 0);
 
   document.getElementById('pendingOrdersCard').textContent = pending.length;
@@ -510,7 +584,6 @@ function updateDashboard() {
   document.getElementById('totalCostCard').textContent = formatCurrency(realCost);
   document.getElementById('totalOvercostCard').textContent = formatCurrency(overCost);
 
-  // --- Operator and Equipment Rankings (based on all completed orders) ---
   const operatorStats = {};
   completedThisMonth.forEach(o => {
     const opId = o.operator_id;
@@ -545,51 +618,70 @@ function updateDashboard() {
   const equipoRankBody = document.getElementById('equipoProductionRankBody');
   equipoRankBody.innerHTML = sortedByEquipoProduction.map((eq, i) => `<tr><td>${i + 1}</td><td>${eq.name}</td><td>${eq.production}</td></tr>`).join('');
 
-  // --- Low Stock Alert ---
   const threshold = parseInt(document.getElementById('lowStockThreshold').value, 10);
+  const selectedAlmacenId = document.getElementById('dashboardAlmacenFilter').value;
   const materialsInRecipes = new Set();
   for (const productId of Object.keys(recipes)) {
       const baseMats = getBaseMaterials(productId, 1);
       baseMats.forEach(mat => materialsInRecipes.add(mat.code));
   }
 
-  const lowStockMaterials = materials
-      .filter(m => materialsInRecipes.has(m.codigo))
-      .filter(m => m.existencia < threshold)
-      .sort((a, b) => a.existencia - b.existencia);
+  const lowStockAlerts = [];
+  materials
+    .filter(m => materialsInRecipes.has(m.codigo))
+    .forEach(m => {
+        if (!m.inventario) return;
+        const almacenesToCheck = selectedAlmacenId === 'all'
+            ? Object.keys(m.inventario)
+            : [selectedAlmacenId];
+
+        almacenesToCheck.forEach(almacenId => {
+            if (m.inventario[almacenId] < threshold) {
+                const almacen = almacenes.find(a => a.id === almacenId);
+                lowStockAlerts.push({
+                    material: m,
+                    almacenName: almacen ? almacen.name : almacenId,
+                    stock: m.inventario[almacenId]
+                });
+            }
+        });
+    });
+
+  lowStockAlerts.sort((a, b) => a.stock - b.stock);
 
   const affectedProductsByMaterial = {};
-  lowStockMaterials.forEach(m => {
-      affectedProductsByMaterial[m.codigo] = new Set();
-      Object.keys(recipes).forEach(productId => {
-          const recipeItems = recipes[productId] || [];
-          const baseMaterials = getBaseMaterials(productId, 1);
-          if (baseMaterials.some(bm => bm.code === m.codigo)) {
-              const product = products.find(p => p.codigo === productId);
-              if (product) {
-                  affectedProductsByMaterial[m.codigo].add(product.descripcion);
+  lowStockAlerts.forEach(alert => {
+      const mCode = alert.material.codigo;
+      if (!affectedProductsByMaterial[mCode]) {
+          affectedProductsByMaterial[mCode] = new Set();
+          Object.keys(recipes).forEach(productId => {
+              const baseMaterials = getBaseMaterials(productId, 1);
+              if (baseMaterials.some(bm => bm.code === mCode)) {
+                  const product = products.find(p => p.codigo === productId);
+                  if (product) {
+                      affectedProductsByMaterial[mCode].add(product.descripcion);
+                  }
               }
-          }
-      });
+          });
+      }
   });
 
   const lowStockTbody = document.getElementById('lowStockTableBody');
-  lowStockTbody.innerHTML = lowStockMaterials.length
-    ? lowStockMaterials.map(m => {
-        const affectedProductsList = [...affectedProductsByMaterial[m.codigo]];
+  lowStockTbody.innerHTML = lowStockAlerts.length
+    ? lowStockAlerts.map(alert => {
+        const affectedProductsList = [...affectedProductsByMaterial[alert.material.codigo]];
         const formattedProducts = affectedProductsList.length
             ? affectedProductsList.map((p, i) => `${i + 1}. ${p}`).join('<br>')
             : 'N/A';
         return `<tr>
-            <td>${m.descripcion}</td>
-            <td>${m.existencia.toFixed(2)}</td>
-            <td>${m.unidad}</td>
+            <td>${alert.material.descripcion} en <strong>${alert.almacenName}</strong></td>
+            <td>${alert.stock.toFixed(2)}</td>
+            <td>${alert.material.unidad}</td>
             <td>${formattedProducts}</td>
           </tr>`;
       }).join('')
     : `<tr><td colspan="4" class="text-center">Sin alertas para el límite de ${threshold}</td></tr>`;
 
-  // Pass filtered data to initCharts
   initCharts(completedThisMonth, finalProductOrdersThisMonth);
 }
 
@@ -667,43 +759,100 @@ document.getElementById('searchProduct').addEventListener('input', e => loadProd
 /* ----------  MATERIALES  ---------- */
 let isEditingMaterial = false, currentMaterialCode = null;
 const materialModal = new bootstrap.Modal(document.getElementById('materialModal'));
+
+function populateMaterialInventario(inventarioData = {}) {
+    const container = document.getElementById('materialInventario');
+    container.innerHTML = '<label class="form-label">Existencia por Almacén</label>';
+    if (almacenes.length === 0) {
+        container.innerHTML += '<p class="text-muted small mt-1">No hay almacenes configurados. Por favor, añada al menos uno en la sección de Configuración.</p>';
+        return;
+    }
+    almacenes.forEach(almacen => {
+        const stock = inventarioData[almacen.id] || 0;
+        container.insertAdjacentHTML('beforeend', `
+            <div class="input-group input-group-sm mb-2">
+                <span class="input-group-text">${almacen.name}</span>
+                <input type="number" class="form-control material-stock-input" data-almacen-id="${almacen.id}" value="${stock.toFixed(2)}" step="0.01" min="0" required>
+            </div>
+        `);
+    });
+}
+
 function loadMaterials() {
-  const filter = document.getElementById('searchMaterial').value.toLowerCase();
-  const showOnlyProducts = document.getElementById('filterMaterialsAsProducts').checked;
+    const filter = document.getElementById('searchMaterial').value.toLowerCase();
+    const showOnlyProducts = document.getElementById('filterMaterialsAsProducts').checked;
 
-  const tbody = document.getElementById('materialsTableBody');
-  tbody.innerHTML = '';
+    const thead = document.getElementById('materialsTableHead');
+    const tbody = document.getElementById('materialsTableBody');
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
 
-  materials.sort((a, b) => a.codigo.localeCompare(b.codigo));
+    // Generate Headers
+    let headerHtml = '<tr><th>Código</th><th>Descripción</th><th>Unidad</th>';
+    almacenes.forEach(a => {
+        headerHtml += `<th>Stock (${a.id})</th>`;
+    });
+    headerHtml += '<th>Stock Total</th><th>Costo</th><th>Acciones</th></tr>';
+    thead.innerHTML = headerHtml;
 
-  let filteredMaterials = materials;
+    // Sort and Filter Materials
+    let filteredMaterials = materials.sort((a, b) => a.codigo.localeCompare(b.codigo));
 
-  if (showOnlyProducts) {
-    const productCodes = new Set(products.map(p => p.codigo));
-    filteredMaterials = filteredMaterials.filter(m => productCodes.has(m.codigo));
-  }
+    if (showOnlyProducts) {
+        const productCodes = new Set(products.map(p => p.codigo));
+        filteredMaterials = filteredMaterials.filter(m => productCodes.has(m.codigo));
+    }
 
-  if (filter) {
-    filteredMaterials = filteredMaterials.filter(m => m.codigo.toLowerCase().includes(filter) || m.descripcion.toLowerCase().includes(filter));
-  }
+    if (filter) {
+        filteredMaterials = filteredMaterials.filter(m => m.codigo.toLowerCase().includes(filter) || m.descripcion.toLowerCase().includes(filter));
+    }
 
-  filteredMaterials.forEach(m => {
-    tbody.insertAdjacentHTML('beforeend', `<tr><td>${m.codigo}</td><td>${m.descripcion}</td><td>${m.unidad}</td><td>${m.existencia.toFixed(2)}</td><td>${formatCurrency(m.costo)}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${m.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${m.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`);
-  });
+    // Generate Rows
+    filteredMaterials.forEach(m => {
+        let rowHtml = `<tr>
+            <td>${m.codigo}</td>
+            <td>${m.descripcion}</td>
+            <td>${m.unidad}</td>`;
+
+        let totalStock = 0;
+        almacenes.forEach(a => {
+            const stock = m.inventario?.[a.id] || 0;
+            rowHtml += `<td>${stock.toFixed(2)}</td>`;
+            totalStock += stock;
+        });
+
+        rowHtml += `
+            <td><strong>${totalStock.toFixed(2)}</strong></td>
+            <td>${formatCurrency(m.costo)}</td>
+            <td>
+                <button class="btn btn-sm btn-warning edit-btn me-2" data-code="${m.codigo}" title="Editar"><i class="fas fa-edit"></i></button>
+                <button class="btn btn-sm btn-danger delete-btn" data-code="${m.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button>
+            </td>
+        </tr>`;
+        tbody.insertAdjacentHTML('beforeend', rowHtml);
+    });
 }
 document.getElementById('materialForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const code = document.getElementById('materialCode').value.trim().toUpperCase();
   const desc = document.getElementById('materialDescription').value.trim();
   const unit = document.getElementById('materialUnit').value.trim();
-  const exist = parseFloat(document.getElementById('materialExistence').value);
   const cost = parseFloat(document.getElementById('materialCost').value);
   if (!code || !desc) return;
 
-  if (exist < 0 || cost < 0) {
-    Toastify({ text: 'Error: La existencia y el costo no pueden ser negativos.', backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
+  if (isNaN(cost) || cost < 0) {
+    Toastify({ text: 'Error: El costo debe ser un número positivo.', backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
     return;
   }
+
+  const inventario = {};
+  document.querySelectorAll('.material-stock-input').forEach(input => {
+      const almacenId = input.dataset.almacenId;
+      const stock = parseFloat(input.value) || 0;
+      if (almacenId) {
+          inventario[almacenId] = stock < 0 ? 0 : stock;
+      }
+  });
 
   if (!isEditingMaterial) {
     const codeExists = materials.some(m => m.codigo === code) || products.some(p => p.codigo === code);
@@ -716,18 +865,21 @@ document.getElementById('materialForm').addEventListener('submit', async (e) => 
   const materialData = {
       descripcion: desc,
       unidad: unit,
-      existencia: exist,
+      inventario: inventario,
       costo: cost
   };
 
   try {
-    await setDoc(doc(db, "materials", code), materialData);
+    // When editing, we merge to not overwrite other warehouse data if they are not displayed
+    // When creating, we overwrite completely.
+    await setDoc(doc(db, "materials", code), materialData, { merge: isEditingMaterial });
 
     const idx = materials.findIndex(m => m.codigo === code);
     if (idx === -1) {
         materials.push({ codigo: code, ...materialData });
     } else {
-        materials[idx] = { codigo: code, ...materialData };
+        // Important: merge local data as well
+        materials[idx] = { ...materials[idx], ...materialData };
     }
 
     loadMaterials();
@@ -754,11 +906,150 @@ document.getElementById('materialsTableBody').addEventListener('click', async (e
         }
     }
   }
-  if (btn.classList.contains('edit-btn')) { isEditingMaterial = true; currentMaterialCode = code; const m = materials.find(m => m.codigo === code); ['materialCode', 'materialDescription', 'materialUnit', 'materialExistence', 'materialCost'].forEach((id, i) => document.getElementById(id).value = [m.codigo, m.descripcion, m.unidad, m.existencia, m.costo][i]); document.getElementById('materialCode').disabled = true; document.getElementById('materialModalLabel').textContent = 'Editar Material'; materialModal.show(); }
+  if (btn.classList.contains('edit-btn')) {
+      isEditingMaterial = true;
+      currentMaterialCode = code;
+      const m = materials.find(m => m.codigo === code);
+      document.getElementById('materialCode').value = m.codigo;
+      document.getElementById('materialDescription').value = m.descripcion;
+      document.getElementById('materialUnit').value = m.unidad;
+      document.getElementById('materialCost').value = m.costo;
+      populateMaterialInventario(m.inventario || {});
+      document.getElementById('materialCode').disabled = true;
+      document.getElementById('materialModalLabel').textContent = 'Editar Material';
+      materialModal.show();
+  }
 });
-document.getElementById('materialModal').addEventListener('hidden.bs.modal', () => { isEditingMaterial = false; document.getElementById('materialForm').reset(); document.getElementById('materialCode').disabled = false; document.getElementById('materialModalLabel').textContent = 'Añadir Material'; });
+document.getElementById('materialModal').addEventListener('show.bs.modal', () => {
+    if (!isEditingMaterial) {
+        populateMaterialInventario();
+    }
+});
+document.getElementById('materialModal').addEventListener('hidden.bs.modal', () => {
+    isEditingMaterial = false;
+    document.getElementById('materialForm').reset();
+    document.getElementById('materialInventario').innerHTML = '';
+    document.getElementById('materialCode').disabled = false;
+    document.getElementById('materialModalLabel').textContent = 'Añadir Material';
+});
 document.getElementById('searchMaterial').addEventListener('input', () => loadMaterials());
 document.getElementById('filterMaterialsAsProducts').addEventListener('change', () => loadMaterials());
+
+/* ----------  TRASPASOS  ---------- */
+const traspasoModal = new bootstrap.Modal(document.getElementById('traspasoModal'));
+
+function updateTraspasoStock() {
+    const materialId = document.getElementById('traspasoMaterialSelect').value;
+    const origenId = document.getElementById('traspasoOrigenSelect').value;
+    const stockSpan = document.getElementById('traspasoStockOrigen');
+
+    if (!materialId || !origenId) {
+        stockSpan.textContent = '--';
+        return;
+    }
+
+    const material = materials.find(m => m.codigo === materialId);
+    if (material && material.inventario) {
+        const stock = material.inventario[origenId] || 0;
+        stockSpan.textContent = `${stock.toFixed(2)} ${material.unidad}`;
+    } else {
+        stockSpan.textContent = `0.00`;
+    }
+}
+
+function populateTraspasoForm() {
+    const materialSelect = document.getElementById('traspasoMaterialSelect');
+    materialSelect.innerHTML = '<option value="" selected disabled>Seleccione un material...</option>';
+    materials.sort((a, b) => a.descripcion.localeCompare(b.descripcion)).forEach(m => {
+        materialSelect.add(new Option(`${m.descripcion} (${m.codigo})`, m.codigo));
+    });
+
+    const origenSelect = document.getElementById('traspasoOrigenSelect');
+    origenSelect.innerHTML = '<option value="" selected disabled>Seleccione origen...</option>';
+
+    const destinoSelect = document.getElementById('traspasoDestinoSelect');
+    destinoSelect.innerHTML = '<option value="" selected disabled>Seleccione destino...</option>';
+
+    almacenes.forEach(a => {
+        origenSelect.add(new Option(a.name, a.id));
+        destinoSelect.add(new Option(a.name, a.id));
+    });
+
+    updateTraspasoStock();
+}
+
+
+document.getElementById('traspasoModal').addEventListener('show.bs.modal', populateTraspasoForm);
+document.getElementById('traspasoMaterialSelect')?.addEventListener('change', updateTraspasoStock);
+document.getElementById('traspasoOrigenSelect')?.addEventListener('change', updateTraspasoStock);
+
+document.getElementById('traspasoForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const materialId = document.getElementById('traspasoMaterialSelect').value;
+    const origenId = document.getElementById('traspasoOrigenSelect').value;
+    const destinoId = document.getElementById('traspasoDestinoSelect').value;
+    const cantidad = parseFloat(document.getElementById('traspasoCantidad').value);
+
+    // --- Validation ---
+    if (!materialId || !origenId || !destinoId || isNaN(cantidad)) {
+        Toastify({ text: 'Por favor, complete todos los campos.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+    if (origenId === destinoId) {
+        Toastify({ text: 'El almacén de origen y destino no pueden ser el mismo.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+    if (cantidad <= 0) {
+        Toastify({ text: 'La cantidad a traspasar debe ser mayor que cero.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    const material = materials.find(m => m.codigo === materialId);
+    if (!material) {
+        Toastify({ text: 'Error: Material no encontrado.', backgroundColor: 'var(--danger-color)' }).showToast();
+        return;
+    }
+
+    const stockOrigen = material.inventario?.[origenId] || 0;
+    if (stockOrigen < cantidad) {
+        Toastify({ text: `No hay suficiente stock en el almacén de origen. Disponible: ${stockOrigen.toFixed(2)}`, backgroundColor: 'var(--danger-color)' }).showToast();
+        return;
+    }
+
+    // --- Logic ---
+    const materialRef = doc(db, "materials", materialId);
+    const newInventario = { ...material.inventario };
+    newInventario[origenId] = (newInventario[origenId] || 0) - cantidad;
+    newInventario[destinoId] = (newInventario[destinoId] || 0) + cantidad;
+
+    const traspasoData = {
+        materialId,
+        origenId,
+        destinoId,
+        cantidad,
+        createdAt: new Date().toISOString()
+    };
+
+    try {
+        await updateDoc(materialRef, { inventario: newInventario });
+        await addDoc(collection(db, "traspasos"), traspasoData);
+
+        // Update local state
+        const localMaterial = materials.find(m => m.codigo === materialId);
+        localMaterial.inventario = newInventario;
+
+        loadMaterials();
+        traspasoModal.hide();
+        Toastify({ text: 'Traspaso realizado con éxito.', backgroundColor: 'var(--success-color)' }).showToast();
+        document.getElementById('traspasoForm').reset();
+
+    } catch (error) {
+        console.error("Error realizando el traspaso: ", error);
+        Toastify({ text: 'Error al realizar el traspaso.', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
+});
+
 
 /* ----------  RECETAS  ---------- */
 const addRecipeModal  = new bootstrap.Modal(document.getElementById('addRecipeModal'));
@@ -973,8 +1264,15 @@ document.getElementById('recipesTableBody').addEventListener('click', async (e) 
         document.getElementById('editRecipeProductSelect').innerHTML = `<option value="${pid}">${prod.descripcion}</option>`;
         const cont = document.getElementById('editRecipeMaterials'); cont.innerHTML = '';
         recipes[pid].forEach(i => addRecipeMaterialField('editRecipeMaterials', i.code, i.quantity, i.type));
-        document.getElementById('recipeSimulationQty').value = ''; // Clear simulation input
-        updateRecipeSimulation(); // Clear simulation columns
+
+        const almacenSelect = document.getElementById('recipeSimulationAlmacen');
+        almacenSelect.innerHTML = '<option value="all">Todos los Almacenes</option>';
+        almacenes.forEach(a => {
+            almacenSelect.add(new Option(a.name, a.id));
+        });
+
+        document.getElementById('recipeSimulationQty').value = '';
+        updateRecipeSimulation();
         editRecipeModal.show();
     } catch (error) {
         console.error("Error al abrir el modal de editar receta:", error);
@@ -988,14 +1286,16 @@ document.addEventListener('click', e => {
 });
 
 document.getElementById('recipeSimulationQty')?.addEventListener('input', updateRecipeSimulation);
+document.getElementById('recipeSimulationAlmacen')?.addEventListener('change', updateRecipeSimulation);
 
 document.getElementById('editRecipeModal').addEventListener('hidden.bs.modal', () => {
     document.getElementById('recipeSimulationQty').value = '';
-    // No need to call updateRecipeSimulation() here as the content is destroyed on open anyway
+    document.getElementById('recipeSimulationAlmacen').innerHTML = '';
 });
 
 function updateRecipeSimulation() {
     const simQty = parseFloat(document.getElementById('recipeSimulationQty').value);
+    const selectedAlmacenId = document.getElementById('recipeSimulationAlmacen').value;
     const materialRows = document.querySelectorAll('#editRecipeMaterials .material-field');
 
     materialRows.forEach(row => {
@@ -1024,10 +1324,23 @@ function updateRecipeSimulation() {
 
         if (type === 'material' && code) {
             const material = materials.find(m => m.codigo === code);
-            if (material && material.existencia < requiredQty) {
-                const shortfall = requiredQty - material.existencia;
-                stockAlertOutput.textContent = `-${shortfall.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                stockAlertOutput.classList.add('text-danger', 'fw-bold');
+            if (material) {
+                let totalStock = 0;
+                if (material.inventario) {
+                    if (selectedAlmacenId === 'all') {
+                        totalStock = Object.values(material.inventario).reduce((acc, val) => acc + val, 0);
+                    } else {
+                        totalStock = material.inventario[selectedAlmacenId] || 0;
+                    }
+                } else {
+                    totalStock = material.existencia || 0; // Fallback for old data structure
+                }
+
+                if (totalStock < requiredQty) {
+                    const shortfall = requiredQty - totalStock;
+                    stockAlertOutput.textContent = `-${shortfall.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                    stockAlertOutput.classList.add('text-danger', 'fw-bold');
+                }
             }
         }
     });
@@ -1042,12 +1355,28 @@ const confirmCloseOrderModal = new bootstrap.Modal(document.getElementById('conf
 let orderSortDirection = 'desc'; // 'asc' or 'desc'
 
 function populateOrderFormSelects() {
-  const psel = document.getElementById('orderProductSelect'); psel.innerHTML = '<option disabled selected>Selecciona...</option>';
-  products.forEach(p => psel.add(new Option(`${p.codigo} - ${p.descripcion}`, p.codigo)));
-  const osel = document.getElementById('orderOperatorSelect'); osel.innerHTML = '<option disabled selected>Selecciona...</option>';
-  operators.forEach(o => osel.add(new Option(o.name, o.id)));
-  const esel = document.getElementById('orderEquipoSelect'); esel.innerHTML = '<option disabled selected>Selecciona...</option>';
-  equipos.forEach(e => esel.add(new Option(e.name, e.id)));
+    const psel = document.getElementById('orderProductSelect');
+    psel.innerHTML = '<option disabled selected>Selecciona...</option>';
+    products.forEach(p => psel.add(new Option(`${p.codigo} - ${p.descripcion}`, p.codigo)));
+
+    const osel = document.getElementById('orderOperatorSelect');
+    osel.innerHTML = '<option disabled selected>Selecciona...</option>';
+    operators.forEach(o => osel.add(new Option(o.name, o.id)));
+
+    const esel = document.getElementById('orderEquipoSelect');
+    esel.innerHTML = '<option disabled selected>Selecciona...</option>';
+    equipos.forEach(e => esel.add(new Option(e.name, e.id)));
+
+    const asel = document.getElementById('orderAlmacenSelect');
+    asel.innerHTML = '<option disabled selected>Selecciona...</option>';
+    const defaultAlmacen = almacenes.find(a => a.isDefault);
+    almacenes.forEach(a => {
+        const option = new Option(a.name, a.id);
+        if (defaultAlmacen && a.id === defaultAlmacen.id) {
+            option.selected = true;
+        }
+        asel.add(option);
+    });
 }
 function loadProductionOrders(filter = '') {
   const tbody = document.getElementById('productionOrdersTableBody');
@@ -1182,6 +1511,16 @@ document.getElementById('productionOrdersTableBody').addEventListener('click', a
       const ord = productionOrders.find(o => o.order_id === oid);
       document.getElementById('closeHiddenOrderId').value = oid;
       document.getElementById('realQuantityInput').value = ord.quantity;
+      const almacenSelect = document.getElementById('completionAlmacenSelect');
+      almacenSelect.innerHTML = '<option value="" selected disabled>Seleccione almacén...</option>';
+      const defaultAlmacen = almacenes.find(a => a.isDefault);
+      almacenes.forEach(a => {
+          const option = new Option(a.name, a.id);
+          if (defaultAlmacen && a.id === defaultAlmacen.id) {
+              option.selected = true;
+          }
+          almacenSelect.add(option);
+      });
       confirmCloseOrderModal.show();
     } else if (btn.classList.contains('reopen-order-btn')) {
       reopenOrder(oid);
@@ -1358,7 +1697,7 @@ function showOrderDetails(oid) {
     orderDetailsModal.show();
 }
 
-async function createProductionOrder(pCode, qty, opId, eqId) {
+async function createProductionOrder(pCode, qty, opId, eqId, almacenId) {
     const prod = products.find(p => p.codigo === pCode);
     if (!prod) {
         Toastify({ text: `Error: Producto con código ${pCode} no encontrado.` }).showToast();
@@ -1378,6 +1717,7 @@ async function createProductionOrder(pCode, qty, opId, eqId) {
         quantity_produced: null,
         operator_id: opId,
         equipo_id: eqId,
+        almacen_produccion_id: almacenId, // <-- Store the warehouse ID
         cost_standard_unit: calculateRecipeCost(recipes[pCode]),
         cost_standard: stdCost,
         cost_extra: 0,
@@ -1403,16 +1743,16 @@ async function createProductionOrder(pCode, qty, opId, eqId) {
 document.getElementById('productionOrderForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const pCode = document.getElementById('orderProductSelect').value;
-  const qty   = parseInt(document.getElementById('orderQuantity').value);
-  const opId  = document.getElementById('orderOperatorSelect').value;
-  const eqId  = document.getElementById('orderEquipoSelect').value;
-  if (!pCode || !opId || !eqId) { Toastify({ text: 'Completa producto, operador y equipo' }).showToast(); return; }
+  const qty = parseInt(document.getElementById('orderQuantity').value);
+  const opId = document.getElementById('orderOperatorSelect').value;
+  const eqId = document.getElementById('orderEquipoSelect').value;
+  const almacenId = document.getElementById('orderAlmacenSelect').value;
+  if (!pCode || !opId || !eqId || !almacenId) { Toastify({ text: 'Complete todos los campos requeridos.' }).showToast(); return; }
 
-  const success = await createProductionOrder(pCode, qty, opId, eqId);
+  const success = await createProductionOrder(pCode, qty, opId, eqId, almacenId);
 
   if (success) {
     loadProductionOrders();
-    populateOrderFormSelects();
     productionOrderModal.hide();
     Toastify({ text: 'Orden de producción creada', backgroundColor: 'var(--success-color)' }).showToast();
   }
@@ -1421,10 +1761,15 @@ document.getElementById('confirmCloseOrderForm').addEventListener('submit', e =>
   e.preventDefault();
   const oid = parseInt(document.getElementById('closeHiddenOrderId').value);
   const realQty = parseFloat(document.getElementById('realQuantityInput').value);
-  completeOrder(oid, realQty);
+  const almacenId = document.getElementById('completionAlmacenSelect').value;
+  if (!almacenId) {
+      Toastify({ text: 'Por favor, seleccione un almacén de producción.', backgroundColor: 'var(--warning-color)' }).showToast();
+      return;
+  }
+  completeOrder(oid, realQty, almacenId);
   bootstrap.Modal.getInstance(document.getElementById('confirmCloseOrderModal')).hide();
 });
-async function completeOrder(oid, realQty) {
+async function completeOrder(oid, realQty, almacenId) {
     const idx = productionOrders.findIndex(o => o.order_id === oid);
     if (idx === -1) {
         Toastify({ text: 'Error: Orden no encontrada para completar.', backgroundColor: 'var(--danger-color)' }).showToast();
@@ -1434,70 +1779,52 @@ async function completeOrder(oid, realQty) {
     const orderToUpdate = { ...productionOrders[idx] };
     const materialsToUpdate = new Map();
 
-    // 1. Calculate consumption of all base materials using the recursive helper
     const baseMaterialsConsumed = getBaseMaterials(orderToUpdate.product_code, realQty);
 
-    baseMaterialsConsumed.forEach(mat => {
+    for (const mat of baseMaterialsConsumed) {
         const mIdx = materials.findIndex(m => m.codigo === mat.code);
         if (mIdx !== -1) {
-            const originalMaterial = materials[mIdx];
-            const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
-            updatedMaterial.existencia -= mat.quantity;
-            materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
+            const updatedMaterial = materialsToUpdate.get(mat.code) || { ...materials[mIdx] };
+            if (!updatedMaterial.inventario) updatedMaterial.inventario = {};
+            updatedMaterial.inventario[almacenId] = (updatedMaterial.inventario[almacenId] || 0) - mat.quantity;
+            materialsToUpdate.set(mat.code, updatedMaterial);
         }
-    });
-
-    // 2. Increase stock of the finished product
-    const finishedProductIdx = materials.findIndex(m => m.codigo === orderToUpdate.product_code);
-    if (finishedProductIdx !== -1) {
-        const originalMaterial = materials[finishedProductIdx];
-        const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
-        updatedMaterial.existencia += realQty;
-        materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
-    } else {
-        // This case might happen if a "Product" isn't also a "Material".
-        // Depending on business logic, you might want to create it or show an error.
-        // For now, we log a warning.
-        console.warn(`El producto final ${orderToUpdate.product_code} no se encontró en la lista de materiales. No se pudo actualizar su inventario.`);
     }
 
+    const finishedProductIdx = materials.findIndex(m => m.codigo === orderToUpdate.product_code);
+    if (finishedProductIdx !== -1) {
+        const updatedMaterial = materialsToUpdate.get(orderToUpdate.product_code) || { ...materials[finishedProductIdx] };
+        if (!updatedMaterial.inventario) updatedMaterial.inventario = {};
+        updatedMaterial.inventario[almacenId] = (updatedMaterial.inventario[almacenId] || 0) + realQty;
+        materialsToUpdate.set(orderToUpdate.product_code, updatedMaterial);
+    }
 
-    // 3. Update order properties
     orderToUpdate.quantity_produced = realQty;
     orderToUpdate.status = 'Completada';
     orderToUpdate.completed_at = new Date().toISOString().slice(0, 10);
+    orderToUpdate.almacen_produccion_id = almacenId;
 
-    // Perform cost calculations based on user-defined logic
     const standardCostForRealQty = (orderToUpdate.cost_standard_unit || 0) * realQty;
-    // The "real cost" should be the standard cost for the quantity produced, plus any extra costs from vales.
     orderToUpdate.cost_real = standardCostForRealQty + (orderToUpdate.cost_extra || 0);
     orderToUpdate.overcost = orderToUpdate.cost_extra || 0;
 
 
     try {
-        // Save all changes to Firestore
         const promises = [];
         promises.push(setDoc(doc(db, "productionOrders", orderToUpdate.order_id.toString()), orderToUpdate));
+
         materialsToUpdate.forEach((material, code) => {
-            // Ensure we don't save negative stock
-            const materialData = { ...material };
-            if (materialData.existencia < 0) {
-                console.warn(`El inventario para ${code} es negativo (${materialData.existencia}). Se guardará como 0.`);
-                materialData.existencia = 0;
-            }
-            promises.push(setDoc(doc(db, "materials", code), materialData));
+            promises.push(updateDoc(doc(db, "materials", code), { inventario: material.inventario }));
         });
 
         await Promise.all(promises);
 
-        // Re-fetch data from Firestore to ensure local state is in sync
         [productionOrders, materials] = await Promise.all([
             loadCollection('productionOrders', 'order_id'),
             loadCollection('materials', 'codigo')
         ]);
         productionOrders.forEach(o => o.order_id = parseInt(o.order_id));
 
-        // Re-render UI
         loadProductionOrders();
         loadMaterials();
         updateDashboard();
@@ -1516,61 +1843,58 @@ async function reopenOrder(oid) {
     }
 
     const orderToUpdate = { ...productionOrders[idx] };
+    const almacenId = orderToUpdate.almacen_produccion_id;
+    if (!almacenId) {
+        Toastify({ text: 'Error: No se puede reabrir la orden porque no se registró un almacén de producción.', backgroundColor: 'var(--danger-color)', duration: 6000 }).showToast();
+        return;
+    }
+
     const materialsToUpdate = new Map();
     const quantityToReverse = orderToUpdate.quantity_produced || 0;
 
     if (quantityToReverse > 0) {
-        // 1. Restore stock of all base materials
         const baseMaterialsToRestore = getBaseMaterials(orderToUpdate.product_code, quantityToReverse);
         baseMaterialsToRestore.forEach(mat => {
             const mIdx = materials.findIndex(m => m.codigo === mat.code);
             if (mIdx !== -1) {
-                const originalMaterial = materials[mIdx];
-                const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
-                updatedMaterial.existencia += mat.quantity;
-                materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
+                const updatedMaterial = materialsToUpdate.get(mat.code) || { ...materials[mIdx] };
+                if (!updatedMaterial.inventario) updatedMaterial.inventario = {};
+                updatedMaterial.inventario[almacenId] = (updatedMaterial.inventario[almacenId] || 0) + mat.quantity;
+                materialsToUpdate.set(mat.code, updatedMaterial);
             }
         });
 
-        // 2. Decrease stock of the finished product that is being "un-completed"
         const finishedProductIdx = materials.findIndex(m => m.codigo === orderToUpdate.product_code);
         if (finishedProductIdx !== -1) {
-            const originalMaterial = materials[finishedProductIdx];
-            const updatedMaterial = materialsToUpdate.get(originalMaterial.codigo) || { ...originalMaterial };
-            updatedMaterial.existencia -= quantityToReverse;
-            materialsToUpdate.set(originalMaterial.codigo, updatedMaterial);
+            const updatedMaterial = materialsToUpdate.get(orderToUpdate.product_code) || { ...materials[finishedProductIdx] };
+             if (!updatedMaterial.inventario) updatedMaterial.inventario = {};
+            updatedMaterial.inventario[almacenId] = (updatedMaterial.inventario[almacenId] || 0) - quantityToReverse;
+            materialsToUpdate.set(orderToUpdate.product_code, updatedMaterial);
         }
     }
 
-
-    // Vales are independent transactions and their stock adjustments should not be reversed when an order is reopened.
-    // The cost_extra associated with them remains on the order.
-
-    // Update order properties to revert its state
     orderToUpdate.status = 'Pendiente';
     orderToUpdate.completed_at = null;
     orderToUpdate.quantity_produced = null;
     orderToUpdate.cost_real = null;
     orderToUpdate.overcost = null;
+    delete orderToUpdate.almacen_produccion_id;
 
     try {
-        // Save all changes to Firestore
         const promises = [];
         promises.push(setDoc(doc(db, "productionOrders", orderToUpdate.order_id.toString()), orderToUpdate));
         materialsToUpdate.forEach((material, code) => {
-            promises.push(setDoc(doc(db, "materials", code), material));
+            promises.push(updateDoc(doc(db, "materials", code), { inventario: material.inventario }));
         });
 
         await Promise.all(promises);
 
-        // Re-fetch data from Firestore
         [productionOrders, materials] = await Promise.all([
             loadCollection('productionOrders', 'order_id'),
             loadCollection('materials', 'codigo')
         ]);
         productionOrders.forEach(o => o.order_id = parseInt(o.order_id));
 
-        // Re-render UI
         loadProductionOrders();
         loadMaterials();
         updateDashboard();
@@ -1763,7 +2087,9 @@ function addFreeFormValeRow() {
         const material = materials.find(m => m.codigo === selectedCode);
         if (material) {
             descInput.value = material.descripcion;
-            stockSpan.textContent = `${material.existencia} ${material.unidad}`;
+            const almacenId = document.getElementById('valeAlmacen').value;
+            const stock = material.inventario ? (material.inventario[almacenId] || 0) : 0;
+            stockSpan.textContent = `${stock.toFixed(2)} ${material.unidad}`;
             qtyInput.dataset.code = material.codigo;
         } else {
             descInput.value = '';
@@ -1785,6 +2111,34 @@ function generateValePrompt(oid) {
   const ord = productionOrders.find(o => o.order_id === oid);
   document.getElementById('valeOrderId').textContent = oid;
   document.getElementById('valeHiddenOrderId').value = oid;
+
+  const almacenSelect = document.getElementById('valeAlmacen');
+  almacenSelect.innerHTML = '<option value="" selected disabled>Seleccione un almacén...</option>';
+  almacenes.forEach(a => {
+      almacenSelect.add(new Option(a.name, a.id));
+  });
+
+  const updateStockDisplay = () => {
+      const selectedAlmacenId = almacenSelect.value;
+      if (!selectedAlmacenId) return;
+
+      document.querySelectorAll('#valeMaterialsTableBody tr').forEach(row => {
+          const code = row.querySelector('.vale-material-qty')?.dataset.code || row.querySelector('input[type=text]')?.value;
+          if (code) {
+              const material = materials.find(m => m.codigo === code);
+              if (material) {
+                  const stock = material.inventario ? (material.inventario[selectedAlmacenId] || 0) : 0;
+                  const stockCell = row.cells[2];
+                  if (stockCell) {
+                      stockCell.textContent = `${stock.toFixed(2)} ${material.unidad}`;
+                  }
+              }
+          }
+      });
+  };
+
+  almacenSelect.onchange = updateStockDisplay;
+
   const tbody = document.getElementById('valeMaterialsTableBody');
   tbody.innerHTML = '';
 
@@ -1796,7 +2150,7 @@ function generateValePrompt(oid) {
           <tr class="existing-material-row">
               <td><input type="text" class="form-control-plaintext form-control-sm" value="${m.codigo}" readonly></td>
               <td><input type="text" class="form-control-plaintext form-control-sm" value="${m.descripcion}" readonly></td>
-              <td>${m.existencia.toFixed(2)} ${m.unidad}</td>
+              <td>0.00 ${m.unidad}</td>
               <td><input type="number" class="form-control form-control-sm vale-material-qty" data-code="${code}" min="0" value="0" step="0.01"></td>
           </tr>
       `);
@@ -1807,6 +2161,7 @@ function generateValePrompt(oid) {
   addFreeFormValeRow();
 
   document.getElementById('valeType').value = 'salida';
+  updateStockDisplay();
   valeModal.show();
 }
 
@@ -1814,6 +2169,12 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
   e.preventDefault();
   const oid = parseInt(document.getElementById('valeHiddenOrderId').value);
   const type = document.getElementById('valeType').value;
+  const almacenId = document.getElementById('valeAlmacen').value;
+
+  if (!almacenId) {
+      Toastify({ text: 'Por favor, seleccione un almacén.', backgroundColor: 'var(--warning-color)' }).showToast();
+      return;
+  }
 
   const qtyInputs = [...document.querySelectorAll('.vale-material-qty')].filter(input => parseFloat(input.value) > 0);
 
@@ -1822,36 +2183,42 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
       return;
   }
 
-  const mats = qtyInputs.map(input => {
+  const materialsToUpdate = new Map();
+  let hasError = false;
+
+  const matsForVale = qtyInputs.map(input => {
     const code = input.dataset.code;
     const qty = parseFloat(input.value);
+    if (!code) return null;
 
-    if (!code) return false;
+    const material = materials.find(m => m.codigo === code);
+    if (!material) return null;
 
-    const mIdx = materials.findIndex(m => m.codigo === code);
-    if (mIdx === -1) return false;
+    const stockInAlmacen = material.inventario ? (material.inventario[almacenId] || 0) : 0;
 
-    if (type === 'salida' && materials[mIdx].existencia < qty) {
-      Toastify({ text: `No hay suficiente ${materials[mIdx].descripcion}` }).showToast();
-      return false;
+    if (type === 'salida' && stockInAlmacen < qty) {
+        const almacen = almacenes.find(a => a.id === almacenId);
+        const almacenName = almacen ? almacen.name : almacenId;
+        Toastify({ text: `No hay suficiente ${material.descripcion} en ${almacenName}. Stock: ${stockInAlmacen.toFixed(2)}, Requerido: ${qty.toFixed(2)}`, backgroundColor: 'var(--danger-color)', duration: 6000 }).showToast();
+        hasError = true;
+        return null;
     }
 
-    // Adjust stock locally first
-    type === 'salida' ? materials[mIdx].existencia -= qty : materials[mIdx].existencia += qty;
+    const updatedMaterial = materialsToUpdate.get(code) || { ...material };
+    if (!updatedMaterial.inventario) updatedMaterial.inventario = {};
 
-    // Get the cost at the moment of the transaction
-    const costAtTime = materials[mIdx].costo;
+    const currentStock = updatedMaterial.inventario[almacenId] || 0;
+    updatedMaterial.inventario[almacenId] = type === 'salida' ? currentStock - qty : currentStock + qty;
+    materialsToUpdate.set(code, updatedMaterial);
 
-    return { material_code: code, quantity: qty, cost_at_time: costAtTime };
+    return { material_code: code, quantity: qty, cost_at_time: material.costo };
   }).filter(Boolean);
 
-  if (!mats.length) {
-    loadMaterials(); // Refresh materials view if an invalid operation was attempted
+  if (hasError || !matsForVale.length) {
     return;
   }
 
-  // Calculate total cost from the snapshotted costs
-  const totalCost = mats.reduce((acc, m) => acc + (m.quantity * m.cost_at_time), 0) * (type === 'salida' ? 1 : -1);
+  const totalCost = matsForVale.reduce((acc, m) => acc + (m.quantity * m.cost_at_time), 0) * (type === 'salida' ? 1 : -1);
 
   const orderIdx = productionOrders.findIndex(o => o.order_id === oid);
   productionOrders[orderIdx].cost_extra += totalCost;
@@ -1864,37 +2231,36 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
       vale_id: valeId,
       order_id: oid,
       type,
+      almacenId,
       created_at: new Date().toISOString().slice(0, 10),
-      materials: mats, // This now contains cost_at_time for each material
+      materials: matsForVale,
       cost: totalCost
   };
 
   try {
-    // Save the new vale with historical costs
-    await setDoc(doc(db, "vales", valeId), newVale);
-    vales.push(newVale);
-
-    // Update the production order's extra cost
-    await updateDoc(doc(db, "productionOrders", oid.toString()), {
+    const promises = [];
+    promises.push(setDoc(doc(db, "vales", valeId), newVale));
+    promises.push(updateDoc(doc(db, "productionOrders", oid.toString()), {
         cost_extra: productionOrders[orderIdx].cost_extra
+    }));
+
+    materialsToUpdate.forEach((material, code) => {
+        promises.push(updateDoc(doc(db, "materials", code), { inventario: material.inventario }));
     });
 
-    // Update stock for each material involved
-    for (const mat of mats) {
-        const m = materials.find(m => m.codigo === mat.material_code);
-        await updateDoc(doc(db, "materials", m.codigo), { existencia: m.existencia });
-    }
+    await Promise.all(promises);
+
+    materials = await loadCollection('materials', 'codigo');
+    vales.push(newVale);
 
     await generateValePDF(newVale);
     loadProductionOrders();
     loadMaterials();
     bootstrap.Modal.getInstance(document.getElementById('valeModal')).hide();
-    Toastify({ text: 'Vale guardado con costo histórico', backgroundColor: 'var(--success-color)' }).showToast();
+    Toastify({ text: 'Vale guardado con éxito.', backgroundColor: 'var(--success-color)' }).showToast();
   } catch (error) {
     console.error("Error saving vale: ", error);
-    Toastify({ text: 'Error al guardar el vale', backgroundColor: 'var(--danger-color)' }).showToast();
-    // OPTIONAL: Revert local stock changes if Firestore fails
-    // This adds complexity but makes the UI more robust. For now, a refresh will solve inconsistencies.
+    Toastify({ text: 'Error al guardar el vale.', backgroundColor: 'var(--danger-color)' }).showToast();
   }
 });
 
@@ -2175,7 +2541,7 @@ function getBaseMaterials(productCode, requiredQty) {
 function generateMaterialConsumptionReport(orders) {
   const report = {};
 
-  function addMaterialToReport(materialCode, quantity) {
+  function addMaterialToReport(materialCode, quantity, almacenId) {
       const material = materials.find(m => m.codigo === materialCode);
       if (!material) return;
 
@@ -2187,17 +2553,15 @@ function generateMaterialConsumptionReport(orders) {
   }
 
   orders.forEach(o => {
-      // Get all base materials based on the actual quantity produced
       const baseMaterials = getBaseMaterials(o.product_code, o.quantity_produced || 0);
       baseMaterials.forEach(bm => {
-          addMaterialToReport(bm.code, bm.quantity);
+          addMaterialToReport(bm.code, bm.quantity, o.almacen_produccion_id);
       });
 
-      // Adjust with vales
       vales.filter(v => v.order_id === o.order_id).forEach(vale => {
           const multiplier = vale.type === 'salida' ? 1 : -1;
           vale.materials.forEach(m => {
-              addMaterialToReport(m.material_code, m.quantity * multiplier);
+              addMaterialToReport(m.material_code, m.quantity * multiplier, vale.almacenId);
           });
       });
   });
@@ -2248,10 +2612,6 @@ document.getElementById('userForm').addEventListener('submit', async (e) => {
     const role = document.getElementById('userRole').value;
     const uid = document.getElementById('userUid').value;
 
-    // This is a simplified approach. In a real app, you'd use a Cloud Function
-    // to get the user by email and then create the role document.
-    // For now, we'll assume the UID is manually provided or fetched,
-    // and we're just setting the role.
     if (uid) {
         await setDoc(doc(db, "users", uid), { email, role });
         const userIndex = users.findIndex(u => u.uid === uid);
@@ -2433,6 +2793,102 @@ document.getElementById('equipoModal').addEventListener('hidden.bs.modal', () =>
     document.getElementById('equipoModalLabel').textContent = 'Añadir Equipo';
 });
 
+/* ----------  ALMACENES  ---------- */
+let isEditingAlmacen = false, currentAlmacenId = null;
+const almacenModal = bootstrap.Modal.getInstance(document.getElementById('almacenModal')) || new bootstrap.Modal(document.getElementById('almacenModal'));
+
+function loadAlmacenes() {
+  const list = document.getElementById('almacenesList');
+  list.innerHTML = '';
+  almacenes.sort((a,b) => a.id.localeCompare(b.id)).forEach(almacen => {
+    const isDefault = almacen.isDefault ? '<span class="badge bg-info ms-2">Producción</span>' : '';
+    list.insertAdjacentHTML('beforeend', `
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span><strong>ID:</strong> ${almacen.id} - ${almacen.name}${isDefault}</span>
+        <div>
+          <button class="btn btn-sm btn-warning edit-almacen-btn me-2" data-id="${almacen.id}"><i class="fas fa-edit"></i></button>
+          <button class="btn btn-sm btn-danger delete-almacen-btn" data-id="${almacen.id}"><i class="fas fa-trash"></i></button>
+        </div>
+      </li>`);
+  });
+}
+
+document.getElementById('almacenForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('almacenId').value.trim().toUpperCase();
+  const name = document.getElementById('almacenName').value.trim();
+  const isDefault = document.getElementById('almacenDefault').checked;
+
+  if (!id || !name) return;
+
+  const almacenData = { name, isDefault };
+
+  try {
+    if (isDefault) {
+        const updatePromises = [];
+        almacenes.forEach(a => {
+            if (a.isDefault && a.id !== id) {
+                a.isDefault = false;
+                updatePromises.push(setDoc(doc(db, "almacenes", a.id), { ...a, isDefault: false }));
+            }
+        });
+        await Promise.all(updatePromises);
+    }
+
+    await setDoc(doc(db, "almacenes", id), almacenData);
+
+    const idx = almacenes.findIndex(a => a.id === id);
+    if (idx !== -1) {
+        almacenes[idx] = { id, ...almacenData };
+    } else {
+        almacenes.push({ id, ...almacenData });
+    }
+
+    loadAlmacenes();
+    almacenModal.hide();
+    Toastify({ text: 'Almacén guardado', backgroundColor: 'var(--success-color)' }).showToast();
+  } catch (error) {
+    console.error("Error saving almacen: ", error);
+    Toastify({ text: 'Error al guardar almacén', backgroundColor: 'var(--danger-color)' }).showToast();
+  }
+});
+
+document.getElementById('almacenesList').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    const id = btn.dataset.id;
+    if (btn.classList.contains('delete-almacen-btn')) {
+        if (confirm(`¿Eliminar almacén ${id}?`)) {
+            try {
+                await deleteDoc(doc(db, "almacenes", id));
+                almacenes = almacenes.filter(a => a.id !== id);
+                loadAlmacenes();
+                Toastify({ text: 'Almacén eliminado', backgroundColor: 'var(--success-color)' }).showToast();
+            } catch (error) {
+                console.error("Error deleting almacen: ", error);
+                Toastify({ text: 'Error al eliminar almacén', backgroundColor: 'var(--danger-color)' }).showToast();
+            }
+        }
+    }
+    if (btn.classList.contains('edit-almacen-btn')) {
+        isEditingAlmacen = true; currentAlmacenId = id;
+        const almacen = almacenes.find(a => a.id === id);
+        document.getElementById('almacenId').value = almacen.id;
+        document.getElementById('almacenName').value = almacen.name;
+        document.getElementById('almacenDefault').checked = almacen.isDefault || false;
+        document.getElementById('almacenId').disabled = true;
+        document.getElementById('almacenModalLabel').textContent = 'Editar Almacén';
+        almacenModal.show();
+    }
+});
+
+document.getElementById('almacenModal').addEventListener('hidden.bs.modal', () => {
+    isEditingAlmacen = false;
+    document.getElementById('almacenForm').reset();
+    document.getElementById('almacenId').disabled = false;
+    document.getElementById('almacenModalLabel').textContent = 'Añadir Almacén';
+});
+
+
 /* ----------  LOGO  ---------- */
 async function loadLogo() {
     const logoPreview = document.getElementById('logoPreview');
@@ -2491,7 +2947,7 @@ document.getElementById('productFile').addEventListener('change', async (e) => {
     const importedProducts = json.map(r => ({ codigo: (r.codigo || r.Código)?.toString().toUpperCase(), descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad || '' }));
 
     for (const product of importedProducts) {
-        if (!product.codigo) continue; // Skip products without a code
+        if (!product.codigo) continue;
         await setDoc(doc(db, "products", product.codigo), {
             descripcion: product.descripcion,
             unidad: product.unidad
@@ -2507,27 +2963,34 @@ document.getElementById('productFile').addEventListener('change', async (e) => {
 document.getElementById('exportMaterialsBtn').addEventListener('click', () => downloadExcel('materiales.xlsx', 'Materiales', materials));
 document.getElementById('importMaterialsBtn').addEventListener('click', () => document.getElementById('materialFile').click());
 document.getElementById('materialFile').addEventListener('change', async (e) => {
-  const file = e.target.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async (ev) => {
-    const wb = XLSX.read(ev.target.result, { type: 'binary' });
-    const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-    const importedMaterials = json.map(r => ({ codigo: (r.codigo || r.Código)?.toString().toUpperCase(), descripcion: r.descripcion || r.Descripción, unidad: r.unidad || r.Unidad, existencia: parseFloat(r.existencia || r.Existencia || 0), costo: parseFloat(r.costo || r.Costo || 0) }));
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+        const wb = XLSX.read(ev.target.result, { type: 'binary' });
+        const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
 
-    for (const material of importedMaterials) {
-        if (!material.codigo) continue; // Skip materials without a code
-        await setDoc(doc(db, "materials", material.codigo), {
-            descripcion: material.descripcion,
-            unidad: material.unidad,
-            existencia: material.existencia,
-            costo: material.costo
+        const importedMaterials = json.map(r => {
+            const existencia = parseFloat(r.existencia || r.Existencia || 0);
+            return {
+                codigo: (r.codigo || r.Código)?.toString().toUpperCase(),
+                descripcion: r.descripcion || r.Descripción,
+                unidad: r.unidad || r.Unidad,
+                inventario: { 'GENERAL': existencia }, // Use new data structure
+                costo: parseFloat(r.costo || r.Costo || 0)
+            };
         });
-    }
-    materials = await loadCollection('materials', 'codigo');
-    loadMaterials();
-    Toastify({ text: 'Materiales importados y guardados en la nube', backgroundColor: 'var(--success-color)' }).showToast();
-  };
-  reader.readAsBinaryString(file);
+
+        for (const material of importedMaterials) {
+            if (!material.codigo) continue;
+            // Merge with existing data in case the material already exists
+            // and has stock in other warehouses.
+            await setDoc(doc(db, "materials", material.codigo), material, { merge: true });
+        }
+        materials = await loadCollection('materials', 'codigo');
+        loadMaterials();
+        Toastify({ text: 'Materiales importados y guardados en la nube', backgroundColor: 'var(--success-color)' }).showToast();
+    };
+    reader.readAsBinaryString(file);
 });
 // Recetas
 document.getElementById('exportRecipesBtn').addEventListener('click', () => {
@@ -2562,7 +3025,6 @@ async function generateAllRecipesPDF() {
 
         const totalRecipeCost = calculateRecipeCost(recipeItems);
 
-        // --- Render Page Header ---
         doc.setFontSize(18);
         doc.text(`Receta para: ${product.descripcion}`, 15, 20);
         doc.setFontSize(10);
@@ -2573,8 +3035,6 @@ async function generateAllRecipesPDF() {
         doc.text(`Costo Total de Receta: ${formatCurrency(totalRecipeCost)}`, 15, 34);
         doc.setFont(undefined, 'normal');
 
-
-        // --- Render Ingredients Table ---
         const bodyRows = recipeItems.map(item => {
             let desc = 'N/A';
             let unitCost = 0;
@@ -2606,7 +3066,7 @@ async function generateAllRecipesPDF() {
             head: [['Tipo', 'Código', 'Descripción', 'Cantidad', 'Costo Unit.', 'Costo Total']],
             body: bodyRows,
             startY: 40,
-            headStyles: { fillColor: [41, 128, 185] }, // Blue header
+            headStyles: { fillColor: [41, 128, 185] },
             styles: { fontSize: 8 },
             columnStyles: {
                 3: { halign: 'right' },
@@ -2615,12 +3075,11 @@ async function generateAllRecipesPDF() {
             }
         });
 
-        // --- Render Signature Line ---
         const pageHeight = doc.internal.pageSize.getHeight();
-        const signatureY = pageHeight - 25; // 25mm from bottom
+        const signatureY = pageHeight - 25;
 
         doc.setLineWidth(0.2);
-        doc.line(15, signatureY, 85, signatureY); // Line from 15mm to 85mm
+        doc.line(15, signatureY, 85, signatureY);
         doc.setFontSize(10);
         doc.text('Aprobado por:', 15, signatureY + 5);
 
@@ -2643,12 +3102,12 @@ document.getElementById('recipeFile').addEventListener('change', async (e) => {
     const importedRecipes = {};
     json.forEach(r => {
       const prod = (r.producto || r.Producto)?.toString().toUpperCase();
-      if (!prod) return; // Skip rows without a product code
+      if (!prod) return;
       if (!importedRecipes[prod]) importedRecipes[prod] = [];
       const tipoExcel = (r.tipo || r.Tipo || 'material').toLowerCase();
       const tipo = tipoExcel === 'producto' ? 'product' : 'material';
       const code = (r.codigo || r.Código)?.toString().toUpperCase();
-      if (!code) return; // Skip ingredients without a code
+      if (!code) return;
       importedRecipes[prod].push({ type: tipo, code: code, quantity: parseFloat(r.cantidad || r.Cantidad) });
     });
 
@@ -2665,10 +3124,10 @@ document.getElementById('recipeFile').addEventListener('change', async (e) => {
 
 /* ----------  BACKUP / RESTORE  ---------- */
 document.getElementById('backupBtn').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify({ products, materials, recipes, productionOrders, operators, equipos, vales }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ products, materials, recipes, productionOrders, operators, equipos, vales, traspasos }, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'superproduccion_backup.json'; a.click();
+  a.href = url; a.download = `operis_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
   URL.revokeObjectURL(url);
 });
 document.getElementById('restoreBtn').addEventListener('click', () => document.getElementById('importBackupFile').click());
@@ -2718,7 +3177,6 @@ document.getElementById('importBackupFile').addEventListener('change', async (e)
                 await Promise.all([...deletePromises, ...setPromises]);
             }
 
-            // Special handling for recipes (object instead of array)
             const recipesRef = collection(db, 'recipes');
             const recipesSnapshot = await getDocs(recipesRef);
             const existingRecipeIds = new Set(recipesSnapshot.docs.map(d => d.id));
@@ -2754,7 +3212,6 @@ document.getElementById('importBackupFile').addEventListener('change', async (e)
 
 /* ----------  CHARTS  ---------- */
 function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
-  // Destroy previous instances to prevent memory leaks and rendering issues
   if (costChartInstance) costChartInstance.destroy();
   if (productionChartInstance) productionChartInstance.destroy();
   if (dailyProductionChartInstance) dailyProductionChartInstance.destroy();
@@ -2764,7 +3221,6 @@ function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
 
-  // --- Data for Top 5 charts (now uses pre-filtered list for final products) ---
   const costMap = {};
   const prodMap = {};
   finalProductOrdersThisMonth.forEach(o => {
@@ -2776,25 +3232,21 @@ function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
       prodMap[o.product_name] = (prodMap[o.product_name] || 0) + (o.quantity_produced || 0);
   });
 
-  // --- Data processing for Daily Charts ---
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
   const monthLabels = Array.from({ length: daysInMonth }, (_, i) => i + 1);
   const dailyProductionData = Array(daysInMonth).fill(0);
   const dailyOvercostData = Array(daysInMonth).fill(0);
 
-  // Daily overcost uses ALL completed orders
   completedThisMonth.forEach(o => {
       const dayOfMonth = new Date(o.completed_at).getDate() - 1;
       dailyOvercostData[dayOfMonth] += o.overcost || 0;
   });
 
-  // Daily production uses only FINAL product orders
   finalProductOrdersThisMonth.forEach(o => {
       const dayOfMonth = new Date(o.completed_at).getDate() - 1;
       dailyProductionData[dayOfMonth] += o.quantity_produced || 0;
   });
 
-  // --- Render Top 5 Production (Bar Chart) ---
   const ctxProd = document.getElementById('productionChart');
   if (ctxProd) {
     const topProd = Object.entries(prodMap).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 5);
@@ -2819,7 +3271,6 @@ function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
     });
   }
 
-  // --- Render Daily Production (Line Chart) ---
   const ctxDailyProd = document.getElementById('dailyProductionChart');
   if (ctxDailyProd) {
     const maxDailyProd = dailyProductionData.length > 0 ? Math.max(...dailyProductionData) : 0;
@@ -2859,7 +3310,6 @@ function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
     });
   }
 
-  // --- Render Top 5 Unit Cost (Bar Chart) ---
   const ctxCost = document.getElementById('costChart');
   if (ctxCost) {
     const topUnitCost = Object.entries(costMap).map(([name, data]) => ({ name, unit_cost: data.total_qty > 0 ? data.total_cost / data.total_qty : 0 })).sort((a, b) => b.unit_cost - a.unit_cost).slice(0, 5);
@@ -2886,7 +3336,6 @@ function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
     });
   }
 
-  // --- Render Daily Overcost (Line Chart) ---
   const ctxDailyOvercost = document.getElementById('dailyOvercostChart');
   if (ctxDailyOvercost) {
     dailyOvercostChartInstance = new Chart(ctxDailyOvercost, {
@@ -2930,17 +3379,14 @@ function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
 function populatePlannerProductSelects(selectElement) {
     selectElement.innerHTML = '<option value="" disabled selected>Seleccione un producto...</option>';
 
-    // 1. Get all product codes that are used as ingredients in other recipes
     const intermediateProducts = getIntermediateProductCodes();
 
-    // 2. Filter products to get only final products that have a recipe
     const finalProductsWithRecipe = products.filter(p => {
         const hasRecipe = recipes[p.codigo] && recipes[p.codigo].length > 0;
         const isFinalProduct = !intermediateProducts.has(p.codigo);
         return hasRecipe && isFinalProduct;
     });
 
-    // 3. Populate the select element with the filtered list
     finalProductsWithRecipe.forEach(p => {
         const option = new Option(`${p.codigo} - ${p.descripcion}`, p.codigo);
         selectElement.add(option);
@@ -2972,8 +3418,6 @@ document.getElementById('addForecastEntryBtn')?.addEventListener('click', addFor
 document.getElementById('forecast-entries')?.addEventListener('click', (e) => {
     if (e.target.closest('.remove-forecast-btn')) {
         const entry = e.target.closest('.forecast-entry');
-        // Allow removing any entry. If it's the last one, it will be gone.
-        // The user can add a new one if needed.
         entry.remove();
     }
 });
@@ -2982,14 +3426,12 @@ function getGrossRequirements(initialForecast) {
     const grossRequirements = new Map();
 
     function explodeBOM(productCode, requiredQty) {
-        // Add requirement for the product itself
         const currentQty = grossRequirements.get(productCode) || 0;
         grossRequirements.set(productCode, currentQty + requiredQty);
 
         const recipe = recipes[productCode];
-        if (!recipe) return; // It's a raw material or a product without a recipe
+        if (!recipe) return;
 
-        // Recurse for sub-products
         recipe.forEach(ingredient => {
             if (ingredient.type === 'product') {
                 const subProductQty = ingredient.quantity * requiredQty;
@@ -3008,7 +3450,7 @@ function getGrossRequirements(initialForecast) {
 
 const materialCheckModal = new bootstrap.Modal(document.getElementById('materialCheckModal'));
 
-function displaySuggestedOrders(grossRequirements) {
+function displaySuggestedOrders(grossRequirements, selectedAlmacenId) {
     const suggestedOrdersTbody = document.getElementById('suggestedOrdersTableBody');
     suggestedOrdersTbody.innerHTML = '';
     let suggestionsMade = false;
@@ -3018,7 +3460,14 @@ function displaySuggestedOrders(grossRequirements) {
         if (!product) return;
 
         const materialInfo = materials.find(m => m.codigo === productCode);
-        const currentStock = materialInfo ? materialInfo.existencia : 0;
+        let currentStock = 0;
+        if (materialInfo && materialInfo.inventario) {
+            if (selectedAlmacenId === 'all') {
+                currentStock = Object.values(materialInfo.inventario).reduce((a, b) => a + b, 0);
+            } else {
+                currentStock = materialInfo.inventario[selectedAlmacenId] || 0;
+            }
+        }
         const netRequirement = grossQty - currentStock;
 
         if (netRequirement > 0) {
@@ -3026,30 +3475,26 @@ function displaySuggestedOrders(grossRequirements) {
             const roundedNetReq = Math.ceil(netRequirement);
             const row = document.createElement('tr');
 
-            // Cells for checkbox, product info, stock, and forecast
             row.innerHTML = `
                 <td><input type="checkbox" class="suggestion-checkbox" data-product-code="${productCode}" checked></td>
                 <td>${product.descripcion} (${productCode})</td>
             `;
 
-            // Cell for Net Requirement (now an input)
             const netReqCell = document.createElement('td');
             const netReqInput = document.createElement('input');
             netReqInput.type = 'number';
             netReqInput.className = 'form-control form-control-sm suggested-order-qty';
             netReqInput.value = roundedNetReq;
             netReqInput.min = 1;
-            netReqInput.dataset.originalNetReq = roundedNetReq; // Store original value
+            netReqInput.dataset.originalNetReq = roundedNetReq;
             netReqCell.appendChild(netReqInput);
             row.appendChild(netReqCell);
 
-            // Append the rest of the cells
             row.insertAdjacentHTML('beforeend', `
                 <td>${currentStock.toFixed(2)}</td>
                 <td>${grossQty.toFixed(2)}</td>
             `);
 
-            // Operator and Equipment dropdowns
             const operatorCell = document.createElement('td');
             const operatorSelect = document.createElement('select');
             operatorSelect.className = 'form-select form-select-sm planner-operator-select';
@@ -3080,6 +3525,7 @@ function displaySuggestedOrders(grossRequirements) {
 }
 
 document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
+    const selectedAlmacenId = document.getElementById('plannerAlmacenSelect').value;
     const entries = document.querySelectorAll('.forecast-entry');
     const forecast = [];
     let hasInvalidEntry = false;
@@ -3089,7 +3535,6 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
         const quantity = parseInt(entry.querySelector('.forecast-quantity').value, 10);
 
         if (productCode && quantity > 0) {
-            // Avoid adding duplicate products to the initial forecast
             const existing = forecast.find(f => f.productCode === productCode);
             if (existing) {
                 existing.quantity += quantity;
@@ -3097,7 +3542,6 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
                 forecast.push({ productCode, quantity });
             }
         } else if (productCode || quantity) {
-            // Only flag as invalid if one field is filled but not the other
             hasInvalidEntry = true;
         }
     });
@@ -3114,7 +3558,6 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
 
     const grossRequirements = getGrossRequirements(forecast);
 
-    // --- NEW: Material Availability Check ---
     const totalRawMaterials = new Map();
     forecast.forEach(f => {
         const baseMats = getBaseMaterials(f.productCode, f.quantity);
@@ -3125,8 +3568,7 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
     });
 
     if (totalRawMaterials.size === 0) {
-        // No materials required, proceed directly, but still show suggested orders
-        displaySuggestedOrders(grossRequirements);
+        displaySuggestedOrders(grossRequirements, selectedAlmacenId);
         return;
     }
 
@@ -3135,7 +3577,15 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
 
     totalRawMaterials.forEach((requiredQty, code) => {
         const material = materials.find(m => m.codigo === code);
-        const stock = material ? material.existencia : 0;
+        let stock = 0;
+        if (material && material.inventario) {
+            if (selectedAlmacenId === 'all') {
+                stock = Object.values(material.inventario).reduce((a, b) => a + b, 0);
+            } else {
+                stock = material.inventario[selectedAlmacenId] || 0;
+            }
+        }
+
         const balance = stock - requiredQty;
         if (balance < 0) hasShortage = true;
 
@@ -3148,7 +3598,6 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
         });
     });
 
-    // Populate and show the modal
     const fullBody = document.getElementById('materialFullTableBody');
     const shortageBody = document.getElementById('materialShortageTableBody');
     fullBody.innerHTML = '';
@@ -3185,7 +3634,7 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
 
     document.getElementById('continuePlanBtn').onclick = () => {
         materialCheckModal.hide();
-        displaySuggestedOrders(grossRequirements);
+        displaySuggestedOrders(grossRequirements, selectedAlmacenId);
     };
 
     materialCheckModal.show();
@@ -3195,6 +3644,12 @@ document.getElementById('createSelectedOrdersBtn')?.addEventListener('click', as
     const checkedCheckboxes = [...document.querySelectorAll('.suggestion-checkbox:checked')];
     if (checkedCheckboxes.length === 0) {
         Toastify({ text: 'No hay órdenes sugeridas seleccionadas para crear.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    const plannerAlmacenId = document.getElementById('plannerAlmacenSelect').value;
+    if (plannerAlmacenId === 'all') {
+        Toastify({ text: 'Por favor, seleccione un almacén de producción específico (no "Todos") antes de crear órdenes.', backgroundColor: 'var(--danger-color)', duration: 6000 }).showToast();
         return;
     }
 
@@ -3219,25 +3674,24 @@ document.getElementById('createSelectedOrdersBtn')?.addEventListener('click', as
             continue;
         }
 
-        const success = await createProductionOrder(productCode, quantityToCreate, operatorId, equipoId);
+        // Pass the selected production warehouse to the creation function
+        const success = await createProductionOrder(productCode, quantityToCreate, operatorId, equipoId, plannerAlmacenId);
         if (success) {
             createdCount++;
             if (quantityToCreate >= originalNetReq) {
-                // If created quantity is same or more, remove the row
                 rowsToRemove.push(row);
             } else {
-                // If created quantity is less, update the row
                 const remainingQty = originalNetReq - quantityToCreate;
                 qtyInput.value = remainingQty;
                 qtyInput.dataset.originalNetReq = remainingQty;
-                checkbox.checked = false; // Uncheck to prevent re-creation on next click
+                checkbox.checked = false;
             }
         }
     }
 
     if (createdCount > 0) {
-        Toastify({ text: `${createdCount} órdenes de producción creadas.`, backgroundColor: 'var(--success-color)' }).showToast();
-        loadProductionOrders(); // Refresh the main orders list
+        Toastify({ text: `${createdCount} órdenes de producción creadas para el almacén ${plannerAlmacenId}.`, backgroundColor: 'var(--success-color)' }).showToast();
+        loadProductionOrders();
 
         rowsToRemove.forEach(row => row.remove());
 
@@ -3248,16 +3702,13 @@ document.getElementById('createSelectedOrdersBtn')?.addEventListener('click', as
 });
 
 document.getElementById('newPlanBtn')?.addEventListener('click', () => {
-    // Clear forecast entries and add a fresh one
     const forecastEntriesContainer = document.getElementById('forecast-entries');
     forecastEntriesContainer.innerHTML = '';
     addForecastEntryRow();
 
-    // Clear suggestion table
     const suggestedOrdersTbody = document.getElementById('suggestedOrdersTableBody');
     suggestedOrdersTbody.innerHTML = '';
 
-    // Hide the suggestions card
     document.getElementById('suggestedOrdersCard').style.display = 'none';
 
     Toastify({ text: 'Planificador reiniciado.', backgroundColor: 'var(--info-color)' }).showToast();
