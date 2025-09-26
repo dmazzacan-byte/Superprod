@@ -1,46 +1,39 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
+import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
 import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
 import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
 import Chart from 'https://esm.sh/chart.js/auto';
 import ChartDataLabels from 'https://esm.sh/chartjs-plugin-datalabels';
 
-// Your web app's Firebase configuration is now loaded from config.js
-function updateClientUI() {
-  const hostname = window.location.hostname;
-  const clientName = hostname.split('.')[0]; // e.g., 'operis-1'
+// Firebase services will be initialized on login, based on client selection
+let app;
+let auth;
+let db;
+let storage;
 
-  if (clientName && clientName !== 'localhost' && clientName !== '127') {
-    const formattedName = clientName.charAt(0).toUpperCase() + clientName.slice(1).replace('-', ' ');
-
-    const splashTitle = document.getElementById('splash-client-name');
-    const loginTitle = document.getElementById('login-client-name');
-    const sidebarTitle = document.getElementById('sidebar-client-name');
-
-    if (splashTitle) splashTitle.textContent = formattedName;
-    if (loginTitle) loginTitle.textContent = formattedName;
-    if (sidebarTitle) sidebarTitle.textContent = formattedName;
-    document.title = `${formattedName} - Gestión de Producción`;
-  }
-}
-
-// Update UI with client name on load
-updateClientUI();
-
-// Initialize Firebase
-const firebaseConfig = getCurrentFirebaseConfig();
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const storage = getStorage(app);
-
-console.log("Firebase initialized");
+console.log("Awaiting user login to initialize Firebase...");
 
 // -----------------------------------------------------------------------------
 //  Superproducción – Gestión de Producción
 // -----------------------------------------------------------------------------
-/* global bootstrap, XLSX, jsPDF, html2canvas, Toastify */
+/* global bootstrap, XLSX, jsPDF, html2canvas, Toastify, clientConfigs */
+
+/* ----------  UI SETUP  ---------- */
+function populateClientSelector() {
+    const selector = document.getElementById('clientSelector');
+    if (!selector) return;
+    // Add a disabled default option
+    selector.innerHTML = '<option value="" disabled selected>Seleccione una empresa...</option>';
+    // Populate with clients from config.js
+    for (const [key, config] of Object.entries(clientConfigs)) {
+        const option = new Option(config.displayName, key);
+        selector.add(option);
+    }
+}
+
+// Populate the company dropdown as soon as the script loads
+populateClientSelector();
+
 
 /* ----------  AUTH  ---------- */
 const loginView = document.getElementById('loginView');
@@ -59,61 +52,113 @@ async function getUserRole(uid) {
     return null;
 }
 
-onAuthStateChanged(auth, async (user) => {
+async function handleSuccessfulLogin(user) {
     const splashScreen = document.getElementById('splashScreen');
-    if (user) {
-        try {
-            currentUserRole = await getUserRole(user.uid);
+    try {
+        currentUserRole = await getUserRole(user.uid);
 
-            if (!currentUserRole) {
-                // ... (error handling)
-                return;
+        // If user has no role, check if they are the first user for this client
+        if (!currentUserRole) {
+            const usersSnapshot = await getDocs(collection(db, "users"));
+            if (usersSnapshot.empty) {
+                console.log(`First user login for this client. Assigning 'Administrator' role to ${user.email}`);
+                const adminRole = { role: 'Administrator', email: user.email };
+                await setDoc(doc(db, "users", user.uid), adminRole);
+                currentUserRole = 'Administrator';
+                Toastify({ text: 'Primer usuario detectado. Se ha asignado el rol de Administrador.', backgroundColor: 'var(--info-color)', duration: 8000 }).showToast();
+            } else {
+                 Toastify({ text: `Error: El usuario ${user.email} no tiene un rol asignado. Contacte al administrador.`, backgroundColor: 'var(--danger-color)', duration: -1 }).showToast();
+                 await handleLogout(); // Log out the user as they can't do anything
+                 return;
             }
-
-            if(splashScreen) splashScreen.classList.add('splash-visible');
-
-            loginView.classList.add('d-none');
-            appView.classList.remove('d-none');
-            userDataDiv.textContent = user.email;
-            await initializeAppContent();
-
-        } catch (error) {
-            console.error("A critical error occurred during the login process:", error);
-            Toastify({ text: 'Ocurrió un error crítico al iniciar sesión. Por favor, intente de nuevo.', backgroundColor: 'var(--danger-color)', duration: 8000 }).showToast();
-            if(splashScreen) splashScreen.classList.remove('splash-visible');
-            await signOut(auth);
         }
-    } else {
+
+        if(splashScreen) splashScreen.classList.add('splash-visible');
+
+        loginView.classList.add('d-none');
+        appView.classList.remove('d-none');
+        userDataDiv.textContent = user.email;
+        await initializeAppContent();
+
+    } catch (error) {
+        console.error("A critical error occurred during the login process:", error);
+        Toastify({ text: 'Ocurrió un error crítico al iniciar sesión. Por favor, intente de nuevo.', backgroundColor: 'var(--danger-color)', duration: 8000 }).showToast();
         if(splashScreen) splashScreen.classList.remove('splash-visible');
-        currentUserRole = null;
-        loginView.classList.remove('d-none');
-        appView.classList.add('d-none');
+        await handleLogout();
     }
-});
+}
+
+async function handleLogout() {
+    if (auth) {
+        await signOut(auth);
+    }
+    // Reset state and Firebase instance
+    currentUserRole = null;
+    if (app) {
+        await deleteApp(app);
+        app = null;
+        auth = null;
+        db = null;
+        storage = null;
+        console.log("Firebase app instance deleted and session cleared.");
+    }
+    // Show login view
+    loginView.classList.remove('d-none');
+    appView.classList.add('d-none');
+    document.getElementById('loginForm').reset();
+    // Re-enable the client selector
+    const clientSelector = document.getElementById('clientSelector');
+    if(clientSelector) clientSelector.disabled = false;
+}
 
 loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const clientKey = document.getElementById('clientSelector').value;
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
     const loginButton = loginForm.querySelector('button');
     const spinner = loginButton.querySelector('.spinner-border');
+    const clientSelector = document.getElementById('clientSelector');
+
+    if (!clientKey) {
+        Toastify({ text: 'Por favor, seleccione una empresa.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
 
     spinner.classList.remove('d-none');
     loginButton.disabled = true;
+    clientSelector.disabled = true;
 
     try {
-        await signInWithEmailAndPassword(auth, email, password);
+        const config = clientConfigs[clientKey].firebaseConfig;
+
+        app = initializeApp(config);
+        auth = getAuth(app);
+        db = getFirestore(app);
+        storage = getStorage(app);
+        console.log(`Firebase initialized for client: ${clientKey}`);
+
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        await handleSuccessfulLogin(userCredential.user);
+
     } catch (error) {
-        Toastify({ text: `Error: ${error.code}`, backgroundColor: 'var(--danger-color)' }).showToast();
+        Toastify({ text: `Error: ${error.code || 'Error al iniciar sesión.'}`, backgroundColor: 'var(--danger-color)' }).showToast();
+        if (app) {
+            await deleteApp(app); // Clean up failed initialization
+            app = null;
+            auth = null;
+            db = null;
+            storage = null;
+        }
+        // Re-enable form on failure
+        clientSelector.disabled = false;
     } finally {
         spinner.classList.add('d-none');
         loginButton.disabled = false;
     }
 });
 
-logoutBtn.addEventListener('click', async () => {
-    await signOut(auth);
-});
+logoutBtn.addEventListener('click', handleLogout);
 
 
 /* ----------  BASE DE DATOS LOCAL  ---------- */
