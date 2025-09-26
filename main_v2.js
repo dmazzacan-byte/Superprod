@@ -94,13 +94,13 @@ async function handleLogout() {
     if(clientSelector) clientSelector.disabled = false;
 }
 
-loginForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
+const loginBtn = document.getElementById('loginBtn');
+
+loginBtn.addEventListener('click', async () => {
     const clientKey = document.getElementById('clientSelector').value.trim().toLowerCase();
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
-    const loginButton = loginForm.querySelector('button');
-    const spinner = loginButton.querySelector('.spinner-border');
+    const spinner = loginBtn.querySelector('.spinner-border');
     const clientSelector = document.getElementById('clientSelector');
 
     if (!clientKey) {
@@ -114,7 +114,7 @@ loginForm.addEventListener('submit', async (e) => {
     }
 
     spinner.classList.remove('d-none');
-    loginButton.disabled = true;
+    loginBtn.disabled = true;
     clientSelector.disabled = true;
 
     try {
@@ -142,7 +142,7 @@ loginForm.addEventListener('submit', async (e) => {
         clientSelector.disabled = false;
     } finally {
         spinner.classList.add('d-none');
-        loginButton.disabled = false;
+        loginBtn.disabled = false;
     }
 });
 
