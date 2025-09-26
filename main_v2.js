@@ -18,23 +18,6 @@ console.log("Awaiting user login to initialize Firebase...");
 // -----------------------------------------------------------------------------
 /* global bootstrap, XLSX, jsPDF, html2canvas, Toastify, clientConfigs */
 
-/* ----------  UI SETUP  ---------- */
-function populateClientSelector() {
-    const selector = document.getElementById('clientSelector');
-    if (!selector) return;
-    // Add a disabled default option
-    selector.innerHTML = '<option value="" disabled selected>Seleccione una empresa...</option>';
-    // Populate with clients from config.js
-    for (const [key, config] of Object.entries(clientConfigs)) {
-        const option = new Option(config.displayName, key);
-        selector.add(option);
-    }
-}
-
-// Populate the company dropdown as soon as the script loads
-populateClientSelector();
-
-
 /* ----------  AUTH  ---------- */
 const loginView = document.getElementById('loginView');
 const appView = document.getElementById('appView');
@@ -113,7 +96,7 @@ async function handleLogout() {
 
 loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const clientKey = document.getElementById('clientSelector').value;
+    const clientKey = document.getElementById('clientSelector').value.trim().toLowerCase();
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
     const loginButton = loginForm.querySelector('button');
@@ -121,7 +104,12 @@ loginForm.addEventListener('submit', async (e) => {
     const clientSelector = document.getElementById('clientSelector');
 
     if (!clientKey) {
-        Toastify({ text: 'Por favor, seleccione una empresa.', backgroundColor: 'var(--warning-color)' }).showToast();
+        Toastify({ text: 'Por favor, ingrese el ID de su empresa.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    if (!clientConfigs[clientKey]) {
+        Toastify({ text: `El ID de empresa "${clientKey}" no es válido.`, backgroundColor: 'var(--danger-color)' }).showToast();
         return;
     }
 
