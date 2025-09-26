@@ -6,24 +6,54 @@ import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstat
 import Chart from 'https://esm.sh/chart.js/auto';
 import ChartDataLabels from 'https://esm.sh/chartjs-plugin-datalabels';
 
-// Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyAyMsDnA4TadOXrwxUqumwPAji9S3QiEAE",
-  authDomain: "superprod-2ced1.firebaseapp.com",
-  projectId: "superprod-2ced1",
-  storageBucket: "superprod-2ced1.appspot.com",
-  messagingSenderId: "691324529613",
-  appId: "1:691324529613:web:a050a6d44f06481503b284",
-  measurementId: "G-53FH6JGS20"
-};
+// Global Firebase variables that will be initialized dynamically for each tenant.
+let app, auth, db, storage;
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const storage = getStorage(app);
+// --- DYNAMIC APP INITIALIZATION ---
 
-console.log("Firebase initialized");
+/**
+ * Initializes the entire application for a specific tenant.
+ * It fetches the tenant's Firebase config from a Cloud Function and then
+ * starts all Firebase services and app listeners.
+ * @param {string} tenantId The unique identifier for the client/tenant.
+ */
+async function initializeAppForTenant(tenantId) {
+    // The URL of our Cloud Function.
+    // NOTE: 'superprod-2ced1' is the Project ID of our MAIN app where the function is deployed.
+    const configUrl = `https://us-central1-superprod-2ced1.cloudfunctions.net/getConfigForTenant?id=${tenantId}`;
+
+    try {
+        // 1. Fetch the configuration from the secure Cloud Function.
+        const response = await fetch(configUrl);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(`Failed to fetch config: ${errorData.error || response.statusText}`);
+        }
+        const firebaseConfig = await response.json();
+
+        // 2. Initialize Firebase services with the dynamically fetched config.
+        app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        db = getFirestore(app);
+        storage = getStorage(app);
+
+        console.log(`Firebase initialized successfully for tenant: ${tenantId}`);
+
+        // 3. Set up the authentication state listener, which acts as the entry point for the rest of the app.
+        setupAuthListener();
+
+    } catch (error) {
+        console.error("CRITICAL: Could not initialize Firebase for tenant.", error);
+        // Display a user-friendly error message if the configuration fails.
+        document.body.innerHTML = `
+            <div class="vh-100 d-flex justify-content-center align-items-center">
+                <div class="text-center">
+                    <h1>Error de Configuración</h1>
+                    <p class="text-muted">No se pudo cargar la configuración para el cliente '${tenantId}'.<br>Por favor, contacte a soporte.</p>
+                </div>
+            </div>`;
+    }
+}
 
 // -----------------------------------------------------------------------------
 //  Superproducción – Gestión de Producción
@@ -47,37 +77,46 @@ async function getUserRole(uid) {
     return null;
 }
 
-onAuthStateChanged(auth, async (user) => {
-    const splashScreen = document.getElementById('splashScreen');
-    if (user) {
-        try {
-            currentUserRole = await getUserRole(user.uid);
+/**
+ * Sets up the main authentication listener. This function is only called
+ * AFTER a successful dynamic Firebase initialization.
+ */
+function setupAuthListener() {
+    onAuthStateChanged(auth, async (user) => {
+        const splashScreen = document.getElementById('splashScreen');
+        if (user) {
+            try {
+                currentUserRole = await getUserRole(user.uid);
 
-            if (!currentUserRole) {
-                // ... (error handling)
-                return;
+                if (!currentUserRole) {
+                    // This can happen if a user is created in Firebase Auth but not in the 'users' collection in Firestore.
+                    console.error(`User with UID ${user.uid} has no role assigned in Firestore.`);
+                    Toastify({ text: 'Error: Usuario no tiene un rol asignado. Contacte a soporte.', backgroundColor: 'var(--danger-color)', duration: -1 }).showToast();
+                    await signOut(auth); // Log out the user to prevent them from being stuck.
+                    return;
+                }
+
+                if(splashScreen) splashScreen.classList.add('splash-visible');
+
+                loginView.classList.add('d-none');
+                appView.classList.remove('d-none');
+                userDataDiv.textContent = user.email;
+                await initializeAppContent();
+
+            } catch (error) {
+                console.error("A critical error occurred during the login process:", error);
+                Toastify({ text: 'Ocurrió un error crítico al iniciar sesión. Por favor, intente de nuevo.', backgroundColor: 'var(--danger-color)', duration: 8000 }).showToast();
+                if(splashScreen) splashScreen.classList.remove('splash-visible');
+                await signOut(auth);
             }
-
-            if(splashScreen) splashScreen.classList.add('splash-visible');
-
-            loginView.classList.add('d-none');
-            appView.classList.remove('d-none');
-            userDataDiv.textContent = user.email;
-            await initializeAppContent();
-
-        } catch (error) {
-            console.error("A critical error occurred during the login process:", error);
-            Toastify({ text: 'Ocurrió un error crítico al iniciar sesión. Por favor, intente de nuevo.', backgroundColor: 'var(--danger-color)', duration: 8000 }).showToast();
+        } else {
             if(splashScreen) splashScreen.classList.remove('splash-visible');
-            await signOut(auth);
+            currentUserRole = null;
+            loginView.classList.remove('d-none');
+            appView.classList.add('d-none');
         }
-    } else {
-        if(splashScreen) splashScreen.classList.remove('splash-visible');
-        currentUserRole = null;
-        loginView.classList.remove('d-none');
-        appView.classList.add('d-none');
-    }
-});
+    });
+}
 
 loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -430,6 +469,7 @@ async function initializeAppContent() {
   }
 
   await loadInitialData();
+  await checkAndTriggerOnboarding();
   applyRoleRestrictions();
   const navLinks = document.querySelectorAll('.nav-link');
   const pages    = document.querySelectorAll('.page-content');
@@ -1916,7 +1956,7 @@ async function generateOrderPDF(oid) {
     const doc = new jsPDF();
 
     let logoHeight = 0;
-    const logoData = localStorage.getItem('companyLogo');
+    const logoData = await getLogoUrl();
     if (logoData) {
         const getImageDimensions = (dataUrl) => new Promise(resolve => {
             const img = new Image();
@@ -2003,7 +2043,7 @@ async function generateValePDF(vale) {
   const doc = new jsPDF();
 
   let logoHeight = 0;
-  const logoData = localStorage.getItem('companyLogo');
+  const logoData = await getLogoUrl();
   if (logoData) {
       const getImageDimensions = (dataUrl) => new Promise(resolve => {
           const img = new Image();
@@ -2283,6 +2323,12 @@ function populateReportFilters() {
     equipos.forEach(e => {
         equipoFilter.add(new Option(e.name, e.id));
     });
+
+    const almacenFilter = document.getElementById('reportAlmacenFilter');
+    almacenFilter.innerHTML = '<option value="all">Todos</option>';
+    almacenes.forEach(a => {
+        almacenFilter.add(new Option(a.name, a.id));
+    });
 }
 
 function loadReports() {
@@ -2307,6 +2353,7 @@ function generateAllReports() {
   const productId = document.getElementById('productFilter').value;
   const operatorId = document.getElementById('operatorFilter').value;
   const equipoId = document.getElementById('equipoFilter').value;
+  const almacenId = document.getElementById('reportAlmacenFilter').value;
 
   const filteredOrders = productionOrders.filter(o => {
     if (o.status !== 'Completada') return false;
@@ -2317,6 +2364,7 @@ function generateAllReports() {
     if (productId !== 'all' && o.product_code !== productId) return false;
     if (operatorId !== 'all' && o.operator_id !== operatorId) return false;
     if (equipoId !== 'all' && o.equipo_id !== equipoId) return false;
+    if (almacenId !== 'all' && o.almacen_produccion_id !== almacenId) return false;
     return true;
   });
 
@@ -2890,22 +2938,38 @@ document.getElementById('almacenModal').addEventListener('hidden.bs.modal', () =
 
 
 /* ----------  LOGO  ---------- */
+async function getLogoUrl() {
+    const cachedLogo = localStorage.getItem('companyLogo');
+    if (cachedLogo) {
+        return cachedLogo;
+    }
+
+    try {
+        const logoUrl = await getDownloadURL(ref(storage, 'company_logo'));
+        localStorage.setItem('companyLogo', logoUrl); // Cache it for next time
+        return logoUrl;
+    } catch (error) {
+        if (error.code === 'storage/object-not-found') {
+            // This is not an error, it just means no logo has been uploaded.
+            return null;
+        }
+        console.error("Error fetching logo URL from Firebase Storage:", error);
+        return null;
+    }
+}
+
 async function loadLogo() {
     const logoPreview = document.getElementById('logoPreview');
     const noLogoText = document.getElementById('noLogoText');
-    try {
-        const logoUrl = await getDownloadURL(ref(storage, 'company_logo'));
+    const logoUrl = await getLogoUrl();
+
+    if (logoUrl) {
         logoPreview.src = logoUrl;
         logoPreview.style.display = 'block';
         noLogoText.style.display = 'none';
-        localStorage.setItem('companyLogo', logoUrl); // cache it
-    } catch (error) {
-        if (error.code === 'storage/object-not-found') {
-            logoPreview.style.display = 'none';
-            noLogoText.style.display = 'block';
-        } else {
-            console.error("Error loading logo:", error);
-        }
+    } else {
+        logoPreview.style.display = 'none';
+        noLogoText.style.display = 'block';
     }
 }
 document.getElementById('logoUpload').addEventListener('change', async (e) => {
@@ -3012,6 +3076,7 @@ async function generateAllRecipesPDF() {
     }
 
     let isFirstPage = true;
+    const logoData = await getLogoUrl(); // Get the logo URL once
 
     for (const productId of sortedRecipeIds) {
         if (!isFirstPage) {
@@ -3023,16 +3088,36 @@ async function generateAllRecipesPDF() {
 
         if (!product || !recipeItems) continue;
 
+        let logoHeight = 0;
+        if (logoData) {
+            const getImageDimensions = (dataUrl) => new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+                img.src = dataUrl;
+            });
+            const dims = await getImageDimensions(logoData);
+            const maxWidth = 40;
+            const maxHeight = 20;
+            const ratio = Math.min(maxWidth / dims.width, maxHeight / dims.height);
+            const w = dims.width * ratio;
+            const h = dims.height * ratio;
+            doc.addImage(logoData, 'PNG', 15, 10, w, h);
+            logoHeight = h;
+        }
+
         const totalRecipeCost = calculateRecipeCost(recipeItems);
 
+        let startY = logoHeight > 0 ? 15 + logoHeight : 20;
         doc.setFontSize(18);
-        doc.text(`Receta para: ${product.descripcion}`, 15, 20);
+        doc.text(`Receta para: ${product.descripcion}`, 15, startY);
+        startY += 7;
         doc.setFontSize(10);
-        doc.text(`Código: ${product.codigo}`, 15, 27);
-        doc.text(`Fecha: ${formattedDate}`, 185, 27, null, null, 'right');
+        doc.text(`Código: ${product.codigo}`, 15, startY);
+        doc.text(`Fecha: ${formattedDate}`, 185, startY, null, null, 'right');
+        startY += 7;
         doc.setFontSize(11);
         doc.setFont(undefined, 'bold');
-        doc.text(`Costo Total de Receta: ${formatCurrency(totalRecipeCost)}`, 15, 34);
+        doc.text(`Costo Total de Receta: ${formatCurrency(totalRecipeCost)}`, 15, startY);
         doc.setFont(undefined, 'normal');
 
         const bodyRows = recipeItems.map(item => {
@@ -3065,7 +3150,7 @@ async function generateAllRecipesPDF() {
         doc.autoTable({
             head: [['Tipo', 'Código', 'Descripción', 'Cantidad', 'Costo Unit.', 'Costo Total']],
             body: bodyRows,
-            startY: 40,
+            startY: startY + 5,
             headStyles: { fillColor: [41, 128, 185] },
             styles: { fontSize: 8 },
             columnStyles: {
@@ -3121,6 +3206,141 @@ document.getElementById('recipeFile').addEventListener('change', async (e) => {
   };
   reader.readAsBinaryString(file);
 });
+
+/* ----------  ONBOARDING  ---------- */
+const onboardingModal = new bootstrap.Modal(document.getElementById('onboardingModal'));
+let currentOnboardingStep = 1;
+
+async function checkAndTriggerOnboarding() {
+    const onboardingCompleted = localStorage.getItem('onboardingComplete_v1');
+    if (onboardingCompleted) {
+        return;
+    }
+
+    // Check if essential data is missing.
+    if (almacenes.length === 0 && operators.length === 0 && materials.length === 0) {
+        onboardingModal.show();
+    }
+}
+
+function navigateOnboarding(direction) {
+    const steps = document.querySelectorAll('.onboarding-step');
+    const currentStepElem = document.getElementById(`onboardingStep${currentOnboardingStep}`);
+
+    if (direction === 'next') {
+        if (currentOnboardingStep < steps.length) {
+            currentOnboardingStep++;
+        }
+    } else if (direction === 'prev') {
+        if (currentOnboardingStep > 1) {
+            currentOnboardingStep--;
+        }
+    }
+
+    steps.forEach(step => step.style.display = 'none');
+    document.getElementById(`onboardingStep${currentOnboardingStep}`).style.display = 'block';
+
+    const prevBtn = document.getElementById('onboardingPrevBtn');
+    const nextBtn = document.getElementById('onboardingNextBtn');
+
+    prevBtn.style.display = currentOnboardingStep > 1 ? 'inline-block' : 'none';
+    nextBtn.textContent = currentOnboardingStep === steps.length ? 'Finalizar' : 'Siguiente';
+}
+
+document.getElementById('onboardingNextBtn').addEventListener('click', async () => {
+    const steps = document.querySelectorAll('.onboarding-step').length;
+
+    if (currentOnboardingStep === 3) { // After Almacen step
+        const form = document.getElementById('onboardingAlmacenForm');
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+        const id = document.getElementById('onboardingAlmacenId').value.trim().toUpperCase();
+        const name = document.getElementById('onboardingAlmacenName').value.trim();
+        const isDefault = document.getElementById('onboardingAlmacenDefault').checked;
+        await setDoc(doc(db, "almacenes", id), { name, isDefault });
+        almacenes.push({ id, name, isDefault });
+    }
+
+    if (currentOnboardingStep === 4) { // After Operator step
+        const form = document.getElementById('onboardingOperatorForm');
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+        const id = document.getElementById('onboardingOperatorId').value.trim().toUpperCase();
+        const name = document.getElementById('onboardingOperatorName').value.trim();
+        await setDoc(doc(db, "operators", id), { name });
+        operators.push({ id, name });
+    }
+
+    if (currentOnboardingStep === 5) { // After Material step
+        const form = document.getElementById('onboardingMaterialForm');
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+        const code = document.getElementById('onboardingMaterialCode').value.trim().toUpperCase();
+        const desc = document.getElementById('onboardingMaterialDescription').value.trim();
+        const unit = document.getElementById('onboardingMaterialUnit').value.trim();
+        const cost = parseFloat(document.getElementById('onboardingMaterialCost').value);
+        const stock = parseFloat(document.getElementById('onboardingMaterialStock').value);
+        const almacenId = document.getElementById('onboardingAlmacenId').value.trim().toUpperCase();
+
+        const materialData = {
+            codigo: code,
+            descripcion: desc,
+            unidad: unit,
+            costo: cost,
+            inventario: { [almacenId]: stock }
+        };
+        await setDoc(doc(db, "materials", code), materialData);
+        materials.push(materialData);
+    }
+
+
+    if (currentOnboardingStep === steps) {
+        localStorage.setItem('onboardingComplete_v1', 'true');
+        onboardingModal.hide();
+        Toastify({ text: '¡Configuración inicial completada!', backgroundColor: 'var(--success-color)', duration: 5000 }).showToast();
+        // Refresh settings page if it's the current one, to show new data
+        if (document.getElementById('settingsPage').style.display !== 'none') {
+            loadAlmacenes();
+            loadOperators();
+        }
+    } else {
+        navigateOnboarding('next');
+    }
+});
+
+document.getElementById('onboardingPrevBtn').addEventListener('click', () => {
+    navigateOnboarding('prev');
+});
+
+document.getElementById('onboardingLogoUpload').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+        const storageRef = ref(storage, 'company_logo');
+        await uploadString(storageRef, reader.result, 'data_url');
+        const logoUrl = await getDownloadURL(storageRef);
+        localStorage.setItem('companyLogo', logoUrl); // cache it
+        const preview = document.getElementById('onboardingLogoPreview');
+        preview.src = logoUrl;
+        preview.style.display = 'block';
+        document.getElementById('onboardingNoLogoText').style.display = 'none';
+        Toastify({ text: 'Logo guardado correctamente', backgroundColor: 'var(--success-color)' }).showToast();
+    }
+    catch(error) {
+        console.error("Error uploading logo:", error);
+        Toastify({ text: 'Error al guardar el logo', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
+  };
+  reader.readAsDataURL(file);
+});
+
 
 /* ----------  BACKUP / RESTORE  ---------- */
 document.getElementById('backupBtn').addEventListener('click', () => {
@@ -3712,4 +3932,48 @@ document.getElementById('newPlanBtn')?.addEventListener('click', () => {
     document.getElementById('suggestedOrdersCard').style.display = 'none';
 
     Toastify({ text: 'Planificador reiniciado.', backgroundColor: 'var(--info-color)' }).showToast();
+});
+
+// --- APPLICATION ENTRY POINT ---
+
+/**
+ * Main entry point for the application.
+ * This code runs when the DOM is fully loaded. It determines which tenant
+ * to load and kicks off the Firebase initialization for that tenant.
+ */
+window.addEventListener('DOMContentLoaded', () => {
+    // For this implementation, we will hardcode the tenant ID.
+    // In a real multi-tenant SaaS application, you would determine this
+    // dynamically, for example, from the URL subdomain (e.g., "operis-1" from "operis-1.tu-app.com").
+    const tenantId = 'operis-1'; // Hardcoded for our first client.
+
+    if (!tenantId) {
+        document.body.innerHTML = '<h1>Error: No se pudo identificar al cliente.</h1>';
+        console.error("Tenant ID could not be determined.");
+        return;
+    }
+
+    initializeAppForTenant(tenantId);
+});
+
+// --- APPLICATION ENTRY POINT ---
+
+/**
+ * Main entry point for the application.
+ * This code runs when the DOM is fully loaded. It determines which tenant
+ * to load and kicks off the Firebase initialization for that tenant.
+ */
+window.addEventListener('DOMContentLoaded', () => {
+    // For this implementation, we will hardcode the tenant ID.
+    // In a real multi-tenant SaaS application, you would determine this
+    // dynamically, for example, from the URL subdomain (e.g., "operis-1" from "operis-1.tu-app.com").
+    const tenantId = 'operis-1'; // Hardcoded for our first client.
+
+    if (!tenantId) {
+        document.body.innerHTML = '<h1>Error: No se pudo identificar al cliente.</h1>';
+        console.error("Tenant ID could not be determined.");
+        return;
+    }
+
+    initializeAppForTenant(tenantId);
 });
