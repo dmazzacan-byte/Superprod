@@ -6,18 +6,10 @@ import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstat
 import Chart from 'https://esm.sh/chart.js/auto';
 import ChartDataLabels from 'https://esm.sh/chartjs-plugin-datalabels';
 
-// Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyAyMsDnA4TadOXrwxUqumwPAji9S3QiEAE",
-  authDomain: "superprod-2ced1.firebaseapp.com",
-  projectId: "superprod-2ced1",
-  storageBucket: "superprod-2ced1.appspot.com",
-  messagingSenderId: "691324529613",
-  appId: "1:691324529613:web:a050a6d44f06481503b284",
-  measurementId: "G-53FH6JGS20"
-};
+// Your web app's Firebase configuration is now loaded from config.js
 
 // Initialize Firebase
+const firebaseConfig = getCurrentFirebaseConfig();
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
