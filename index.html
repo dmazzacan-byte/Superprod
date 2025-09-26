@@ -352,10 +352,11 @@
                             <div class="row g-3 align-items-end">
                                 <div class="col-md-3"><label for="startDateFilter" class="form-label">Fecha de Inicio</label><input type="date" class="form-control" id="startDateFilter"></div>
                                 <div class="col-md-3"><label for="endDateFilter" class="form-label">Fecha de Fin</label><input type="date" class="form-control" id="endDateFilter"></div>
-                                <div class="col-md-2"><label for="productFilter" class="form-label">Producto</label><select id="productFilter" class="form-select"></select></div>
-                                <div class="col-md-2"><label for="operatorFilter" class="form-label">Operador</label><select id="operatorFilter" class="form-select"></select></div>
-                                <div class="col-md-2"><label for="equipoFilter" class="form-label">Equipo</label><select id="equipoFilter" class="form-select"></select></div>
-                                <div class="col-md-2"><button class="btn btn-primary w-100" id="applyReportFilters"><i class="fas fa-search me-2"></i>Buscar</button></div>
+                                <div class="col-md-3"><label for="productFilter" class="form-label">Producto</label><select id="productFilter" class="form-select"></select></div>
+                                <div class="col-md-3"><label for="operatorFilter" class="form-label">Operador</label><select id="operatorFilter" class="form-select"></select></div>
+                                <div class="col-md-3"><label for="equipoFilter" class="form-label">Equipo</label><select id="equipoFilter" class="form-select"></select></div>
+                                <div class="col-md-3"><label for="reportAlmacenFilter" class="form-label">Almacén</label><select id="reportAlmacenFilter" class="form-select"></select></div>
+                                <div class="col-md-3"><button class="btn btn-primary w-100 mt-3 mt-md-0" id="applyReportFilters"><i class="fas fa-search me-2"></i>Buscar</button></div>
                             </div>
                         </div>
                     </div>
@@ -480,10 +481,136 @@
                     <div class="row g-4 mt-4">
                     <div class="col-lg-6" id="userManagementCard" style="display: none;"><div class="card shadow-sm h-100"><div class="card-header d-flex justify-content-between align-items-center"><h5 class="mb-0">Gestión de Usuarios</h5><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#userModal"><i class="fas fa-plus"></i></button></div><div class="card-body"><ul class="list-group list-group-flush" id="usersList"></ul></div></div></div>
                         <div class="col-lg-6"><div class="card shadow-sm h-100"><div class="card-header"><h5 class="mb-0">Copia de Seguridad</h5></div><div class="card-body text-center"><p class="text-muted">Guarda todos tus datos en un archivo JSON o restaura desde una copia de seguridad anterior.</p><button class="btn btn-success w-100 mb-2" id="backupBtn"><i class="fas fa-save me-2"></i> Crear Copia de Seguridad Local</button><button class="btn btn-secondary w-100 mb-2" id="restoreBtn"><i class="fas fa-upload me-2"></i> Restaurar Copia Local</button><input type="file" id="importBackupFile" accept=".json" class="d-none"></div></div></div>
-                        <div class="col-lg-6" style="display: none;"><div class="card shadow-sm"><div class="card-header"><h5 class="mb-0">Logo de la Empresa para PDFs</h5></div><div class="card-body"><p class="text-muted">Sube el logo de tu empresa (PNG o JPG). Se guardará en tu navegador y aparecerá en los PDFs.</p><div class="d-flex align-items-center"><div class="me-3"><img id="logoPreview" src="" alt="Vista previa del logo" style="max-height: 60px; max-width: 200px; display: none;"><p id="noLogoText" class="text-muted fst-italic">No hay logo cargado.</p></div><div class="flex-grow-1"><input class="form-control" type="file" id="logoUpload" accept="image/png, image/jpeg"></div></div></div></div></div>
+                        <div class="col-lg-6"><div class="card shadow-sm"><div class="card-header"><h5 class="mb-0">Logo de la Empresa para PDFs</h5></div><div class="card-body"><p class="text-muted">Sube el logo de tu empresa (PNG o JPG). Se guardará en tu navegador y aparecerá en los PDFs.</p><div class="d-flex align-items-center"><div class="me-3"><img id="logoPreview" src="" alt="Vista previa del logo" style="max-height: 60px; max-width: 200px; display: none;"><p id="noLogoText" class="text-muted fst-italic">No hay logo cargado.</p></div><div class="flex-grow-1"><input class="form-control" type="file" id="logoUpload" accept="image/png, image/jpeg"></div></div></div></div></div>
                     </div>
                 </div>
             </main>
+        </div>
+    </div>
+</div>
+
+<!-- Asistente de Configuración Inicial Modal -->
+<div class="modal fade" id="onboardingModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="onboardingModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="onboardingModalLabel">Asistente de Configuración Inicial</h5>
+                <!-- No close button on purpose -->
+            </div>
+            <div class="modal-body">
+                <!-- Step 1: Welcome -->
+                <div class="onboarding-step" id="onboardingStep1">
+                    <h4 class="text-center">¡Bienvenido a Operis!</h4>
+                    <p class="text-center mt-3">Este asistente le guiará a través de los pasos esenciales para configurar su cuenta.</p>
+                    <p class="text-center">Para empezar, necesitará tener a mano la siguiente información:</p>
+                    <ul class="list-group w-75 mx-auto mt-3">
+                        <li class="list-group-item"><i class="fas fa-building me-2"></i> El logo de su empresa (opcional).</li>
+                        <li class="list-group-item"><i class="fas fa-warehouse me-2"></i> El nombre de su primer almacén (ej: "Almacén Principal").</li>
+                        <li class="list-group-item"><i class="fas fa-user-cog me-2"></i> El nombre de un operador (ej: "Juan Pérez").</li>
+                        <li class="list-group-item"><i class="fas fa-box me-2"></i> Los datos de su primer producto o materia prima.</li>
+                    </ul>
+                </div>
+
+                <!-- Step 2: Logo -->
+                <div class="onboarding-step" id="onboardingStep2" style="display: none;">
+                    <h5>Paso 1: Logo de la Empresa (Opcional)</h5>
+                    <p class="text-muted">Este logo aparecerá en todos los reportes que genere en PDF. Puede omitir este paso y añadirlo más tarde desde la Configuración.</p>
+                    <div class="d-flex align-items-center mt-3">
+                        <div class="me-3">
+                            <img id="onboardingLogoPreview" src="" alt="Vista previa del logo" style="max-height: 80px; max-width: 250px; display: none;">
+                            <p id="onboardingNoLogoText" class="text-muted fst-italic">No hay logo cargado.</p>
+                        </div>
+                        <div class="flex-grow-1">
+                            <input class="form-control" type="file" id="onboardingLogoUpload" accept="image/png, image/jpeg">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Almacén -->
+                <div class="onboarding-step" id="onboardingStep3" style="display: none;">
+                    <h5>Paso 2: Cree su Primer Almacén</h5>
+                    <p class="text-muted">Los almacenes le permiten gestionar el inventario en diferentes ubicaciones físicas. Es necesario tener al menos uno.</p>
+                    <form id="onboardingAlmacenForm">
+                        <div class="mb-3">
+                            <label for="onboardingAlmacenId" class="form-label">ID del Almacén</label>
+                            <input type="text" class="form-control" id="onboardingAlmacenId" placeholder="Ej: PRINCIPAL" required>
+                            <div class="form-text">Un identificador corto y en mayúsculas. No podrá cambiarse.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="onboardingAlmacenName" class="form-label">Nombre del Almacén</label>
+                            <input type="text" class="form-control" id="onboardingAlmacenName" placeholder="Ej: Almacén Principal" required>
+                        </div>
+                         <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="onboardingAlmacenDefault" checked>
+                            <label class="form-check-label" for="onboardingAlmacenDefault">Marcar como almacén por defecto para producción</label>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Step 4: Operador -->
+                <div class="onboarding-step" id="onboardingStep4" style="display: none;">
+                    <h5>Paso 3: Cree su Primer Operador</h5>
+                    <p class="text-muted">Los operadores son las personas que ejecutan las órdenes de producción. Necesita al menos uno para empezar.</p>
+                    <form id="onboardingOperatorForm">
+                         <div class="mb-3">
+                            <label for="onboardingOperatorId" class="form-label">ID del Operador</label>
+                            <input type="text" class="form-control" id="onboardingOperatorId" placeholder="Ej: JPEREZ" required>
+                             <div class="form-text">Un identificador corto y único para el operador.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="onboardingOperatorName" class="form-label">Nombre del Operador</label>
+                            <input type="text" class="form-control" id="onboardingOperatorName" placeholder="Ej: Juan Pérez" required>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Step 5: Producto/Material -->
+                <div class="onboarding-step" id="onboardingStep5" style="display: none;">
+                    <h5>Paso 4: Cree su Primer Ítem (Producto o Material)</h5>
+                    <p class="text-muted">Añada un producto terminado o una materia prima. Podrá añadir el resto más tarde desde la sección de Materiales.</p>
+                    <form id="onboardingMaterialForm">
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label for="onboardingMaterialCode" class="form-label">Código</label>
+                                <input type="text" class="form-control" id="onboardingMaterialCode" placeholder="Ej: PROD-001" required>
+                            </div>
+                            <div class="col-md-8 mb-3">
+                                <label for="onboardingMaterialDescription" class="form-label">Descripción</label>
+                                <input type="text" class="form-control" id="onboardingMaterialDescription" placeholder="Ej: Producto de Ejemplo" required>
+                            </div>
+                        </div>
+                         <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label for="onboardingMaterialUnit" class="form-label">Unidad</label>
+                                <input type="text" class="form-control" id="onboardingMaterialUnit" placeholder="Ej: kg, pz, lt" required>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label for="onboardingMaterialCost" class="form-label">Costo</label>
+                                <input type="number" class="form-control" id="onboardingMaterialCost" step="0.01" min="0" placeholder="0.00" required>
+                            </div>
+                             <div class="col-md-4 mb-3">
+                                <label for="onboardingMaterialStock" class="form-label">Existencia Inicial</label>
+                                <input type="number" class="form-control" id="onboardingMaterialStock" step="0.01" min="0" placeholder="0.00" required>
+                                 <div class="form-text">Se añadirá al almacén que acaba de crear.</div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Step 6: Finish -->
+                <div class="onboarding-step" id="onboardingStep6" style="display: none;">
+                    <div class="text-center">
+                        <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                        <h4>¡Configuración Completada!</h4>
+                        <p>Ha completado los pasos iniciales. Ya puede empezar a usar Operis.</p>
+                        <p>Explore las diferentes secciones desde el menú de la izquierda para añadir más datos, crear recetas y generar órdenes de producción.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="onboardingPrevBtn" style="display: none;">Anterior</button>
+                <button type="button" class="btn btn-primary" id="onboardingNextBtn">Siguiente</button>
+            </div>
         </div>
     </div>
 </div>
