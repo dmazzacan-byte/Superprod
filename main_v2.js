@@ -7,6 +7,26 @@ import Chart from 'https://esm.sh/chart.js/auto';
 import ChartDataLabels from 'https://esm.sh/chartjs-plugin-datalabels';
 
 // Your web app's Firebase configuration is now loaded from config.js
+function updateClientUI() {
+  const hostname = window.location.hostname;
+  const clientName = hostname.split('.')[0]; // e.g., 'operis-1'
+
+  if (clientName && clientName !== 'localhost' && clientName !== '127') {
+    const formattedName = clientName.charAt(0).toUpperCase() + clientName.slice(1).replace('-', ' ');
+
+    const splashTitle = document.getElementById('splash-client-name');
+    const loginTitle = document.getElementById('login-client-name');
+    const sidebarTitle = document.getElementById('sidebar-client-name');
+
+    if (splashTitle) splashTitle.textContent = formattedName;
+    if (loginTitle) loginTitle.textContent = formattedName;
+    if (sidebarTitle) sidebarTitle.textContent = formattedName;
+    document.title = `${formattedName} - Gestión de Producción`;
+  }
+}
+
+// Update UI with client name on load
+updateClientUI();
 
 // Initialize Firebase
 const firebaseConfig = getCurrentFirebaseConfig();
