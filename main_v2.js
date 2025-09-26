@@ -12,26 +12,58 @@ let app, auth, db, storage;
 // --- DYNAMIC APP INITIALIZATION ---
 
 /**
+ * In-app configuration for multiple tenants.
+ * This object holds the Firebase configuration for each client.
+ *
+ * TODO: ACTION REQUIRED
+ * Replace the placeholder credentials below with your actual
+ * Firebase project configurations.
+ */
+const tenantConfigs = {
+    'operis-1': {
+        // THIS IS A PLACEHOLDER - REPLACE WITH YOUR REAL FIREBASE CONFIG
+        apiKey: "AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        authDomain: "operis-1.firebaseapp.com",
+        projectId: "operis-1",
+        storageBucket: "operis-1.appspot.com",
+        messagingSenderId: "123456789012",
+        appId: "1:123456789012:web:xxxxxxxxxxxxxxxxxxxxxx"
+    },
+    'operis-2': {
+        // THIS IS A PLACEHOLDER - REPLACE WITH YOUR REAL FIREBASE CONFIG
+        apiKey: "AIzaSyYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",
+        authDomain: "operis-2.firebaseapp.com",
+        projectId: "operis-2",
+        storageBucket: "operis-2.appspot.com",
+        messagingSenderId: "210987654321",
+        appId: "1:210987654321:web:yyyyyyyyyyyyyyyyyyyyyy"
+    }
+};
+
+
+/**
  * Initializes the entire application for a specific tenant.
- * It fetches the tenant's Firebase config from a Cloud Function and then
- * starts all Firebase services and app listeners.
+ * It retrieves the tenant's Firebase config from the local `tenantConfigs` object
+ * and then starts all Firebase services and app listeners.
  * @param {string} tenantId The unique identifier for the client/tenant.
  */
-async function initializeAppForTenant(tenantId) {
-    // The URL of our Cloud Function.
-    // NOTE: 'superprod-2ced1' is the Project ID of our MAIN app where the function is deployed.
-    const configUrl = `https://us-central1-superprod-2ced1.cloudfunctions.net/getConfigForTenant?id=${tenantId}`;
+function initializeAppForTenant(tenantId) {
+    const firebaseConfig = tenantConfigs[tenantId];
+
+    if (!firebaseConfig || !firebaseConfig.apiKey.startsWith("AIza")) {
+         document.body.innerHTML = `
+            <div class="vh-100 d-flex justify-content-center align-items-center">
+                <div class="text-center">
+                    <h1>Error de Configuración</h1>
+                    <p class="text-muted">No se pudo cargar la configuración para el cliente '${tenantId}'.<br>Asegúrese de que las credenciales en <code>main_v2.js</code> son correctas.</p>
+                </div>
+            </div>`;
+        console.error(`Configuration for tenant '${tenantId}' is missing or incomplete in main_v2.js.`);
+        return;
+    }
 
     try {
-        // 1. Fetch the configuration from the secure Cloud Function.
-        const response = await fetch(configUrl);
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(`Failed to fetch config: ${errorData.error || response.statusText}`);
-        }
-        const firebaseConfig = await response.json();
-
-        // 2. Initialize Firebase services with the dynamically fetched config.
+        // Initialize Firebase services with the dynamically fetched config.
         app = initializeApp(firebaseConfig);
         auth = getAuth(app);
         db = getFirestore(app);
@@ -39,7 +71,7 @@ async function initializeAppForTenant(tenantId) {
 
         console.log(`Firebase initialized successfully for tenant: ${tenantId}`);
 
-        // 3. Set up the authentication state listener, which acts as the entry point for the rest of the app.
+        // Set up the authentication state listener, which acts as the entry point for the rest of the app.
         setupAuthListener();
 
     } catch (error) {
@@ -48,8 +80,8 @@ async function initializeAppForTenant(tenantId) {
         document.body.innerHTML = `
             <div class="vh-100 d-flex justify-content-center align-items-center">
                 <div class="text-center">
-                    <h1>Error de Configuración</h1>
-                    <p class="text-muted">No se pudo cargar la configuración para el cliente '${tenantId}'.<br>Por favor, contacte a soporte.</p>
+                    <h1>Error de Inicialización</h1>
+                    <p class="text-muted">Ocurrió un error al iniciar la aplicación para el cliente '${tenantId}'.<br>Por favor, contacte a soporte.</p>
                 </div>
             </div>`;
     }
@@ -3942,36 +3974,20 @@ document.getElementById('newPlanBtn')?.addEventListener('click', () => {
  * to load and kicks off the Firebase initialization for that tenant.
  */
 window.addEventListener('DOMContentLoaded', () => {
-    // For this implementation, we will hardcode the tenant ID.
-    // In a real multi-tenant SaaS application, you would determine this
-    // dynamically, for example, from the URL subdomain (e.g., "operis-1" from "operis-1.tu-app.com").
-    const tenantId = 'operis-1'; // Hardcoded for our first client.
+    // Determine the tenant from the URL query parameter `?tenant=...`
+    // Defaults to 'operis-1' if the parameter is not present.
+    const urlParams = new URLSearchParams(window.location.search);
+    const tenantId = urlParams.get('tenant') || 'operis-1';
 
     if (!tenantId) {
-        document.body.innerHTML = '<h1>Error: No se pudo identificar al cliente.</h1>';
-        console.error("Tenant ID could not be determined.");
-        return;
-    }
-
-    initializeAppForTenant(tenantId);
-});
-
-// --- APPLICATION ENTRY POINT ---
-
-/**
- * Main entry point for the application.
- * This code runs when the DOM is fully loaded. It determines which tenant
- * to load and kicks off the Firebase initialization for that tenant.
- */
-window.addEventListener('DOMContentLoaded', () => {
-    // For this implementation, we will hardcode the tenant ID.
-    // In a real multi-tenant SaaS application, you would determine this
-    // dynamically, for example, from the URL subdomain (e.g., "operis-1" from "operis-1.tu-app.com").
-    const tenantId = 'operis-1'; // Hardcoded for our first client.
-
-    if (!tenantId) {
-        document.body.innerHTML = '<h1>Error: No se pudo identificar al cliente.</h1>';
-        console.error("Tenant ID could not be determined.");
+        document.body.innerHTML = `
+            <div class="vh-100 d-flex justify-content-center align-items-center">
+                <div class="text-center">
+                    <h1>Cliente no especificado</h1>
+                    <p class="text-muted">Por favor, acceda a través de una URL válida, por ejemplo: <code>index.html?tenant=operis-1</code></p>
+                </div>
+            </div>`;
+        console.error("Tenant ID could not be determined from URL.");
         return;
     }
 
