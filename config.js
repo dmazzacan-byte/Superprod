@@ -22,5 +22,17 @@ export const clientConfigs = {
       appId: "1:558948066489:web:9eaf8a0b4fa8d04a676768",
       measurementId: "G-DGXEJMFV46"
     }
+  },
+  "operis-3": {
+    displayName: "Operis 3",
+    firebaseConfig: {
+      apiKey: "AIzaSyBNdNjIk0n3GO38ZN_IJxvxjUQA3ngPDUE",
+      authDomain: "operis-3.firebaseapp.com",
+      projectId: "operis-3",
+      storageBucket: "operis-3.firebasestorage.app",
+      messagingSenderId: "402707931885",
+      appId: "1:402707931885:web:aa687453abedcc707362e4",
+      measurementId: "G-HFXXPZ9V55"
+    }
   }
 };

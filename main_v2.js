@@ -3336,6 +3336,15 @@ document.getElementById('onboardingPrevBtn').addEventListener('click', () => {
     navigateOnboarding('prev');
 });
 
+document.getElementById('onboardingExitBtn').addEventListener('click', () => {
+    onboardingModal.hide();
+    Toastify({
+        text: 'Asistente omitido. Puede configurar manualmente desde la sección de Configuración.',
+        backgroundColor: 'var(--info-color)',
+        duration: 5000
+    }).showToast();
+});
+
 document.getElementById('onboardingLogoUpload').addEventListener('change', async (e) => {
   const file = e.target.files[0]; if (!file) return;
   const reader = new FileReader();
