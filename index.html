@@ -55,7 +55,7 @@
 </div>
 
 <!-- Login View -->
-<div id="loginView" class="container">
+<div id="loginView">
     <div class="row justify-content-center align-items-center vh-100">
         <div class="col-md-6 col-lg-4">
             <div class="card shadow-lg">
@@ -90,6 +90,12 @@
 
 <!-- Main App View -->
 <div id="appView" class="d-none">
+    <header class="navbar sticky-top flex-md-nowrap p-0 shadow d-md-none" style="background-color: var(--secondary-color);">
+        <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3 text-white" href="#dashboardPage">Operis</a>
+        <button class="navbar-toggler p-2" type="button" data-bs-toggle="collapse" data-bs-target="#sidebar" aria-controls="sidebar" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+    </header>
     <div id="userInfoHeader">
         <span id="userData" class="me-3"></span>
         <button id="logoutBtn" class="btn btn-danger" title="Cerrar Sesión">
@@ -99,9 +105,9 @@
     <div class="container-fluid">
         <div class="row">
             <nav id="sidebar" class="col-lg-2 col-md-3 d-md-block sidebar collapse">
-                <div class="position-sticky">
+                <div class="position-sticky d-flex flex-column h-100">
                     <h4 class="text-white text-center my-3">Operis</h4>
-                    <ul class="nav flex-column">
+                    <ul class="nav flex-column flex-grow-1">
                         <li class="nav-item"><a class="nav-link active" href="#dashboardPage" data-page="dashboardPage"><i class="fas fa-chart-line"></i> Dashboard</a></li>
                         <li class="nav-item"><a class="nav-link" href="#demandPlannerPage" data-page="demandPlannerPage"><i class="fas fa-bullseye"></i> Planificador</a></li>
                         <li class="nav-item"><a class="nav-link" href="#productsPage" data-page="productsPage"><i class="fas fa-boxes"></i> Productos</a></li>
@@ -110,6 +116,7 @@
                         <li class="nav-item"><a class="nav-link" href="#productionOrdersPage" data-page="productionOrdersPage"><i class="fas fa-clipboard-list"></i> Órdenes</a></li>
                         <li class="nav-item"><a class="nav-link" href="#reportsPage" data-page="reportsPage"><i class="fas fa-chart-pie"></i> Reportes</a></li>
                         <li class="nav-item"><a class="nav-link" href="#settingsPage" data-page="settingsPage"><i class="fas fa-cog"></i> Configuración</a></li>
+                        <li class="nav-item mt-auto d-md-none"><a class="nav-link" id="mobileLogoutBtn" href="#"><i class="fas fa-power-off"></i> Cerrar Sesión</a></li>
                     </ul>
                 </div>
             </nav>
@@ -272,6 +279,7 @@
                     </div>
                     <input type="text" class="form-control mb-3" id="searchProduct" placeholder="Buscar por código o descripción...">
                     <div class="table-responsive"><table class="table table-striped table-hover"><thead><tr><th>Código</th><th>Descripción</th><th>Unidad</th><th>Acciones</th></tr></thead><tbody id="productsTableBody"></tbody></table></div>
+                    <div id="productsPagination" class="d-flex justify-content-between align-items-center mt-3"></div>
                 </div>
 
                 <!-- Materiales -->
@@ -305,6 +313,7 @@
                             <tbody id="materialsTableBody"></tbody>
                         </table>
                     </div>
+                    <div id="materialsPagination" class="d-flex justify-content-between align-items-center mt-3"></div>
                 </div>
 
                 <!-- Recetas -->

@@ -97,6 +97,17 @@ async function handleLogout() {
 
 const loginBtn = document.getElementById('loginBtn');
 
+// On page load, check for and pre-fill the last used client ID
+document.addEventListener('DOMContentLoaded', () => {
+    const savedClientId = localStorage.getItem('operis-last-client-id');
+    if (savedClientId) {
+        const clientSelector = document.getElementById('clientSelector');
+        if (clientSelector) {
+            clientSelector.value = savedClientId;
+        }
+    }
+});
+
 loginBtn.addEventListener('click', async () => {
     console.log("Login button clicked.");
     const clientKey = document.getElementById('clientSelector').value.trim().toLowerCase();
@@ -135,6 +146,10 @@ loginBtn.addEventListener('click', async () => {
 
         console.log("Attempting to sign in with email and password...");
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
+
+        // Save the successful client ID to localStorage
+        localStorage.setItem('operis-last-client-id', clientKey);
+
         console.log("Sign in successful, handling login...");
         await handleSuccessfulLogin(userCredential.user);
 
@@ -574,9 +589,21 @@ async function initializeAppContent() {
 
   navLinks.forEach(l => l.addEventListener('click', (e) => {
       e.preventDefault();
-      console.log(`Nav link clicked. page: ${l.dataset.page}`);
-      showPage(l.dataset.page);
+      const page = l.dataset.page;
+      if (page) {
+          showPage(page);
+          const sidebar = document.getElementById('sidebar');
+          if (sidebar.classList.contains('show')) {
+              const sidebarToggler = new bootstrap.Collapse(sidebar);
+              sidebarToggler.hide();
+          }
+      }
   }));
+
+  document.getElementById('mobileLogoutBtn')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      handleLogout();
+  });
 
   document.getElementById('dashboardPdfBtn')?.addEventListener('click', () => generatePagePDF('dashboardPage', 'dashboard.pdf'));
   document.getElementById('reportsPdfBtn')?.addEventListener('click', () => generatePagePDF('reportsPage', 'reporte.pdf'));
@@ -743,14 +770,80 @@ function updateDashboard() {
   initCharts(completedThisMonth, finalProductOrdersThisMonth);
 }
 
+/* ----------  PAGINATION  ---------- */
+function renderPaginationControls(containerId, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="d-flex align-items-center">
+            <label for="${containerId}-itemsPerPage" class="form-label me-2 mb-0 small">Ver:</label>
+            <select id="${containerId}-itemsPerPage" class="form-select form-select-sm" style="width: auto;">
+                <option value="10" ${itemsPerPage === 10 ? 'selected' : ''}>10</option>
+                <option value="25" ${itemsPerPage === 25 ? 'selected' : ''}>25</option>
+                <option value="50" ${itemsPerPage === 50 ? 'selected' : ''}>50</option>
+                <option value="100" ${itemsPerPage === 100 ? 'selected' : ''}>100</option>
+            </select>
+        </div>
+        <div class="d-flex align-items-center">
+            <button class="btn btn-sm btn-outline-secondary me-2" id="${containerId}-prevBtn" ${currentPage === 1 ? 'disabled' : ''}>
+                <i class="fas fa-chevron-left"></i>
+            </button>
+            <span class="small">Página ${currentPage} de ${totalPages}</span>
+            <button class="btn btn-sm btn-outline-secondary ms-2" id="${containerId}-nextBtn" ${currentPage === totalPages ? 'disabled' : ''}>
+                <i class="fas fa-chevron-right"></i>
+            </button>
+        </div>
+    `;
+
+    document.getElementById(`${containerId}-itemsPerPage`).addEventListener('change', (e) => {
+        onItemsPerPageChange(parseInt(e.target.value, 10));
+    });
+    document.getElementById(`${containerId}-prevBtn`).addEventListener('click', () => {
+        if (currentPage > 1) onPageChange(currentPage - 1);
+    });
+    document.getElementById(`${containerId}-nextBtn`).addEventListener('click', () => {
+        if (currentPage < totalPages) onPageChange(currentPage + 1);
+    });
+}
+
+
 /* ----------  PRODUCTOS  ---------- */
 let isEditingProduct = false, currentProductCode = null;
+let productsCurrentPage = 1;
+let productsItemsPerPage = 10;
 const productModal = new bootstrap.Modal(document.getElementById('productModal'));
-function loadProducts(filter = '') {
-  const tbody = document.getElementById('productsTableBody'); tbody.innerHTML = '';
-  products.sort((a, b) => a.codigo.localeCompare(b.codigo));
-  products.filter(p => !filter || p.codigo.includes(filter) || p.descripcion.toLowerCase().includes(filter.toLowerCase()))
-    .forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td>${p.codigo}</td><td>${p.descripcion}</td><td>${p.unidad || ''}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${p.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${p.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`));
+function loadProducts(page = 1) {
+    productsCurrentPage = page;
+    const filter = document.getElementById('searchProduct').value.toLowerCase();
+    const filteredProducts = products
+        .sort((a, b) => a.codigo.localeCompare(b.codigo))
+        .filter(p => !filter || p.codigo.toLowerCase().includes(filter) || p.descripcion.toLowerCase().includes(filter));
+
+    const totalPages = Math.ceil(filteredProducts.length / productsItemsPerPage);
+    if (productsCurrentPage > totalPages) productsCurrentPage = totalPages || 1;
+
+    const startIndex = (productsCurrentPage - 1) * productsItemsPerPage;
+    const endIndex = startIndex + productsItemsPerPage;
+    const paginatedProducts = filteredProducts.slice(startIndex, endIndex);
+
+    const tbody = document.getElementById('productsTableBody');
+    tbody.innerHTML = '';
+    paginatedProducts.forEach(p => {
+        tbody.insertAdjacentHTML('beforeend', `<tr><td>${p.codigo}</td><td>${p.descripcion}</td><td>${p.unidad || ''}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${p.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${p.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`);
+    });
+
+    renderPaginationControls(
+        'productsPagination',
+        productsCurrentPage,
+        totalPages,
+        productsItemsPerPage,
+        (newPage) => loadProducts(newPage),
+        (newSize) => {
+            productsItemsPerPage = newSize;
+            loadProducts(1);
+        }
+    );
 }
 document.getElementById('productForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -812,10 +905,12 @@ document.getElementById('productsTableBody').addEventListener('click', async (e)
   if (btn.classList.contains('edit-btn')) { isEditingProduct = true; currentProductCode = code; const p = products.find(p => p.codigo === code); document.getElementById('productCode').value = p.codigo; document.getElementById('productDescription').value = p.descripcion; document.getElementById('productUnit').value = p.unidad || ''; document.getElementById('productCode').disabled = true; document.getElementById('productModalLabel').textContent = 'Editar Producto'; productModal.show(); }
 });
 document.getElementById('productModal').addEventListener('hidden.bs.modal', () => { isEditingProduct = false; document.getElementById('productForm').reset(); document.getElementById('productCode').disabled = false; document.getElementById('productModalLabel').textContent = 'Añadir Producto'; });
-document.getElementById('searchProduct').addEventListener('input', e => loadProducts(e.target.value));
+document.getElementById('searchProduct').addEventListener('input', () => loadProducts(1));
 
 /* ----------  MATERIALES  ---------- */
 let isEditingMaterial = false, currentMaterialCode = null;
+let materialsCurrentPage = 1;
+let materialsItemsPerPage = 10;
 const materialModal = new bootstrap.Modal(document.getElementById('materialModal'));
 
 function populateMaterialInventario(inventarioData = {}) {
@@ -836,7 +931,8 @@ function populateMaterialInventario(inventarioData = {}) {
     });
 }
 
-function loadMaterials() {
+function loadMaterials(page = 1) {
+    materialsCurrentPage = page;
     const filter = document.getElementById('searchMaterial').value.toLowerCase();
     const showOnlyProducts = document.getElementById('filterMaterialsAsProducts').checked;
 
@@ -865,8 +961,16 @@ function loadMaterials() {
         filteredMaterials = filteredMaterials.filter(m => m.codigo.toLowerCase().includes(filter) || m.descripcion.toLowerCase().includes(filter));
     }
 
+    const totalPages = Math.ceil(filteredMaterials.length / materialsItemsPerPage);
+    if (materialsCurrentPage > totalPages) materialsCurrentPage = totalPages || 1;
+
+    const startIndex = (materialsCurrentPage - 1) * materialsItemsPerPage;
+    const endIndex = startIndex + materialsItemsPerPage;
+    const paginatedMaterials = filteredMaterials.slice(startIndex, endIndex);
+
+
     // Generate Rows
-    filteredMaterials.forEach(m => {
+    paginatedMaterials.forEach(m => {
         let rowHtml = `<tr>
             <td>${m.codigo}</td>
             <td>${m.descripcion}</td>
@@ -889,6 +993,18 @@ function loadMaterials() {
         </tr>`;
         tbody.insertAdjacentHTML('beforeend', rowHtml);
     });
+
+    renderPaginationControls(
+        'materialsPagination',
+        materialsCurrentPage,
+        totalPages,
+        materialsItemsPerPage,
+        (newPage) => loadMaterials(newPage),
+        (newSize) => {
+            materialsItemsPerPage = newSize;
+            loadMaterials(1);
+        }
+    );
 }
 document.getElementById('materialForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -990,8 +1106,8 @@ document.getElementById('materialModal').addEventListener('hidden.bs.modal', () 
     document.getElementById('materialCode').disabled = false;
     document.getElementById('materialModalLabel').textContent = 'Añadir Material';
 });
-document.getElementById('searchMaterial').addEventListener('input', () => loadMaterials());
-document.getElementById('filterMaterialsAsProducts').addEventListener('change', () => loadMaterials());
+document.getElementById('searchMaterial').addEventListener('input', () => loadMaterials(1));
+document.getElementById('filterMaterialsAsProducts').addEventListener('change', () => loadMaterials(1));
 
 /* ----------  TRASPASOS  ---------- */
 const traspasoModal = new bootstrap.Modal(document.getElementById('traspasoModal'));

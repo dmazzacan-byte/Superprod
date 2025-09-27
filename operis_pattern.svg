@@ -1,0 +1,14 @@
+<svg width="250" height="250" xmlns="http://www.w3.org/2000/svg">
+  <text
+     x="50%"
+     y="50%"
+     font-family="Montserrat, sans-serif"
+     font-size="30px"
+     font-weight="700"
+     fill="rgba(255, 255, 255, 0.08)"
+     transform="rotate(-30, 125, 125)"
+     text-anchor="middle"
+     dominant-baseline="middle">
+    Operis
+  </text>
+</svg>

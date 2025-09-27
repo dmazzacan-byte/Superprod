@@ -211,8 +211,11 @@ body {
   vertical-align: middle;
 }
 
-/* Rule for smaller buttons in the production orders table */
-#productionOrdersTableBody .btn {
+/* Rule for smaller buttons in tables */
+#productionOrdersTableBody .btn,
+#productsTableBody .btn,
+#materialsTableBody .btn,
+#recipesTableBody .btn {
     padding: 0.2rem 0.5rem;
     font-size: 0.75rem;
 }
@@ -292,4 +295,137 @@ body {
     font-size: 1.25rem;
     color: rgba(255, 255, 255, 0.8);
     margin-top: 0.5rem;
+}
+
+/* ---------- Responsive Design ---------- */
+
+/* For extra large screens (like 4K monitors) */
+@media (min-width: 2000px) {
+    .container-fluid {
+        max-width: 1800px; /* Limit content width for better readability */
+        margin: 0 auto;
+    }
+}
+
+
+/* For tablets and small desktops */
+@media (max-width: 992px) {
+    .kpi-value {
+        font-size: 1.8rem;
+    }
+}
+
+/* For mobile devices */
+@media (max-width: 767.98px) {
+    #sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 250px;
+        z-index: 1000;
+        transform: translateX(-250px);
+        transition: transform 0.3s ease-in-out;
+    }
+
+    #sidebar.show {
+        transform: translateX(0);
+        box-shadow: 0 0 15px rgba(0,0,0,0.5);
+    }
+
+    #mainContent {
+        padding-top: 60px; /* Height of the mobile header */
+        margin-left: 0 !important;
+        width: 100% !important;
+    }
+
+    #userInfoHeader {
+        display: none; /* Hide desktop user info header */
+    }
+
+    .navbar-toggler-icon {
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba(255, 255, 255, 0.8)' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+    }
+
+    .kpi-card {
+        text-align: center;
+    }
+
+    .page-content > .d-flex.justify-content-between.align-items-center.border-bottom {
+        flex-direction: column;
+        align-items: flex-start !important;
+    }
+
+    .d-flex.justify-content-between.mb-3.mt-4 {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .btn-toolbar {
+        margin-top: 1rem;
+    }
+
+    .modal-title {
+        font-size: 1.1rem;
+    }
+
+    .modal-body {
+        font-size: 0.9rem;
+    }
+
+    .modal-body .form-label {
+        font-size: 0.85rem;
+    }
+}
+
+/* For very small screens */
+@media (max-width: 480px) {
+    h1.h2 {
+        font-size: 1.5rem;
+    }
+
+    #productsPagination, #materialsPagination {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+}
+
+/* ---------- Login Screen Redesign ---------- */
+#loginView {
+    background-color: var(--secondary-color);
+    background-image: url('operis_pattern.svg');
+    background-size: 250px 250px;
+    background-repeat: repeat;
+}
+
+#loginView .card {
+    background-color: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+#loginView .card-title,
+#loginView .form-label {
+    color: #ffffff;
+}
+
+#loginView .text-muted {
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+#loginView .form-control {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: #ffffff;
+}
+
+#loginView .form-control::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+#loginView .form-control:focus {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(0, 82, 204, 0.3);
 }
