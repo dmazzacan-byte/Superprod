@@ -1,3 +1,4 @@
+import { clientConfigs } from './config.js';
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
 import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
@@ -97,18 +98,23 @@ async function handleLogout() {
 const loginBtn = document.getElementById('loginBtn');
 
 loginBtn.addEventListener('click', async () => {
+    console.log("Login button clicked.");
     const clientKey = document.getElementById('clientSelector').value.trim().toLowerCase();
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
     const spinner = loginBtn.querySelector('.spinner-border');
     const clientSelector = document.getElementById('clientSelector');
 
+    console.log(`Attempting login for client: '${clientKey}' with email: '${email}'`);
+
     if (!clientKey) {
+        console.log("Client key is missing.");
         Toastify({ text: 'Por favor, ingrese el ID de su empresa.', backgroundColor: 'var(--warning-color)' }).showToast();
         return;
     }
 
     if (!clientConfigs[clientKey]) {
+        console.log(`Invalid client key: '${clientKey}'. Config not found.`);
         Toastify({ text: `El ID de empresa "${clientKey}" no es válido.`, backgroundColor: 'var(--danger-color)' }).showToast();
         return;
     }
@@ -119,6 +125,7 @@ loginBtn.addEventListener('click', async () => {
 
     try {
         const config = clientConfigs[clientKey].firebaseConfig;
+        console.log("Found config, initializing Firebase...");
 
         app = initializeApp(config);
         auth = getAuth(app);
@@ -126,23 +133,28 @@ loginBtn.addEventListener('click', async () => {
         storage = getStorage(app);
         console.log(`Firebase initialized for client: ${clientKey}`);
 
+        console.log("Attempting to sign in with email and password...");
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        console.log("Sign in successful, handling login...");
         await handleSuccessfulLogin(userCredential.user);
 
     } catch (error) {
-        Toastify({ text: `Error: ${error.code || 'Error al iniciar sesión.'}`, backgroundColor: 'var(--danger-color)' }).showToast();
+        console.error("Login failed with error:", error);
+        Toastify({ text: `Error: ${error.message || error.code || 'Error al iniciar sesión.'}`, backgroundColor: 'var(--danger-color)' }).showToast();
         if (app) {
             await deleteApp(app); // Clean up failed initialization
             app = null;
             auth = null;
             db = null;
             storage = null;
+            console.log("Cleaned up failed Firebase app instance.");
         }
         // Re-enable form on failure
         clientSelector.disabled = false;
     } finally {
         spinner.classList.add('d-none');
         loginBtn.disabled = false;
+        console.log("Login function finished.");
     }
 });
 

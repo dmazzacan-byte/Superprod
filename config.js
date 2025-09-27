@@ -1,4 +1,4 @@
-const clientConfigs = {
+export const clientConfigs = {
   "operis-1": {
     displayName: "Operis 1",
     firebaseConfig: {
