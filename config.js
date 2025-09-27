@@ -1,5 +1,5 @@
 export const clientConfigs = {
-  "operis-1": {
+  "HCali": {
     displayName: "Operis 1",
     firebaseConfig: {
       apiKey: "AIzaSyAyMsDnA4TadOXrwxUqumwPAji9S3QiEAE",
