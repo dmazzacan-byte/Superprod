@@ -1,6 +1,6 @@
 export const clientConfigs = {
-  "operis-1": {
-    displayName: "Operis 1",
+  "hcali": {
+    displayName: "Helados Cali",
     firebaseConfig: {
       apiKey: "AIzaSyAyMsDnA4TadOXrwxUqumwPAji9S3QiEAE",
       authDomain: "superprod-2ced1.firebaseapp.com",
