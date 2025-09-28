@@ -21,7 +21,13 @@ const getRecipe = async (productCode, recipesCache, transaction) => {
     if (!recipeDoc.exists) {
         return null;
     }
-    const recipe = recipeDoc.data().items;
+    const recipeData = recipeDoc.data();
+    // Ensure recipeData and recipeData.items are valid
+    if (!recipeData || !Array.isArray(recipeData.items)) {
+        recipesCache.set(productCode, []); // Cache as empty recipe
+        return [];
+    }
+    const recipe = recipeData.items;
     recipesCache.set(productCode, recipe);
 
     // Recursively fetch sub-recipes
