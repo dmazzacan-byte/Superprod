@@ -1,7 +1,7 @@
 import { clientConfigs } from './config.js';
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
-import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField, query, orderBy, limit, startAfter, getCountFromServer, where, increment } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
 import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
 import Chart from 'https://esm.sh/chart.js/auto';
 import ChartDataLabels from 'https://esm.sh/chartjs-plugin-datalabels';
@@ -230,17 +230,16 @@ async function migrateDataToMultiAlmacen() {
         return;
     }
 
-    // This whole block now only runs once if the key is not in localStorage.
-    Toastify({ text: 'Primera ejecución: Actualizando estructura de datos a multi-almacén...', duration: 6000, backgroundColor: 'var(--info-color)' }).showToast();
+    Toastify({ text: 'Comprobando estructura de datos de inventario...', duration: 4000, backgroundColor: 'var(--info-color)' }).showToast();
 
     // Ensure the GENERAL warehouse exists before proceeding
     let generalAlmacen = almacenes.find(a => a.id === 'GENERAL');
     if (!generalAlmacen) {
-        console.log("Creando almacén 'GENERAL' por primera vez.");
+        console.log("Creando almacén 'GENERAL' por primera vez para migración.");
         generalAlmacen = { id: 'GENERAL', name: 'Almacén General', isDefault: false };
         try {
             await setDoc(doc(db, "almacenes", "GENERAL"), generalAlmacen);
-            almacenes.push(generalAlmacen); // Add to local array immediately
+            almacenes.push(generalAlmacen);
         } catch (e) {
             console.error("Error crítico al crear el almacén GENERAL. La migración no puede continuar.", e);
             Toastify({ text: 'Error al crear almacén base. La migración falló.', backgroundColor: 'var(--danger-color)', duration: -1 }).showToast();
@@ -248,31 +247,40 @@ async function migrateDataToMultiAlmacen() {
         }
     }
 
-    const migrationPromises = [];
-    materials.forEach(material => {
-        if (typeof material.existencia === 'number' && typeof material.inventario === 'undefined') {
-            material.inventario = { 'GENERAL': material.existencia };
+    try {
+        // Find materials that still use the old `existencia` field.
+        const materialsToMigrateQuery = query(collection(db, 'materials'), where('existencia', '>', -Infinity));
+        const materialsSnapshot = await getDocs(materialsToMigrateQuery);
 
-            const docRef = doc(db, "materials", material.codigo);
-            migrationPromises.push(updateDoc(docRef, {
-                inventario: material.inventario,
-                existencia: deleteField()
-            }));
-        }
-    });
-
-    if (migrationPromises.length > 0) {
-        try {
-            await Promise.all(migrationPromises);
-            Toastify({ text: `Migración completada para ${migrationPromises.length} materiales.`, backgroundColor: 'var(--success-color)' }).showToast();
+        if (materialsSnapshot.empty) {
             localStorage.setItem(migrationKey, 'true');
-        } catch (error) {
-            console.error('Error during data migration:', error);
-            Toastify({ text: 'Error durante la migración de datos. Revise la consola.', backgroundColor: 'var(--danger-color)' }).showToast();
+            console.log("No materials needed migration to multi-almacen structure.");
             return;
         }
-    } else {
+
+        const migrationPromises = [];
+        materialsSnapshot.forEach(materialDoc => {
+            const materialData = materialDoc.data();
+            // Check if inventario field is missing to avoid overwriting new structures
+            if (typeof materialData.inventario === 'undefined') {
+                const docRef = doc(db, "materials", materialDoc.id);
+                migrationPromises.push(updateDoc(docRef, {
+                    inventario: { 'GENERAL': materialData.existencia || 0 },
+                    existencia: deleteField()
+                }));
+            }
+        });
+
+        if (migrationPromises.length > 0) {
+            await Promise.all(migrationPromises);
+            Toastify({ text: `Estructura de inventario actualizada para ${migrationPromises.length} materiales.`, backgroundColor: 'var(--success-color)' }).showToast();
+        }
+
         localStorage.setItem(migrationKey, 'true');
+
+    } catch (error) {
+        console.error('Error during data migration to multi-almacen:', error);
+        Toastify({ text: 'Error durante la migración de datos de inventario.', backgroundColor: 'var(--danger-color)' }).showToast();
     }
 }
 
@@ -282,15 +290,15 @@ async function loadInitialData() {
 
     try {
         const promises = [
-            loadCollection('products', 'codigo'),
-            loadCollection('materials', 'codigo'),
-            loadCollection('productionOrders', 'order_id'),
+            // loadCollection('products', 'codigo'), // Deactivated for performance
+            // loadCollection('materials', 'codigo'), // Deactivated for performance
+            // loadCollection('productionOrders', 'order_id'), // Deactivated for performance
             loadCollection('operators', 'id'),
             loadCollection('equipos', 'id'),
-            loadCollection('vales', 'vale_id'),
+            // loadCollection('vales', 'vale_id'), // Deactivated for performance
             loadCollection('almacenes', 'id'),
-            loadCollection('traspasos', 'traspaso_id'),
-            loadRecipesCollection()
+            // loadCollection('traspasos', 'traspaso_id'), // Deactivated for performance
+            // loadRecipesCollection() // Deactivated for performance
         ];
 
         if (currentUserRole?.toLowerCase() === 'administrator') {
@@ -298,32 +306,32 @@ async function loadInitialData() {
         }
 
         const [
-            productsData,
-            materialsData,
-            productionOrdersData,
+            // productsData,
+            // materialsData,
+            // productionOrdersData,
             operatorsData,
             equiposData,
-            valesData,
+            // valesData,
             almacenesData,
-            traspasosData,
-            recipesData,
+            // traspasosData,
+            // recipesData,
             usersData
         ] = await Promise.all(promises);
 
-        products = productsData;
-        materials = materialsData;
-        productionOrders = productionOrdersData;
+        // products = productsData; // Deactivated for performance
+        // materials = materialsData; // Deactivated for performance
+        // productionOrders = productionOrdersData; // Deactivated for performance
         operators = operatorsData;
         equipos = equiposData;
-        vales = valesData;
+        // vales = valesData; // Deactivated for performance
         almacenes = almacenesData.sort((a, b) => a.id.localeCompare(b.id));
-        traspasos = traspasosData;
-        recipes = recipesData;
+        // traspasos = traspasosData; // Deactivated for performance
+        // recipes = recipesData; // Deactivated for performance
         if (usersData) users = usersData;
 
-        productionOrders.forEach(o => o.order_id = parseInt(o.order_id));
+        // productionOrders.forEach(o => o.order_id = parseInt(o.order_id));
 
-        await migrateDataToMultiAlmacen();
+        // await migrateDataToMultiAlmacen(); // This needs materials, must be refactored
 
     } catch (error) {
         console.error("Error loading initial data from Firestore:", error);
@@ -337,9 +345,14 @@ async function loadInitialData() {
 }
 
 /* ----------  UTILS  ---------- */
-function generateSequentialOrderId() {
-  const nums = productionOrders.map(o => Number(o.order_id)).filter(n => !isNaN(n));
-  return nums.length ? Math.max(...nums) + 1 : 1;
+async function generateSequentialOrderId() {
+    const q = query(collection(db, 'productionOrders'), orderBy('order_id', 'desc'), limit(1));
+    const querySnapshot = await getDocs(q);
+    if (querySnapshot.empty) {
+        return 1;
+    }
+    const lastOrder = querySnapshot.docs[0].data();
+    return (lastOrder.order_id || 0) + 1;
 }
 function formatDate(isoDate) {
   if (!isoDate || typeof isoDate !== 'string') return 'N/A';
@@ -502,6 +515,7 @@ async function initializeAppContent() {
   }
 
   await loadInitialData();
+  await migrateDataToMultiAlmacen();
   await checkAndTriggerOnboarding();
   applyRoleRestrictions();
   const navLinks = document.querySelectorAll('.nav-link');
@@ -612,7 +626,13 @@ async function initializeAppContent() {
     orderSortDirection = orderSortDirection === 'asc' ? 'desc' : 'asc';
     const icon = document.querySelector('#toggleOrderSortBtn i');
     icon.className = orderSortDirection === 'asc' ? 'fas fa-sort-amount-up-alt' : 'fas fa-sort-amount-down-alt';
-    loadProductionOrders(document.getElementById('searchOrder').value);
+    ordersPageCursors = { 1: null }; // Reset cursors
+    loadProductionOrders(1);
+  });
+
+  document.getElementById('searchOrder')?.addEventListener('input', () => {
+      ordersPageCursors = { 1: null }; // Reset cursors
+      loadProductionOrders(1);
   });
 
   showPage('dashboardPage');
@@ -636,138 +656,103 @@ async function initializeAppContent() {
 }
 
 /* ----------  DASHBOARD  ---------- */
-function updateDashboard() {
-  // Populate filter if it's empty
-  const almacenFilter = document.getElementById('dashboardAlmacenFilter');
-  if (almacenFilter.options.length <= 1) {
-      almacenFilter.innerHTML = '<option value="all">Todos los Almacenes</option>';
-      almacenes.forEach(a => almacenFilter.add(new Option(a.name, a.id)));
-  }
+async function updateDashboard() {
+    const dashboardContent = document.getElementById('dashboardPage').querySelectorAll('.card, .row');
+    try {
+        dashboardContent.forEach(el => el.style.opacity = '0.5');
 
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
+        const almacenFilter = document.getElementById('dashboardAlmacenFilter');
+        if (almacenFilter.options.length <= 1) {
+            almacenFilter.innerHTML = '<option value="all">Todos los Almacenes</option>';
+            almacenes.forEach(a => almacenFilter.add(new Option(a.name, a.id)));
+        }
 
-  const completedThisMonth = productionOrders.filter(o => {
-    if (o.status !== 'Completada' || !o.completed_at) return false;
-    const orderDate = new Date(o.completed_at);
-    return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
-  });
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
 
-  const pending = productionOrders.filter(o => o.status === 'Pendiente');
+        const firstDayOfMonth = new Date(currentYear, currentMonth, 1).toISOString().split('T')[0];
 
-  const intermediateProducts = getIntermediateProductCodes();
-  const finalProductOrdersThisMonth = completedThisMonth.filter(o => !intermediateProducts.has(o.product_code));
+        const [ordersSnapshot, allMaterials, allRecipes, allProducts] = await Promise.all([
+            getDocs(query(collection(db, 'productionOrders'), where('created_at', '>=', firstDayOfMonth))),
+            loadCollection('materials', 'codigo'),
+            loadRecipesCollection(),
+            loadCollection('products', 'codigo')
+        ]);
+        const allOrders = ordersSnapshot.docs.map(d => d.data());
 
-  const totalProduction = finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.quantity_produced || 0), 0);
-  const realCost = finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.cost_real || 0), 0);
-  const overCost = completedThisMonth.reduce((acc, o) => acc + (o.overcost || 0), 0);
+        const completedThisMonth = allOrders.filter(o => {
+            if (o.status !== 'Completada' || !o.completed_at) return false;
+            const orderDate = new Date(o.completed_at);
+            return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
+        });
 
-  document.getElementById('pendingOrdersCard').textContent = pending.length;
-  document.getElementById('completedOrdersCard').textContent = completedThisMonth.length;
-  document.getElementById('totalProductionCard').textContent = totalProduction;
-  document.getElementById('totalCostCard').textContent = formatCurrency(realCost);
-  document.getElementById('totalOvercostCard').textContent = formatCurrency(overCost);
+        const pending = allOrders.filter(o => o.status === 'Pendiente');
+        const intermediateProducts = await getIntermediateProductCodes();
+        const finalProductOrdersThisMonth = completedThisMonth.filter(o => !intermediateProducts.has(o.product_code));
 
-  const operatorStats = {};
-  completedThisMonth.forEach(o => {
-    const opId = o.operator_id;
-    if (!operatorStats[opId]) {
-      operatorStats[opId] = { name: operators.find(op => op.id === opId)?.name || opId, production: 0, overcost: 0 };
-    }
-    operatorStats[opId].production += o.quantity_produced || 0;
-    operatorStats[opId].overcost += o.overcost || 0;
-  });
+        document.getElementById('pendingOrdersCard').textContent = pending.length;
+        document.getElementById('completedOrdersCard').textContent = completedThisMonth.length;
+        document.getElementById('totalProductionCard').textContent = finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.quantity_produced || 0), 0);
+        document.getElementById('totalCostCard').textContent = formatCurrency(finalProductOrdersThisMonth.reduce((acc, o) => acc + (o.cost_real || 0), 0));
+        document.getElementById('totalOvercostCard').textContent = formatCurrency(completedThisMonth.reduce((acc, o) => acc + (o.overcost || 0), 0));
 
-  const sortedByProduction = Object.values(operatorStats).sort((a, b) => b.production - a.production);
-  const sortedByOvercost = Object.values(operatorStats).sort((a, b) => a.overcost - b.overcost);
+        // Operator & Equipo Stats
+        const operatorStats = {};
+        const equipoStats = {};
+        completedThisMonth.forEach(o => {
+            if (!operatorStats[o.operator_id]) operatorStats[o.operator_id] = { name: operators.find(op => op.id === o.operator_id)?.name || o.operator_id, production: 0, overcost: 0 };
+            operatorStats[o.operator_id].production += o.quantity_produced || 0;
+            operatorStats[o.operator_id].overcost += o.overcost || 0;
+            if (!equipoStats[o.equipo_id]) equipoStats[o.equipo_id] = { name: equipos.find(eq => eq.id === o.equipo_id)?.name || o.equipo_id, production: 0 };
+            equipoStats[o.equipo_id].production += o.quantity_produced || 0;
+        });
 
-  const prodRankBody = document.getElementById('operatorProductionRankBody');
-  prodRankBody.innerHTML = sortedByProduction.map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>${op.production}</td></tr>`).join('');
+        document.getElementById('operatorProductionRankBody').innerHTML = Object.values(operatorStats).sort((a, b) => b.production - a.production).map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>${op.production}</td></tr>`).join('');
+        document.getElementById('operatorOvercostRankBody').innerHTML = Object.values(operatorStats).sort((a, b) => a.overcost - b.overcost).map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>${formatCurrency(op.overcost)}</td></tr>`).join('');
+        document.getElementById('equipoProductionRankBody').innerHTML = Object.values(equipoStats).sort((a, b) => b.production - a.production).map((eq, i) => `<tr><td>${i + 1}</td><td>${eq.name}</td><td>${eq.production}</td></tr>`).join('');
 
-  const overcostRankBody = document.getElementById('operatorOvercostRankBody');
-  if(overcostRankBody) {
-    overcostRankBody.innerHTML = sortedByOvercost.map((op, i) => `<tr><td>${i + 1}</td><td>${op.name}</td><td>${formatCurrency(op.overcost)}</td></tr>`).join('');
-  }
+        // Low Stock Alerts
+        const threshold = parseInt(document.getElementById('lowStockThreshold').value, 10);
+        const selectedAlmacenId = document.getElementById('dashboardAlmacenFilter').value;
+        const lowStockAlerts = [];
+        allMaterials.forEach(m => {
+            if (!m.inventario) return;
+            const almacenesToCheck = selectedAlmacenId === 'all' ? Object.keys(m.inventario) : [selectedAlmacenId];
+            almacenesToCheck.forEach(almacenId => {
+                if (m.inventario[almacenId] < threshold) {
+                    lowStockAlerts.push({ material: m, almacenName: almacenes.find(a => a.id === almacenId)?.name || almacenId, stock: m.inventario[almacenId] });
+                }
+            });
+        });
+        lowStockAlerts.sort((a, b) => a.stock - b.stock);
 
-  const equipoStats = {};
-  completedThisMonth.forEach(o => {
-    const eqId = o.equipo_id;
-    if (!equipoStats[eqId]) {
-      equipoStats[eqId] = { name: equipos.find(eq => eq.id === eqId)?.name || eqId, production: 0 };
-    }
-    equipoStats[eqId].production += o.quantity_produced || 0;
-  });
-
-  const sortedByEquipoProduction = Object.values(equipoStats).sort((a, b) => b.production - a.production);
-  const equipoRankBody = document.getElementById('equipoProductionRankBody');
-  equipoRankBody.innerHTML = sortedByEquipoProduction.map((eq, i) => `<tr><td>${i + 1}</td><td>${eq.name}</td><td>${eq.production}</td></tr>`).join('');
-
-  const threshold = parseInt(document.getElementById('lowStockThreshold').value, 10);
-  const selectedAlmacenId = document.getElementById('dashboardAlmacenFilter').value;
-  const materialsInRecipes = new Set();
-  for (const productId of Object.keys(recipes)) {
-      const baseMats = getBaseMaterials(productId, 1);
-      baseMats.forEach(mat => materialsInRecipes.add(mat.code));
-  }
-
-  const lowStockAlerts = [];
-  materials
-    .filter(m => materialsInRecipes.has(m.codigo))
-    .forEach(m => {
-        if (!m.inventario) return;
-        const almacenesToCheck = selectedAlmacenId === 'all'
-            ? Object.keys(m.inventario)
-            : [selectedAlmacenId];
-
-        almacenesToCheck.forEach(almacenId => {
-            if (m.inventario[almacenId] < threshold) {
-                const almacen = almacenes.find(a => a.id === almacenId);
-                lowStockAlerts.push({
-                    material: m,
-                    almacenName: almacen ? almacen.name : almacenId,
-                    stock: m.inventario[almacenId]
+        const materialToProductsMap = {};
+        for (const productId of Object.keys(allRecipes)) {
+            const baseMaterials = await getBaseMaterials(productId, 1, allRecipes);
+            const product = allProducts.find(p => p.codigo === productId);
+            if (product) {
+                baseMaterials.forEach(bm => {
+                    if (!materialToProductsMap[bm.code]) materialToProductsMap[bm.code] = new Set();
+                    materialToProductsMap[bm.code].add(product.descripcion);
                 });
             }
-        });
-    });
+        }
 
-  lowStockAlerts.sort((a, b) => a.stock - b.stock);
+        const lowStockTbody = document.getElementById('lowStockTableBody');
+        lowStockTbody.innerHTML = lowStockAlerts.length ? lowStockAlerts.map(alert => {
+            const affectedProductsList = [...(materialToProductsMap[alert.material.codigo] || [])];
+            return `<tr><td>${alert.material.descripcion} en <strong>${alert.almacenName}</strong></td><td>${alert.stock.toFixed(2)}</td><td>${alert.material.unidad}</td><td>${affectedProductsList.length > 0 ? affectedProductsList.map((p, i) => `${i + 1}. ${p}`).join('<br>') : 'N/A'}</td></tr>`;
+        }).join('') : `<tr><td colspan="4" class="text-center">Sin alertas para el límite de ${threshold}</td></tr>`;
 
-  const affectedProductsByMaterial = {};
-  lowStockAlerts.forEach(alert => {
-      const mCode = alert.material.codigo;
-      if (!affectedProductsByMaterial[mCode]) {
-          affectedProductsByMaterial[mCode] = new Set();
-          Object.keys(recipes).forEach(productId => {
-              const baseMaterials = getBaseMaterials(productId, 1);
-              if (baseMaterials.some(bm => bm.code === mCode)) {
-                  const product = products.find(p => p.codigo === productId);
-                  if (product) {
-                      affectedProductsByMaterial[mCode].add(product.descripcion);
-                  }
-              }
-          });
-      }
-  });
+        initCharts(completedThisMonth, finalProductOrdersThisMonth);
 
-  const lowStockTbody = document.getElementById('lowStockTableBody');
-  lowStockTbody.innerHTML = lowStockAlerts.length
-    ? lowStockAlerts.map(alert => {
-        const affectedProductsList = [...affectedProductsByMaterial[alert.material.codigo]];
-        const formattedProducts = affectedProductsList.length
-            ? affectedProductsList.map((p, i) => `${i + 1}. ${p}`).join('<br>')
-            : 'N/A';
-        return `<tr>
-            <td>${alert.material.descripcion} en <strong>${alert.almacenName}</strong></td>
-            <td>${alert.stock.toFixed(2)}</td>
-            <td>${alert.material.unidad}</td>
-            <td>${formattedProducts}</td>
-          </tr>`;
-      }).join('')
-    : `<tr><td colspan="4" class="text-center">Sin alertas para el límite de ${threshold}</td></tr>`;
-
-  initCharts(completedThisMonth, finalProductOrdersThisMonth);
+    } catch (error) {
+        console.error("Error updating dashboard:", error);
+        Toastify({ text: 'Error al actualizar el dashboard.', backgroundColor: 'var(--danger-color)' }).showToast();
+    } finally {
+        dashboardContent.forEach(el => el.style.opacity = '1');
+    }
 }
 
 /* ----------  PAGINATION  ---------- */
@@ -810,108 +795,186 @@ function renderPaginationControls(containerId, currentPage, totalPages, itemsPer
 
 /* ----------  PRODUCTOS  ---------- */
 let isEditingProduct = false, currentProductCode = null;
+const productModal = new bootstrap.Modal(document.getElementById('productModal'));
+
+// --- State for Server-Side Pagination ---
 let productsCurrentPage = 1;
 let productsItemsPerPage = 10;
-const productModal = new bootstrap.Modal(document.getElementById('productModal'));
-function loadProducts(page = 1) {
+let productsTotalPages = 1;
+let productsLastVisible = null; // Stores the last document snapshot for the next page query
+let productsPageCursors = { 1: null }; // Maps page number to the 'startAfter' cursor
+
+async function loadProducts(page = 1) {
     productsCurrentPage = page;
-    const filter = document.getElementById('searchProduct').value.toLowerCase();
-    const filteredProducts = products
-        .sort((a, b) => a.codigo.localeCompare(b.codigo))
-        .filter(p => !filter || p.codigo.toLowerCase().includes(filter) || p.descripcion.toLowerCase().includes(filter));
-
-    const totalPages = Math.ceil(filteredProducts.length / productsItemsPerPage);
-    if (productsCurrentPage > totalPages) productsCurrentPage = totalPages || 1;
-
-    const startIndex = (productsCurrentPage - 1) * productsItemsPerPage;
-    const endIndex = startIndex + productsItemsPerPage;
-    const paginatedProducts = filteredProducts.slice(startIndex, endIndex);
-
+    const filter = document.getElementById('searchProduct').value.toUpperCase().trim();
     const tbody = document.getElementById('productsTableBody');
-    tbody.innerHTML = '';
-    paginatedProducts.forEach(p => {
-        tbody.insertAdjacentHTML('beforeend', `<tr><td>${p.codigo}</td><td>${p.descripcion}</td><td>${p.unidad || ''}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${p.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${p.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`);
-    });
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center">Cargando...</td></tr>';
 
-    renderPaginationControls(
-        'productsPagination',
-        productsCurrentPage,
-        totalPages,
-        productsItemsPerPage,
-        (newPage) => loadProducts(newPage),
-        (newSize) => {
-            productsItemsPerPage = newSize;
-            loadProducts(1);
+    try {
+        // --- Build Query ---
+        const productsRef = collection(db, 'products');
+        let q;
+        let countQuery;
+
+        if (filter) {
+            // Firestore is case-sensitive and doesn't have a native 'contains' or 'LIKE' query.
+            // A common workaround is to use a range query on the search field.
+            // This works for "starts-with" queries.
+            q = query(productsRef,
+                orderBy('codigo'),
+                where('codigo', '>=', filter),
+                where('codigo', '<=', filter + '\uf8ff'),
+                limit(productsItemsPerPage));
+
+            // We need a separate query to count the filtered results accurately.
+            countQuery = query(productsRef,
+                where('codigo', '>=', filter),
+                where('codigo', '<=', filter + '\uf8ff'));
+        } else {
+            // Standard paginated query
+            const baseQuery = query(productsRef, orderBy('codigo'));
+            countQuery = baseQuery; // For total count, we use the base query without limits
+
+            if (page > 1 && productsPageCursors[page]) {
+                q = query(baseQuery, startAfter(productsPageCursors[page]), limit(productsItemsPerPage));
+            } else {
+                q = query(baseQuery, limit(productsItemsPerPage));
+            }
         }
-    );
+
+        // --- Execute Queries ---
+        const [querySnapshot, countSnapshot] = await Promise.all([
+            getDocs(q),
+            getCountFromServer(countQuery)
+        ]);
+
+        const totalProducts = countSnapshot.data().count;
+        productsTotalPages = Math.ceil(totalProducts / productsItemsPerPage);
+        if (productsCurrentPage > productsTotalPages) productsCurrentPage = productsTotalPages || 1;
+
+        // --- Render Results ---
+        tbody.innerHTML = '';
+        if (querySnapshot.empty) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center">No se encontraron productos.</td></tr>';
+        } else {
+            querySnapshot.forEach(doc => {
+                const p = doc.data();
+                p.codigo = doc.id; // The document ID is the product code
+                tbody.insertAdjacentHTML('beforeend', `<tr><td>${p.codigo}</td><td>${p.descripcion}</td><td>${p.unidad || ''}</td><td><button class="btn btn-sm btn-warning edit-btn" data-code="${p.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${p.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`);
+            });
+        }
+
+        // --- Update Pagination State ---
+        if (!querySnapshot.empty) {
+            productsLastVisible = querySnapshot.docs[querySnapshot.docs.length - 1];
+            productsPageCursors[page + 1] = productsLastVisible; // Store cursor for the *next* page
+        }
+
+        // --- Render Controls ---
+        renderPaginationControls(
+            'productsPagination',
+            productsCurrentPage,
+            productsTotalPages,
+            productsItemsPerPage,
+            (newPage) => { // onPageChange
+                loadProducts(newPage);
+            },
+            (newSize) => { // onItemsPerPageChange
+                productsItemsPerPage = newSize;
+                productsPageCursors = { 1: null }; // Reset cursors
+                loadProducts(1);
+            }
+        );
+
+    } catch (error) {
+        console.error("Error loading products from Firestore:", error);
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Error al cargar productos.</td></tr>';
+        Toastify({ text: 'Error al cargar productos.', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
 }
 document.getElementById('productForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const code = document.getElementById('productCode').value.trim().toUpperCase();
-  const desc = document.getElementById('productDescription').value.trim();
-  const unit = document.getElementById('productUnit').value.trim();
-  if (!code || !desc) return;
+    e.preventDefault();
+    const code = document.getElementById('productCode').value.trim().toUpperCase();
+    const desc = document.getElementById('productDescription').value.trim();
+    const unit = document.getElementById('productUnit').value.trim();
+    if (!code || !desc) return;
 
-  if (!isEditingProduct) {
-    const codeExists = products.some(p => p.codigo === code) || materials.some(m => m.codigo === code);
-    if (codeExists) {
-        Toastify({ text: `Error: El código ${code} ya existe como producto o material.`, backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
-        return;
-    }
-  }
+    if (!isEditingProduct) {
+        const productRef = doc(db, "products", code);
+        const materialRef = doc(db, "materials", code);
+        const [productSnap, materialSnap] = await Promise.all([getDoc(productRef), getDoc(materialRef)]);
 
-  const productData = {
-      descripcion: desc,
-      unidad: unit
-  };
-
-  try {
-    await setDoc(doc(db, "products", code), productData);
-
-    if (isEditingProduct) {
-        const idx = products.findIndex(p => p.codigo === currentProductCode);
-        if (idx !== -1) {
-            products[idx].descripcion = desc;
-            products[idx].unidad = unit;
+        if (productSnap.exists() || materialSnap.exists()) {
+            Toastify({ text: `Error: El código ${code} ya existe como producto o material.`, backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
+            return;
         }
-    } else {
-        products.push({ codigo: code, ...productData });
     }
 
-    loadProducts();
-    productModal.hide();
-    Toastify({ text: 'Producto guardado', backgroundColor: 'var(--success-color)' }).showToast();
-  } catch (error) {
-      console.error("Error saving product: ", error);
-      Toastify({ text: 'Error al guardar producto', backgroundColor: 'var(--danger-color)' }).showToast();
-  }
+    const productData = {
+        descripcion: desc,
+        unidad: unit
+    };
+
+    try {
+        await setDoc(doc(db, "products", code), productData);
+        loadProducts(productsCurrentPage); // Refresh the current page
+        productModal.hide();
+        Toastify({ text: 'Producto guardado', backgroundColor: 'var(--success-color)' }).showToast();
+    } catch (error) {
+        console.error("Error saving product: ", error);
+        Toastify({ text: 'Error al guardar producto', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
 });
 document.getElementById('productsTableBody').addEventListener('click', async (e) => {
-  const btn = e.target.closest('button'); if (!btn) return;
-  const code = btn.dataset.code;
-  if (btn.classList.contains('delete-btn')) {
-    if (confirm(`¿Eliminar producto ${code}?`)) {
-        try {
-            await deleteDoc(doc(db, "products", code));
-            products = products.filter(p => p.codigo !== code);
-            loadProducts();
-            Toastify({ text: 'Producto eliminado', backgroundColor: 'var(--success-color)' }).showToast();
-        } catch (error) {
-            console.error("Error deleting product: ", error);
-            Toastify({ text: 'Error al eliminar producto', backgroundColor: 'var(--danger-color)' }).showToast();
+    const btn = e.target.closest('button'); if (!btn) return;
+    const code = btn.dataset.code;
+
+    if (btn.classList.contains('delete-btn')) {
+        if (confirm(`¿Eliminar producto ${code}?`)) {
+            try {
+                await deleteDoc(doc(db, "products", code));
+                loadProducts(productsCurrentPage); // Refresh the view
+                Toastify({ text: 'Producto eliminado', backgroundColor: 'var(--success-color)' }).showToast();
+            } catch (error) {
+                console.error("Error deleting product: ", error);
+                Toastify({ text: 'Error al eliminar producto', backgroundColor: 'var(--danger-color)' }).showToast();
+            }
         }
     }
-  }
-  if (btn.classList.contains('edit-btn')) { isEditingProduct = true; currentProductCode = code; const p = products.find(p => p.codigo === code); document.getElementById('productCode').value = p.codigo; document.getElementById('productDescription').value = p.descripcion; document.getElementById('productUnit').value = p.unidad || ''; document.getElementById('productCode').disabled = true; document.getElementById('productModalLabel').textContent = 'Editar Producto'; productModal.show(); }
+
+    if (btn.classList.contains('edit-btn')) {
+        isEditingProduct = true;
+        currentProductCode = code;
+        const productDoc = await getDoc(doc(db, "products", code));
+        if (productDoc.exists()) {
+            const p = productDoc.data();
+            document.getElementById('productCode').value = code;
+            document.getElementById('productDescription').value = p.descripcion;
+            document.getElementById('productUnit').value = p.unidad || '';
+            document.getElementById('productCode').disabled = true;
+            document.getElementById('productModalLabel').textContent = 'Editar Producto';
+            productModal.show();
+        } else {
+            Toastify({ text: `Producto ${code} no encontrado.`, backgroundColor: 'var(--danger-color)' }).showToast();
+        }
+    }
 });
 document.getElementById('productModal').addEventListener('hidden.bs.modal', () => { isEditingProduct = false; document.getElementById('productForm').reset(); document.getElementById('productCode').disabled = false; document.getElementById('productModalLabel').textContent = 'Añadir Producto'; });
-document.getElementById('searchProduct').addEventListener('input', () => loadProducts(1));
+document.getElementById('searchProduct').addEventListener('input', () => {
+    productsPageCursors = { 1: null }; // Reset cursors for new search
+    loadProducts(1);
+});
 
 /* ----------  MATERIALES  ---------- */
 let isEditingMaterial = false, currentMaterialCode = null;
+const materialModal = new bootstrap.Modal(document.getElementById('materialModal'));
+
+// --- State for Server-Side Pagination ---
 let materialsCurrentPage = 1;
 let materialsItemsPerPage = 10;
-const materialModal = new bootstrap.Modal(document.getElementById('materialModal'));
+let materialsTotalPages = 1;
+let materialsLastVisible = null;
+let materialsPageCursors = { 1: null };
 
 function populateMaterialInventario(inventarioData = {}) {
     const container = document.getElementById('materialInventario');
@@ -931,17 +994,17 @@ function populateMaterialInventario(inventarioData = {}) {
     });
 }
 
-function loadMaterials(page = 1) {
+async function loadMaterials(page = 1) {
     materialsCurrentPage = page;
-    const filter = document.getElementById('searchMaterial').value.toLowerCase();
-    const showOnlyProducts = document.getElementById('filterMaterialsAsProducts').checked;
+    const filter = document.getElementById('searchMaterial').value.toUpperCase().trim();
+    // The "filter as products" feature is complex with Firestore queries and is disabled for now.
+    // const showOnlyProducts = document.getElementById('filterMaterialsAsProducts').checked;
 
     const thead = document.getElementById('materialsTableHead');
     const tbody = document.getElementById('materialsTableBody');
-    thead.innerHTML = '';
-    tbody.innerHTML = '';
+    tbody.innerHTML = `<tr><td colspan="${6 + almacenes.length}" class="text-center">Cargando...</td></tr>`;
 
-    // Generate Headers
+    // --- Generate Headers (Dynamic based on warehouses) ---
     let headerHtml = '<tr><th>Código</th><th>Descripción</th><th>Unidad</th>';
     almacenes.forEach(a => {
         headerHtml += `<th>Stock (${a.id})</th>`;
@@ -949,156 +1012,193 @@ function loadMaterials(page = 1) {
     headerHtml += '<th>Stock Total</th><th>Costo</th><th>Acciones</th></tr>';
     thead.innerHTML = headerHtml;
 
-    // Sort and Filter Materials
-    let filteredMaterials = materials.sort((a, b) => a.codigo.localeCompare(b.codigo));
+    try {
+        const materialsRef = collection(db, 'materials');
+        let q;
+        let countQuery;
 
-    if (showOnlyProducts) {
-        const productCodes = new Set(products.map(p => p.codigo));
-        filteredMaterials = filteredMaterials.filter(m => productCodes.has(m.codigo));
-    }
-
-    if (filter) {
-        filteredMaterials = filteredMaterials.filter(m => m.codigo.toLowerCase().includes(filter) || m.descripcion.toLowerCase().includes(filter));
-    }
-
-    const totalPages = Math.ceil(filteredMaterials.length / materialsItemsPerPage);
-    if (materialsCurrentPage > totalPages) materialsCurrentPage = totalPages || 1;
-
-    const startIndex = (materialsCurrentPage - 1) * materialsItemsPerPage;
-    const endIndex = startIndex + materialsItemsPerPage;
-    const paginatedMaterials = filteredMaterials.slice(startIndex, endIndex);
-
-
-    // Generate Rows
-    paginatedMaterials.forEach(m => {
-        let rowHtml = `<tr>
-            <td>${m.codigo}</td>
-            <td>${m.descripcion}</td>
-            <td>${m.unidad}</td>`;
-
-        let totalStock = 0;
-        almacenes.forEach(a => {
-            const stock = m.inventario?.[a.id] || 0;
-            rowHtml += `<td>${stock.toFixed(2)}</td>`;
-            totalStock += stock;
-        });
-
-        rowHtml += `
-            <td><strong>${totalStock.toFixed(2)}</strong></td>
-            <td>${formatCurrency(m.costo)}</td>
-            <td>
-                <button class="btn btn-sm btn-warning edit-btn me-2" data-code="${m.codigo}" title="Editar"><i class="fas fa-edit"></i></button>
-                <button class="btn btn-sm btn-danger delete-btn" data-code="${m.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button>
-            </td>
-        </tr>`;
-        tbody.insertAdjacentHTML('beforeend', rowHtml);
-    });
-
-    renderPaginationControls(
-        'materialsPagination',
-        materialsCurrentPage,
-        totalPages,
-        materialsItemsPerPage,
-        (newPage) => loadMaterials(newPage),
-        (newSize) => {
-            materialsItemsPerPage = newSize;
-            loadMaterials(1);
+        // --- Build Query ---
+        if (filter) {
+            // Simple "starts-with" search on the material code
+            q = query(materialsRef,
+                orderBy('codigo'),
+                where('codigo', '>=', filter),
+                where('codigo', '<=', filter + '\uf8ff'),
+                limit(materialsItemsPerPage));
+            countQuery = query(materialsRef,
+                where('codigo', '>=', filter),
+                where('codigo', '<=', filter + '\uf8ff'));
+        } else {
+            const baseQuery = query(materialsRef, orderBy('codigo'));
+            countQuery = baseQuery;
+            if (page > 1 && materialsPageCursors[page]) {
+                q = query(baseQuery, startAfter(materialsPageCursors[page]), limit(materialsItemsPerPage));
+            } else {
+                q = query(baseQuery, limit(materialsItemsPerPage));
+            }
         }
-    );
+
+        // --- Execute Queries ---
+        const [querySnapshot, countSnapshot] = await Promise.all([
+            getDocs(q),
+            getCountFromServer(countQuery)
+        ]);
+
+        const totalMaterials = countSnapshot.data().count;
+        materialsTotalPages = Math.ceil(totalMaterials / materialsItemsPerPage);
+        if (materialsCurrentPage > materialsTotalPages) materialsCurrentPage = materialsTotalPages || 1;
+
+        // --- Render Results ---
+        tbody.innerHTML = '';
+        if (querySnapshot.empty) {
+            tbody.innerHTML = `<tr><td colspan="${6 + almacenes.length}" class="text-center">No se encontraron materiales.</td></tr>`;
+        } else {
+            querySnapshot.forEach(doc => {
+                const m = doc.data();
+                m.codigo = doc.id;
+                let rowHtml = `<tr>
+                    <td>${m.codigo}</td>
+                    <td>${m.descripcion}</td>
+                    <td>${m.unidad}</td>`;
+
+                let totalStock = 0;
+                almacenes.forEach(a => {
+                    const stock = m.inventario?.[a.id] || 0;
+                    rowHtml += `<td>${stock.toFixed(2)}</td>`;
+                    totalStock += stock;
+                });
+
+                rowHtml += `
+                    <td><strong>${totalStock.toFixed(2)}</strong></td>
+                    <td>${formatCurrency(m.costo)}</td>
+                    <td>
+                        <button class="btn btn-sm btn-warning edit-btn me-2" data-code="${m.codigo}" title="Editar"><i class="fas fa-edit"></i></button>
+                        <button class="btn btn-sm btn-danger delete-btn" data-code="${m.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button>
+                    </td>
+                </tr>`;
+                tbody.insertAdjacentHTML('beforeend', rowHtml);
+            });
+        }
+
+        // --- Update Pagination State ---
+        if (!querySnapshot.empty) {
+            materialsLastVisible = querySnapshot.docs[querySnapshot.docs.length - 1];
+            materialsPageCursors[page + 1] = materialsLastVisible;
+        }
+
+        // --- Render Controls ---
+        renderPaginationControls(
+            'materialsPagination',
+            materialsCurrentPage,
+            materialsTotalPages,
+            materialsItemsPerPage,
+            (newPage) => loadMaterials(newPage),
+            (newSize) => {
+                materialsItemsPerPage = newSize;
+                materialsPageCursors = { 1: null };
+                loadMaterials(1);
+            }
+        );
+
+    } catch (error) {
+        console.error("Error loading materials from Firestore:", error);
+        tbody.innerHTML = `<tr><td colspan="${6 + almacenes.length}" class="text-center text-danger">Error al cargar materiales.</td></tr>`;
+        Toastify({ text: 'Error al cargar materiales.', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
 }
 document.getElementById('materialForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const code = document.getElementById('materialCode').value.trim().toUpperCase();
-  const desc = document.getElementById('materialDescription').value.trim();
-  const unit = document.getElementById('materialUnit').value.trim();
-  const cost = parseFloat(document.getElementById('materialCost').value);
-  if (!code || !desc) return;
+    e.preventDefault();
+    const code = document.getElementById('materialCode').value.trim().toUpperCase();
+    const desc = document.getElementById('materialDescription').value.trim();
+    const unit = document.getElementById('materialUnit').value.trim();
+    const cost = parseFloat(document.getElementById('materialCost').value);
+    if (!code || !desc) return;
 
-  if (isNaN(cost) || cost < 0) {
-    Toastify({ text: 'Error: El costo debe ser un número positivo.', backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
-    return;
-  }
-
-  const inventario = {};
-  document.querySelectorAll('.material-stock-input').forEach(input => {
-      const almacenId = input.dataset.almacenId;
-      const stock = parseFloat(input.value) || 0;
-      if (almacenId) {
-          inventario[almacenId] = stock < 0 ? 0 : stock;
-      }
-  });
-
-  if (!isEditingMaterial) {
-    const codeExists = materials.some(m => m.codigo === code) || products.some(p => p.codigo === code);
-    if (codeExists) {
-        Toastify({ text: `Error: El código ${code} ya existe como material o producto.`, backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
+    if (isNaN(cost) || cost < 0) {
+        Toastify({ text: 'Error: El costo debe ser un número positivo.', backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
         return;
     }
-  }
 
-  const materialData = {
-      descripcion: desc,
-      unidad: unit,
-      inventario: inventario,
-      costo: cost
-  };
+    const inventario = {};
+    document.querySelectorAll('.material-stock-input').forEach(input => {
+        const almacenId = input.dataset.almacenId;
+        const stock = parseFloat(input.value) || 0;
+        if (almacenId) {
+            inventario[almacenId] = stock < 0 ? 0 : stock;
+        }
+    });
 
-  try {
-    // When editing, we merge to not overwrite other warehouse data if they are not displayed
-    // When creating, we overwrite completely.
-    await setDoc(doc(db, "materials", code), materialData, { merge: isEditingMaterial });
-
-    const idx = materials.findIndex(m => m.codigo === code);
-    if (idx === -1) {
-        materials.push({ codigo: code, ...materialData });
-    } else {
-        // Important: merge local data as well
-        materials[idx] = { ...materials[idx], ...materialData };
-    }
-
-    loadMaterials();
-    materialModal.hide();
-    Toastify({ text: 'Material guardado', backgroundColor: 'var(--success-color)' }).showToast();
-  } catch (error) {
-    console.error("Error saving material: ", error);
-    Toastify({ text: 'Error al guardar material', backgroundColor: 'var(--danger-color)' }).showToast();
-  }
-});
-document.getElementById('materialsTableBody').addEventListener('click', async (e) => {
-  const btn = e.target.closest('button'); if (!btn) return;
-  const code = btn.dataset.code;
-  if (btn.classList.contains('delete-btn')) {
-    if (confirm(`¿Eliminar material ${code}?`)) {
-        try {
-            await deleteDoc(doc(db, "materials", code));
-            materials = materials.filter(m => m.codigo !== code);
-            loadMaterials();
-            Toastify({ text: 'Material eliminado', backgroundColor: 'var(--success-color)' }).showToast();
-        } catch (error) {
-            console.error("Error deleting material: ", error);
-            Toastify({ text: 'Error al eliminar material', backgroundColor: 'var(--danger-color)' }).showToast();
+    if (!isEditingMaterial) {
+        const materialRef = doc(db, "materials", code);
+        const productRef = doc(db, "products", code);
+        const [materialSnap, productSnap] = await Promise.all([getDoc(materialRef), getDoc(productRef)]);
+        if (materialSnap.exists() || productSnap.exists()) {
+            Toastify({ text: `Error: El código ${code} ya existe como material o producto.`, backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
+            return;
         }
     }
-  }
-  if (btn.classList.contains('edit-btn')) {
-      isEditingMaterial = true;
-      currentMaterialCode = code;
-      const m = materials.find(m => m.codigo === code);
-      document.getElementById('materialCode').value = m.codigo;
-      document.getElementById('materialDescription').value = m.descripcion;
-      document.getElementById('materialUnit').value = m.unidad;
-      document.getElementById('materialCost').value = m.costo;
-      populateMaterialInventario(m.inventario || {});
-      document.getElementById('materialCode').disabled = true;
-      document.getElementById('materialModalLabel').textContent = 'Editar Material';
-      materialModal.show();
-  }
+
+    const materialData = {
+        descripcion: desc,
+        unidad: unit,
+        inventario: inventario,
+        costo: cost
+    };
+
+    try {
+        await setDoc(doc(db, "materials", code), materialData, { merge: isEditingMaterial });
+        loadMaterials(materialsCurrentPage); // Refresh view
+        materialModal.hide();
+        Toastify({ text: 'Material guardado', backgroundColor: 'var(--success-color)' }).showToast();
+    } catch (error) {
+        console.error("Error saving material: ", error);
+        Toastify({ text: 'Error al guardar material', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
 });
+
+document.getElementById('materialsTableBody').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    const code = btn.dataset.code;
+
+    if (btn.classList.contains('delete-btn')) {
+        if (confirm(`¿Eliminar material ${code}?`)) {
+            try {
+                await deleteDoc(doc(db, "materials", code));
+                loadMaterials(materialsCurrentPage); // Refresh view
+                Toastify({ text: 'Material eliminado', backgroundColor: 'var(--success-color)' }).showToast();
+            } catch (error) {
+                console.error("Error deleting material: ", error);
+                Toastify({ text: 'Error al eliminar material', backgroundColor: 'var(--danger-color)' }).showToast();
+            }
+        }
+    }
+
+    if (btn.classList.contains('edit-btn')) {
+        isEditingMaterial = true;
+        currentMaterialCode = code;
+        const materialDoc = await getDoc(doc(db, "materials", code));
+        if (materialDoc.exists()) {
+            const m = materialDoc.data();
+            document.getElementById('materialCode').value = code;
+            document.getElementById('materialDescription').value = m.descripcion;
+            document.getElementById('materialUnit').value = m.unidad;
+            document.getElementById('materialCost').value = m.costo;
+            populateMaterialInventario(m.inventario || {});
+            document.getElementById('materialCode').disabled = true;
+            document.getElementById('materialModalLabel').textContent = 'Editar Material';
+            materialModal.show();
+        } else {
+            Toastify({ text: `Material ${code} no encontrado.`, backgroundColor: 'var(--danger-color)' }).showToast();
+        }
+    }
+});
+
 document.getElementById('materialModal').addEventListener('show.bs.modal', () => {
     if (!isEditingMaterial) {
         populateMaterialInventario();
     }
 });
+
 document.getElementById('materialModal').addEventListener('hidden.bs.modal', () => {
     isEditingMaterial = false;
     document.getElementById('materialForm').reset();
@@ -1106,13 +1206,23 @@ document.getElementById('materialModal').addEventListener('hidden.bs.modal', () 
     document.getElementById('materialCode').disabled = false;
     document.getElementById('materialModalLabel').textContent = 'Añadir Material';
 });
-document.getElementById('searchMaterial').addEventListener('input', () => loadMaterials(1));
-document.getElementById('filterMaterialsAsProducts').addEventListener('change', () => loadMaterials(1));
+
+document.getElementById('searchMaterial').addEventListener('input', () => {
+    materialsPageCursors = { 1: null };
+    loadMaterials(1);
+});
+
+document.getElementById('filterMaterialsAsProducts').addEventListener('change', () => {
+    // This feature is currently disabled due to complexity with Firestore queries.
+    // For now, it will just reload the table.
+    materialsPageCursors = { 1: null };
+    loadMaterials(1);
+});
 
 /* ----------  TRASPASOS  ---------- */
 const traspasoModal = new bootstrap.Modal(document.getElementById('traspasoModal'));
 
-function updateTraspasoStock() {
+async function updateTraspasoStock() {
     const materialId = document.getElementById('traspasoMaterialSelect').value;
     const origenId = document.getElementById('traspasoOrigenSelect').value;
     const stockSpan = document.getElementById('traspasoStockOrigen');
@@ -1122,21 +1232,24 @@ function updateTraspasoStock() {
         return;
     }
 
-    const material = materials.find(m => m.codigo === materialId);
-    if (material && material.inventario) {
-        const stock = material.inventario[origenId] || 0;
-        stockSpan.textContent = `${stock.toFixed(2)} ${material.unidad}`;
-    } else {
-        stockSpan.textContent = `0.00`;
+    try {
+        const materialDoc = await getDoc(doc(db, "materials", materialId));
+        if (materialDoc.exists()) {
+            const material = materialDoc.data();
+            const stock = material.inventario?.[origenId] || 0;
+            stockSpan.textContent = `${stock.toFixed(2)} ${material.unidad || ''}`;
+        } else {
+            stockSpan.textContent = '0.00';
+        }
+    } catch (error) {
+        console.error("Error fetching stock for traspaso:", error);
+        stockSpan.textContent = 'Error';
     }
 }
 
-function populateTraspasoForm() {
+async function populateTraspasoForm() {
     const materialSelect = document.getElementById('traspasoMaterialSelect');
-    materialSelect.innerHTML = '<option value="" selected disabled>Seleccione un material...</option>';
-    materials.sort((a, b) => a.descripcion.localeCompare(b.descripcion)).forEach(m => {
-        materialSelect.add(new Option(`${m.descripcion} (${m.codigo})`, m.codigo));
-    });
+    materialSelect.innerHTML = '<option value="" selected disabled>Cargando materiales...</option>';
 
     const origenSelect = document.getElementById('traspasoOrigenSelect');
     origenSelect.innerHTML = '<option value="" selected disabled>Seleccione origen...</option>';
@@ -1149,7 +1262,19 @@ function populateTraspasoForm() {
         destinoSelect.add(new Option(a.name, a.id));
     });
 
-    updateTraspasoStock();
+    try {
+        const materialsSnapshot = await getDocs(query(collection(db, 'materials'), orderBy('descripcion')));
+        materialSelect.innerHTML = '<option value="" selected disabled>Seleccione un material...</option>';
+        materialsSnapshot.forEach(doc => {
+            const m = doc.data();
+            materialSelect.add(new Option(`${m.descripcion} (${doc.id})`, doc.id));
+        });
+    } catch (error) {
+        console.error("Error populating traspaso materials:", error);
+        materialSelect.innerHTML = '<option value="" selected disabled>Error al cargar</option>';
+    }
+
+    await updateTraspasoStock();
 }
 
 
@@ -1179,41 +1304,40 @@ document.getElementById('traspasoForm').addEventListener('submit', async (e) => 
         return;
     }
 
-    const material = materials.find(m => m.codigo === materialId);
-    if (!material) {
-        Toastify({ text: 'Error: Material no encontrado.', backgroundColor: 'var(--danger-color)' }).showToast();
-        return;
-    }
-
-    const stockOrigen = material.inventario?.[origenId] || 0;
-    if (stockOrigen < cantidad) {
-        Toastify({ text: `No hay suficiente stock en el almacén de origen. Disponible: ${stockOrigen.toFixed(2)}`, backgroundColor: 'var(--danger-color)' }).showToast();
-        return;
-    }
-
-    // --- Logic ---
     const materialRef = doc(db, "materials", materialId);
-    const newInventario = { ...material.inventario };
-    newInventario[origenId] = (newInventario[origenId] || 0) - cantidad;
-    newInventario[destinoId] = (newInventario[destinoId] || 0) + cantidad;
-
-    const traspasoData = {
-        materialId,
-        origenId,
-        destinoId,
-        cantidad,
-        createdAt: new Date().toISOString()
-    };
 
     try {
-        await updateDoc(materialRef, { inventario: newInventario });
+        const materialDoc = await getDoc(materialRef);
+        if (!materialDoc.exists()) {
+            Toastify({ text: 'Error: Material no encontrado.', backgroundColor: 'var(--danger-color)' }).showToast();
+            return;
+        }
+
+        const material = materialDoc.data();
+        const stockOrigen = material.inventario?.[origenId] || 0;
+        if (stockOrigen < cantidad) {
+            Toastify({ text: `No hay suficiente stock en el almacén de origen. Disponible: ${stockOrigen.toFixed(2)}`, backgroundColor: 'var(--danger-color)' }).showToast();
+            return;
+        }
+
+        // --- Logic ---
+        const traspasoData = {
+            materialId,
+            origenId,
+            destinoId,
+            cantidad,
+            createdAt: new Date().toISOString()
+        };
+
+        const updatePayload = {
+            [`inventario.${origenId}`]: increment(-cantidad),
+            [`inventario.${destinoId}`]: increment(cantidad)
+        };
+
+        await updateDoc(materialRef, updatePayload);
         await addDoc(collection(db, "traspasos"), traspasoData);
 
-        // Update local state
-        const localMaterial = materials.find(m => m.codigo === materialId);
-        localMaterial.inventario = newInventario;
-
-        loadMaterials();
+        loadMaterials(materialsCurrentPage); // Refresh the materials view
         traspasoModal.hide();
         Toastify({ text: 'Traspaso realizado con éxito.', backgroundColor: 'var(--success-color)' }).showToast();
         document.getElementById('traspasoForm').reset();
@@ -1226,233 +1350,348 @@ document.getElementById('traspasoForm').addEventListener('submit', async (e) => 
 
 
 /* ----------  RECETAS  ---------- */
-const addRecipeModal  = new bootstrap.Modal(document.getElementById('addRecipeModal'));
+const addRecipeModal = new bootstrap.Modal(document.getElementById('addRecipeModal'));
 const editRecipeModal = new bootstrap.Modal(document.getElementById('editRecipeModal'));
 
-function loadRecipes() {
-  const tbody = document.getElementById('recipesTableBody'); tbody.innerHTML = '';
-  const sorted = Object.keys(recipes).sort((a, b) => a.localeCompare(b));
-  sorted.forEach(pid => {
-    const prod = products.find(p => p.codigo === pid);
-    if (!prod) return;
-    const recipe = recipes[pid];
-    if (!recipe) return;
-    const cost = calculateRecipeCost(recipe);
-    tbody.insertAdjacentHTML('beforeend', `
-      <tr>
-        <td>${prod.codigo}</td>
-        <td>${prod.descripcion}</td>
-        <td>${recipe.length}</td>
-        <td>${formatCurrency(cost)}</td>
-        <td>
-          <button class="btn btn-sm btn-warning edit-btn me-2" data-product-id="${pid}" title="Editar"><i class="fas fa-edit"></i></button>
-          <button class="btn btn-sm btn-danger delete-btn" data-product-id="${pid}" title="Eliminar"><i class="fas fa-trash"></i></button>
-        </td>
-      </tr>`);
-  });
-}
-function calculateRecipeCost(items) {
-  if (!items || !Array.isArray(items)) {
-    return 0;
-  }
-  return items.reduce((acc, it) => {
-    if (!it || !it.type) return acc;
-    if (it.type === 'product') return acc + (recipes[it.code] ? calculateRecipeCost(recipes[it.code]) * it.quantity : 0);
-    else { const m = materials.find(ma => ma.codigo === it.code); return acc + (m ? m.costo * it.quantity : 0); }
-  }, 0);
-}
-function populateRecipeProductSelect() {
-  const sel = document.getElementById('recipeProductSelect');
-  sel.innerHTML = '<option disabled selected>Selecciona...</option>';
-  products.forEach(p => { if (!recipes[p.codigo]) sel.add(new Option(p.descripcion, p.codigo)); });
-  document.getElementById('recipeMaterials').innerHTML = '';
-  document.getElementById('addMaterialToRecipeBtn').onclick = () => addRecipeMaterialField('recipeMaterials');
-}
-function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'material') {
-  const container = document.getElementById(containerId);
-  const row = document.createElement('div');
-  row.className = 'row g-2 mb-2 align-items-center material-field';
+let recipesCurrentPage = 1;
+let recipesItemsPerPage = 10;
+let recipesTotalPages = 1;
+let recipesLastVisible = null;
+let recipesPageCursors = { 1: null };
 
-  const allItems = { material: materials, product: products };
+async function loadRecipes(page = 1) {
+    recipesCurrentPage = page;
+    const tbody = document.getElementById('recipesTableBody');
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center">Cargando...</td></tr>';
 
-  const typeSelect = document.createElement('select');
-  typeSelect.className = 'form-select form-select-sm type-select';
-  ['material', 'product'].forEach(opt => {
-      const o = new Option(opt === 'material' ? 'Material' : 'Producto', opt);
-      typeSelect.appendChild(o);
-  });
-  typeSelect.value = type;
+    try {
+        const recipesRef = collection(db, 'recipes');
+        const baseQuery = query(recipesRef, orderBy('__name__')); // Order by document ID (product code)
+        const countQuery = query(recipesRef);
 
-  const codeSelect = document.createElement('select');
-  codeSelect.className = 'form-select form-select-sm code-select';
+        let q;
+        if (page > 1 && recipesPageCursors[page]) {
+            q = query(baseQuery, startAfter(recipesPageCursors[page]), limit(recipesItemsPerPage));
+        } else {
+            q = query(baseQuery, limit(recipesItemsPerPage));
+        }
 
-  const descInput = document.createElement('input');
-  descInput.type = 'text';
-  descInput.className = 'form-control form-control-sm desc-input';
-  descInput.placeholder = 'Descripción';
-  descInput.readOnly = true;
+        const [querySnapshot, countSnapshot] = await Promise.all([
+            getDocs(q),
+            getCountFromServer(countQuery)
+        ]);
 
-  const qtyInput = document.createElement('input');
-  qtyInput.type = 'number';
-  qtyInput.step = '0.0001';
-  qtyInput.className = 'form-control form-control-sm qty-input';
-  qtyInput.placeholder = 'Cantidad';
-  if (qty) qtyInput.value = qty;
+        const totalRecipes = countSnapshot.data().count;
+        recipesTotalPages = Math.ceil(totalRecipes / recipesItemsPerPage);
+        if (recipesCurrentPage > recipesTotalPages) recipesCurrentPage = recipesTotalPages || 1;
 
-  const delBtn = document.createElement('button');
-  delBtn.type = 'button';
-  delBtn.className = 'btn btn-sm btn-danger remove-material-btn';
-  delBtn.innerHTML = '<i class="fas fa-trash"></i>';
-  delBtn.onclick = () => row.remove();
+        tbody.innerHTML = '';
+        if (querySnapshot.empty) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center">No se encontraron recetas.</td></tr>';
+        } else {
+            const renderPromises = querySnapshot.docs.map(async (doc) => {
+                const pid = doc.id;
+                const recipe = doc.data().items;
+                if (!recipe) return '';
 
-  const updateDescription = () => {
-    const currentType = typeSelect.value;
-    const currentCode = codeSelect.value;
-    const item = allItems[currentType].find(i => i.codigo === currentCode);
-    descInput.value = item ? item.descripcion : '';
-  };
+                const productDoc = await getDoc(doc(db, "products", pid));
+                const prod = productDoc.exists() ? productDoc.data() : { descripcion: 'Producto no encontrado' };
 
-  const populateCodeSelect = () => {
-    let currentType = typeSelect.value;
-    if (!allItems[currentType]) {
-        currentType = 'material';
-        typeSelect.value = 'material';
+                const cost = await calculateRecipeCost(recipe);
+
+                return `
+                  <tr>
+                    <td>${pid}</td>
+                    <td>${prod.descripcion}</td>
+                    <td>${recipe.length}</td>
+                    <td>${formatCurrency(cost)}</td>
+                    <td>
+                      <button class="btn btn-sm btn-warning edit-btn me-2" data-product-id="${pid}" title="Editar"><i class="fas fa-edit"></i></button>
+                      <button class="btn btn-sm btn-danger delete-btn" data-product-id="${pid}" title="Eliminar"><i class="fas fa-trash"></i></button>
+                    </td>
+                  </tr>`;
+            });
+
+            const rowsHtml = await Promise.all(renderPromises);
+            tbody.innerHTML = rowsHtml.join('');
+        }
+
+        if (!querySnapshot.empty) {
+            recipesLastVisible = querySnapshot.docs[querySnapshot.docs.length - 1];
+            recipesPageCursors[page + 1] = recipesLastVisible;
+        }
+
+        renderPaginationControls(
+            'recipesPagination',
+            recipesCurrentPage,
+            recipesTotalPages,
+            recipesItemsPerPage,
+            (newPage) => loadRecipes(newPage),
+            (newSize) => {
+                recipesItemsPerPage = newSize;
+                recipesPageCursors = { 1: null };
+                loadRecipes(1);
+            }
+        );
+
+    } catch (error) {
+        console.error("Error loading recipes:", error);
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error al cargar recetas.</td></tr>';
     }
-    const list = allItems[currentType];
-    codeSelect.innerHTML = '<option value="" selected disabled>Selecciona...</option>';
-
-    const recipeProductCode = document.getElementById('editRecipeProductSelect')?.value || document.getElementById('recipeProductSelect')?.value;
-
-    list.forEach(item => {
-      if (currentType === 'product' && item.codigo === recipeProductCode) return;
-
-      const isSelected = item.codigo === mCode;
-      const o = new Option(`${item.codigo} – ${item.descripcion}`, item.codigo, false, isSelected);
-      codeSelect.add(o);
-    });
-
-    if (mCode) updateDescription();
-    else descInput.value = '';
-  };
-
-  typeSelect.addEventListener('change', () => {
-      mCode = '';
-      populateCodeSelect();
-  });
-  codeSelect.addEventListener('change', updateDescription);
-
-  const createCol = (className, element, style = {}) => {
-      const col = document.createElement('div');
-      col.className = className;
-      Object.assign(col.style, style);
-      col.appendChild(element);
-      return col;
-  };
-
-  const reqQtyOutput = document.createElement('div');
-  reqQtyOutput.className = 'req-qty-output text-end pe-2';
-  reqQtyOutput.style.paddingTop = '0.375rem';
-
-  const stockAlertOutput = document.createElement('div');
-  stockAlertOutput.className = 'stock-alert-output';
-  stockAlertOutput.style.paddingTop = '0.375rem';
-
-  row.append(
-    createCol('col-md-2', typeSelect, { maxWidth: '120px' }),
-    createCol('col-md-2', codeSelect, { maxWidth: '120px' }),
-    createCol('col-md-3', descInput),
-    createCol('col-md-1', qtyInput),
-    createCol('col-md-2', reqQtyOutput, { maxWidth: '150px' }),
-    createCol('col-md-1', stockAlertOutput, { maxWidth: '100px' }),
-    createCol('col-md-1 text-end', delBtn)
-  );
-
-  container.appendChild(row);
-  populateCodeSelect();
 }
-document.getElementById('addRecipeForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const pid = document.getElementById('recipeProductSelect').value;
-  const items = [...document.querySelectorAll('#recipeMaterials .material-field')]
-    .map(f => ({ type: f.querySelector('.type-select').value, code: f.querySelector('.code-select').value, quantity: parseFloat(f.querySelector('.qty-input').value) }))
-    .filter(i => i.code && !isNaN(i.quantity));
-  if (!items.length) { Toastify({ text: 'Agrega al menos un ingrediente' }).showToast(); return; }
+async function calculateRecipeCost(items, recipeCache = {}, materialCache = {}) {
+    if (!items || !Array.isArray(items)) {
+        return 0;
+    }
+    let totalCost = 0;
+    for (const it of items) {
+        if (!it || !it.type) continue;
 
-  try {
-    await setDoc(doc(db, "recipes", pid), { items });
-    recipes[pid] = items;
-    loadRecipes();
-    addRecipeModal.hide();
-    Toastify({ text: 'Receta guardada', backgroundColor: 'var(--success-color)' }).showToast();
-  } catch (error) {
-    console.error("Error saving recipe: ", error);
-    Toastify({ text: 'Error al guardar receta', backgroundColor: 'var(--danger-color)' }).showToast();
-  }
-});
-document.getElementById('editRecipeForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const pid = document.getElementById('editRecipeProductSelect').value;
-  const items = [...document.querySelectorAll('#editRecipeMaterials .material-field')]
-    .map(f => ({
-      type: f.querySelector('.type-select').value,
-      code: f.querySelector('.code-select').value,
-      quantity: parseFloat(f.querySelector('.qty-input').value)
-    }))
-    .filter(i => i.code && !isNaN(i.quantity));
-  if (!items.length) { Toastify({ text: 'Agrega al menos un ingrediente' }).showToast(); return; }
-
-  try {
-    await setDoc(doc(db, "recipes", pid), { items });
-    recipes[pid] = items;
-    loadRecipes();
-    editRecipeModal.hide();
-    Toastify({ text: 'Receta actualizada', backgroundColor: 'var(--success-color)' }).showToast();
-  } catch (error) {
-    console.error("Error updating recipe: ", error);
-    Toastify({ text: 'Error al actualizar receta', backgroundColor: 'var(--danger-color)' }).showToast();
-  }
-});
-document.getElementById('recipesTableBody').addEventListener('click', async (e) => {
-  const btn = e.target.closest('button'); if (!btn) return;
-  const pid = btn.dataset.productId;
-  if (btn.classList.contains('delete-btn')) {
-    if(confirm(`¿Eliminar receta para el producto ${pid}?`)) {
-        try {
-            await deleteDoc(doc(db, "recipes", pid));
-            delete recipes[pid];
-            loadRecipes();
-            Toastify({ text: 'Receta eliminada', backgroundColor: 'var(--success-color)' }).showToast();
-        } catch (error) {
-            console.error("Error deleting recipe: ", error);
-            Toastify({ text: 'Error al eliminar receta', backgroundColor: 'var(--danger-color)' }).showToast();
+        if (it.type === 'product') {
+            let subRecipeItems = recipeCache[it.code];
+            if (!subRecipeItems) {
+                const recipeDoc = await getDoc(doc(db, "recipes", it.code));
+                if (recipeDoc.exists()) {
+                    subRecipeItems = recipeDoc.data().items;
+                    recipeCache[it.code] = subRecipeItems;
+                }
+            }
+            if (subRecipeItems) {
+                totalCost += (await calculateRecipeCost(subRecipeItems, recipeCache, materialCache)) * it.quantity;
+            }
+        } else {
+            let material = materialCache[it.code];
+            if(!material) {
+                const mDoc = await getDoc(doc(db, "materials", it.code));
+                if (mDoc.exists()) {
+                    material = mDoc.data();
+                    materialCache[it.code] = material;
+                }
+            }
+            if (material) {
+                totalCost += material.costo * it.quantity;
+            }
         }
     }
-  }
-  if (btn.classList.contains('edit-btn')) {
+    return totalCost;
+}
+async function populateRecipeProductSelect() {
+    const sel = document.getElementById('recipeProductSelect');
+    sel.innerHTML = '<option disabled selected>Cargando...</option>';
     try {
-        const prod = products.find(p => p.codigo === pid);
-        if (!prod) {
-            Toastify({ text: `Error: El producto para esta receta (código: ${pid}) ya no existe. Por favor, elimine esta receta.`, duration: 5000, backgroundColor: 'var(--danger-color)' }).showToast();
+        const [productsSnapshot, recipesSnapshot] = await Promise.all([
+            getDocs(query(collection(db, 'products'), orderBy('descripcion'))),
+            getDocs(collection(db, 'recipes'))
+        ]);
+        const existingRecipeIds = new Set(recipesSnapshot.docs.map(doc => doc.id));
+
+        sel.innerHTML = '<option disabled selected>Selecciona...</option>';
+        productsSnapshot.forEach(doc => {
+            if (!existingRecipeIds.has(doc.id)) {
+                const p = doc.data();
+                sel.add(new Option(`${p.descripcion} (${doc.id})`, doc.id));
+            }
+        });
+    } catch (error) {
+        console.error("Error populating recipe product select:", error);
+        sel.innerHTML = '<option disabled selected>Error al cargar</option>';
+    }
+    document.getElementById('recipeMaterials').innerHTML = '';
+    document.getElementById('addMaterialToRecipeBtn').onclick = () => addRecipeMaterialField('recipeMaterials');
+}
+async function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'material') {
+    const container = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'row g-2 mb-2 align-items-center material-field';
+
+    const typeSelect = document.createElement('select');
+    typeSelect.className = 'form-select form-select-sm type-select';
+    ['material', 'product'].forEach(opt => {
+        const o = new Option(opt === 'material' ? 'Material' : 'Producto', opt);
+        typeSelect.appendChild(o);
+    });
+    typeSelect.value = type;
+
+    const codeSelect = document.createElement('select');
+    codeSelect.className = 'form-select form-select-sm code-select';
+
+    const descInput = document.createElement('input');
+    descInput.type = 'text';
+    descInput.className = 'form-control form-control-sm desc-input';
+    descInput.placeholder = 'Descripción';
+    descInput.readOnly = true;
+
+    const qtyInput = document.createElement('input');
+    qtyInput.type = 'number';
+    qtyInput.step = '0.0001';
+    qtyInput.className = 'form-control form-control-sm qty-input';
+    qtyInput.placeholder = 'Cantidad';
+    if (qty) qtyInput.value = qty;
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'btn btn-sm btn-danger remove-material-btn';
+    delBtn.innerHTML = '<i class="fas fa-trash"></i>';
+    delBtn.onclick = () => row.remove();
+
+    const updateDescription = async () => {
+        const currentType = typeSelect.value;
+        const currentCode = codeSelect.value;
+        if (!currentCode) {
+            descInput.value = '';
             return;
         }
-        document.getElementById('editRecipeProductSelect').innerHTML = `<option value="${pid}">${prod.descripcion}</option>`;
-        const cont = document.getElementById('editRecipeMaterials'); cont.innerHTML = '';
-        recipes[pid].forEach(i => addRecipeMaterialField('editRecipeMaterials', i.code, i.quantity, i.type));
+        const collectionName = currentType === 'product' ? 'products' : 'materials';
+        const itemDoc = await getDoc(doc(db, collectionName, currentCode));
+        descInput.value = itemDoc.exists() ? itemDoc.data().descripcion : '';
+    };
 
-        const almacenSelect = document.getElementById('recipeSimulationAlmacen');
-        almacenSelect.innerHTML = '<option value="all">Todos los Almacenes</option>';
-        almacenes.forEach(a => {
-            almacenSelect.add(new Option(a.name, a.id));
-        });
+    const populateCodeSelect = async () => {
+        const currentType = typeSelect.value;
+        codeSelect.innerHTML = '<option value="" selected disabled>Cargando...</option>';
+        const collectionName = currentType === 'product' ? 'products' : 'materials';
+        try {
+            const listSnapshot = await getDocs(query(collection(db, collectionName), orderBy('descripcion')));
+            codeSelect.innerHTML = '<option value="" selected disabled>Selecciona...</option>';
+            const recipeProductCode = document.getElementById('editRecipeProductSelect')?.value || document.getElementById('recipeProductSelect')?.value;
 
-        document.getElementById('recipeSimulationQty').value = '';
-        updateRecipeSimulation();
-        editRecipeModal.show();
+            listSnapshot.forEach(doc => {
+                if (currentType === 'product' && doc.id === recipeProductCode) return;
+                const item = doc.data();
+                const isSelected = doc.id === mCode;
+                codeSelect.add(new Option(`${item.descripcion} (${doc.id})`, doc.id, false, isSelected));
+            });
+            if (mCode) await updateDescription();
+        } catch (error) {
+            console.error(`Error populating ${collectionName} select:`, error);
+            codeSelect.innerHTML = '<option>Error</option>';
+        }
+    };
+
+    typeSelect.addEventListener('change', () => {
+        mCode = '';
+        populateCodeSelect();
+    });
+    codeSelect.addEventListener('change', updateDescription);
+
+    const createCol = (className, element) => {
+        const col = document.createElement('div');
+        col.className = className;
+        col.appendChild(element);
+        return col;
+    };
+
+    const reqQtyOutput = document.createElement('div');
+    reqQtyOutput.className = 'req-qty-output text-end pe-2 small';
+    reqQtyOutput.style.paddingTop = '0.375rem';
+
+    const stockAlertOutput = document.createElement('div');
+    stockAlertOutput.className = 'stock-alert-output small';
+    stockAlertOutput.style.paddingTop = '0.375rem';
+
+
+    row.append(
+        createCol('col-md-2', typeSelect),
+        createCol('col-md-3', codeSelect),
+        createCol('col-md-3', descInput),
+        createCol('col-md-1', qtyInput),
+        createCol('col-md-1', reqQtyOutput),
+        createCol('col-md-1', stockAlertOutput),
+        createCol('col-md-1 text-end', delBtn)
+    );
+
+    container.appendChild(row);
+    await populateCodeSelect();
+}
+document.getElementById('addRecipeForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const pid = document.getElementById('recipeProductSelect').value;
+    const items = [...document.querySelectorAll('#recipeMaterials .material-field')]
+        .map(f => ({ type: f.querySelector('.type-select').value, code: f.querySelector('.code-select').value, quantity: parseFloat(f.querySelector('.qty-input').value) }))
+        .filter(i => i.code && !isNaN(i.quantity) && i.quantity > 0);
+    if (!items.length) { Toastify({ text: 'Agrega al menos un ingrediente con cantidad válida.' }).showToast(); return; }
+
+    try {
+        await setDoc(doc(db, "recipes", pid), { items });
+        await loadRecipes(1);
+        addRecipeModal.hide();
+        Toastify({ text: 'Receta guardada', backgroundColor: 'var(--success-color)' }).showToast();
     } catch (error) {
-        console.error("Error al abrir el modal de editar receta:", error);
-        Toastify({ text: `Se produjo un error inesperado al intentar editar la receta. Detalles: ${error.message}`, duration: 5000, backgroundColor: 'var(--danger-color)' }).showToast();
+        console.error("Error saving recipe: ", error);
+        Toastify({ text: 'Error al guardar receta', backgroundColor: 'var(--danger-color)' }).showToast();
     }
-  }
+});
+document.getElementById('editRecipeForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const pid = document.getElementById('editRecipeProductSelect').value;
+    const items = [...document.querySelectorAll('#editRecipeMaterials .material-field')]
+        .map(f => ({ type: f.querySelector('.type-select').value, code: f.querySelector('.code-select').value, quantity: parseFloat(f.querySelector('.qty-input').value) }))
+        .filter(i => i.code && !isNaN(i.quantity) && i.quantity > 0);
+    if (!items.length) { Toastify({ text: 'Agrega al menos un ingrediente con cantidad válida.' }).showToast(); return; }
+
+    try {
+        await setDoc(doc(db, "recipes", pid), { items });
+        await loadRecipes(recipesCurrentPage);
+        editRecipeModal.hide();
+        Toastify({ text: 'Receta actualizada', backgroundColor: 'var(--success-color)' }).showToast();
+    } catch (error) {
+        console.error("Error updating recipe: ", error);
+        Toastify({ text: 'Error al actualizar receta', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
+});
+document.getElementById('recipesTableBody').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    const pid = btn.dataset.productId;
+
+    if (btn.classList.contains('delete-btn')) {
+        if (confirm(`¿Eliminar receta para el producto ${pid}?`)) {
+            try {
+                await deleteDoc(doc(db, "recipes", pid));
+                await loadRecipes(recipesCurrentPage);
+                Toastify({ text: 'Receta eliminada', backgroundColor: 'var(--success-color)' }).showToast();
+            } catch (error) {
+                console.error("Error deleting recipe: ", error);
+                Toastify({ text: 'Error al eliminar receta', backgroundColor: 'var(--danger-color)' }).showToast();
+            }
+        }
+    }
+
+    if (btn.classList.contains('edit-btn')) {
+        try {
+            const [prodDoc, recipeDoc] = await Promise.all([
+                getDoc(doc(db, "products", pid)),
+                getDoc(doc(db, "recipes", pid))
+            ]);
+
+            if (!prodDoc.exists() || !recipeDoc.exists()) {
+                Toastify({ text: `Error: No se encontró el producto o la receta para ${pid}.`, duration: 5000, backgroundColor: 'var(--danger-color)' }).showToast();
+                return;
+            }
+            const prod = prodDoc.data();
+            const recipeItems = recipeDoc.data().items;
+
+            document.getElementById('editRecipeProductSelect').innerHTML = `<option value="${pid}">${prod.descripcion}</option>`;
+            const cont = document.getElementById('editRecipeMaterials');
+            cont.innerHTML = '';
+
+            for (const item of recipeItems) {
+                await addRecipeMaterialField('editRecipeMaterials', item.code, item.quantity, item.type);
+            }
+
+            const almacenSelect = document.getElementById('recipeSimulationAlmacen');
+            almacenSelect.innerHTML = '<option value="all">Todos los Almacenes</option>';
+            almacenes.forEach(a => {
+                almacenSelect.add(new Option(a.name, a.id));
+            });
+
+            document.getElementById('recipeSimulationQty').value = '';
+            await updateRecipeSimulation();
+            editRecipeModal.show();
+        } catch (error) {
+            console.error("Error al abrir el modal de editar receta:", error);
+            Toastify({ text: `Se produjo un error inesperado. Detalles: ${error.message}`, duration: 5000, backgroundColor: 'var(--danger-color)' }).showToast();
+        }
+    }
 });
 document.addEventListener('click', e => {
   if (e.target.closest('.remove-material-btn')) e.target.closest('.material-field').remove();
@@ -1467,38 +1706,34 @@ document.getElementById('editRecipeModal').addEventListener('hidden.bs.modal', (
     document.getElementById('recipeSimulationAlmacen').innerHTML = '';
 });
 
-function updateRecipeSimulation() {
+async function updateRecipeSimulation() {
     const simQty = parseFloat(document.getElementById('recipeSimulationQty').value);
     const selectedAlmacenId = document.getElementById('recipeSimulationAlmacen').value;
     const materialRows = document.querySelectorAll('#editRecipeMaterials .material-field');
 
-    materialRows.forEach(row => {
+    for (const row of materialRows) {
         const baseQtyInput = row.querySelector('.qty-input');
         const reqQtyOutput = row.querySelector('.req-qty-output');
         const stockAlertOutput = row.querySelector('.stock-alert-output');
         const type = row.querySelector('.type-select').value;
         const code = row.querySelector('.code-select').value;
 
-        stockAlertOutput.textContent = ''; // Clear previous alerts
+        stockAlertOutput.textContent = '';
         stockAlertOutput.classList.remove('text-danger', 'fw-bold');
+        reqQtyOutput.textContent = '';
 
-        if (isNaN(simQty) || simQty <= 0) {
-            reqQtyOutput.textContent = '';
-            return;
-        }
+        if (isNaN(simQty) || simQty <= 0) continue;
 
         const baseQty = parseFloat(baseQtyInput.value);
-        if (isNaN(baseQty)) {
-            reqQtyOutput.textContent = '';
-            return;
-        }
+        if (isNaN(baseQty)) continue;
 
         const requiredQty = baseQty * simQty;
         reqQtyOutput.textContent = requiredQty.toFixed(2);
 
         if (type === 'material' && code) {
-            const material = materials.find(m => m.codigo === code);
-            if (material) {
+            const materialDoc = await getDoc(doc(db, "materials", code));
+            if (materialDoc.exists()) {
+                const material = materialDoc.data();
                 let totalStock = 0;
                 if (material.inventario) {
                     if (selectedAlmacenId === 'all') {
@@ -1506,10 +1741,7 @@ function updateRecipeSimulation() {
                     } else {
                         totalStock = material.inventario[selectedAlmacenId] || 0;
                     }
-                } else {
-                    totalStock = material.existencia || 0; // Fallback for old data structure
                 }
-
                 if (totalStock < requiredQty) {
                     const shortfall = requiredQty - totalStock;
                     stockAlertOutput.textContent = `-${shortfall.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -1517,7 +1749,7 @@ function updateRecipeSimulation() {
                 }
             }
         }
-    });
+    }
 }
 
 
@@ -1528,10 +1760,26 @@ const valeModal            = new bootstrap.Modal(document.getElementById('valeMo
 const confirmCloseOrderModal = new bootstrap.Modal(document.getElementById('confirmCloseOrderModal'));
 let orderSortDirection = 'desc'; // 'asc' or 'desc'
 
-function populateOrderFormSelects() {
+// --- State for Server-Side Pagination ---
+let ordersCurrentPage = 1;
+let ordersItemsPerPage = 10;
+let ordersTotalPages = 1;
+let ordersLastVisible = null;
+let ordersPageCursors = { 1: null };
+
+
+async function populateOrderFormSelects() {
     const psel = document.getElementById('orderProductSelect');
+    psel.innerHTML = '<option disabled selected>Cargando productos...</option>';
+
+    // Fetch all products for the select dropdown. This might be slow if there are thousands.
+    // A future improvement could be a searchable select input.
+    const productsSnapshot = await getDocs(query(collection(db, 'products'), orderBy('codigo')));
     psel.innerHTML = '<option disabled selected>Selecciona...</option>';
-    products.forEach(p => psel.add(new Option(`${p.codigo} - ${p.descripcion}`, p.codigo)));
+    productsSnapshot.forEach(doc => {
+        const p = doc.data();
+        psel.add(new Option(`${doc.id} - ${p.descripcion}`, doc.id));
+    });
 
     const osel = document.getElementById('orderOperatorSelect');
     osel.innerHTML = '<option disabled selected>Selecciona...</option>';
@@ -1552,116 +1800,161 @@ function populateOrderFormSelects() {
         asel.add(option);
     });
 }
-function loadProductionOrders(filter = '') {
-  const tbody = document.getElementById('productionOrdersTableBody');
-  tbody.innerHTML = '';
 
-  const sortedOrders = [...productionOrders].sort((a, b) => {
-    if (orderSortDirection === 'asc') return a.order_id - b.order_id;
-    return b.order_id - a.order_id;
-  });
+function renderOrderRow(o) {
+    const oc = (o.status === 'Pendiente' ? o.cost_extra : o.overcost) || 0;
+    const ocColor = oc > 0 ? 'text-danger' : oc < 0 ? 'text-success' : '';
+    return `
+      <tr>
+        <td>${o.order_id}</td>
+        <td>${o.product_name || 'N/A'}</td>
+        <td>${o.quantity} / ${o.quantity_produced ?? 'N/A'}</td>
+        <td>${formatCurrency(o.cost_real)}</td>
+        <td class="${ocColor}">${formatCurrency(oc)}</td>
+        <td><span class="badge ${o.status === 'Completada' ? 'bg-success' : 'bg-warning'}">${o.status}</span></td>
+        <td>
+          <button class="btn btn-sm btn-info view-details-btn" data-order-id="${o.order_id}" title="Ver"><i class="fas fa-eye"></i></button>
+          <button class="btn btn-sm btn-danger pdf-btn" data-order-id="${o.order_id}" title="PDF"><i class="fas fa-file-pdf"></i></button>
+          ${o.status === 'Pendiente'
+            ? `<button class="btn btn-sm btn-primary create-vale-btn" data-order-id="${o.order_id}" title="Crear Vale"><i class="fas fa-plus-circle"></i></button>
+               <button class="btn btn-sm btn-success complete-order-btn" data-order-id="${o.order_id}" title="Completar"><i class="fas fa-check"></i></button>
+               <button class="btn btn-sm btn-danger delete-order-btn" data-order-id="${o.order_id}" title="Eliminar"><i class="fas fa-trash"></i></button>`
+            : `<button class="btn btn-sm btn-secondary reopen-order-btn" data-order-id="${o.order_id}" title="Reabrir"><i class="fas fa-undo"></i></button>`}
+        </td>
+      </tr>`;
+}
 
-  sortedOrders
-    .filter(o => !filter || o.order_id.toString().includes(filter) || (o.product_name || '').toLowerCase().includes(filter.toLowerCase()))
-    .forEach(o => {
-      const oc = (o.status === 'Pendiente' ? o.cost_extra : o.overcost) || 0;
-      const ocColor = oc > 0 ? 'text-danger' : oc < 0 ? 'text-success' : '';
-      tbody.insertAdjacentHTML('beforeend', `
-        <tr>
-          <td>${o.order_id}</td>
-          <td>${o.product_name || 'N/A'}</td>
-          <td>${o.quantity} / ${o.quantity_produced ?? 'N/A'}</td>
-          <td>${formatCurrency(o.cost_real)}</td>
-          <td class="${ocColor}">${formatCurrency(oc)}</td>
-          <td><span class="badge ${o.status === 'Completada' ? 'bg-success' : 'bg-warning'}">${o.status}</span></td>
-          <td>
-            <button class="btn btn-sm btn-info view-details-btn" data-order-id="${o.order_id}" title="Ver"><i class="fas fa-eye"></i></button>
-            <button class="btn btn-sm btn-danger pdf-btn" data-order-id="${o.order_id}" title="PDF"><i class="fas fa-file-pdf"></i></button>
-            ${o.status === 'Pendiente'
-              ? `<button class="btn btn-sm btn-primary create-vale-btn" data-order-id="${o.order_id}" title="Crear Vale"><i class="fas fa-plus-circle"></i></button>
-                 <button class="btn btn-sm btn-success complete-order-btn" data-order-id="${o.order_id}" title="Completar"><i class="fas fa-check"></i></button>
-                 <button class="btn btn-sm btn-danger delete-order-btn" data-order-id="${o.order_id}" title="Eliminar"><i class="fas fa-trash"></i></button>`
-              : `<button class="btn btn-sm btn-secondary reopen-order-btn" data-order-id="${o.order_id}" title="Reabrir"><i class="fas fa-undo"></i></button>`}
-          </td>
-        </tr>`);
-    });
+
+async function loadProductionOrders(page = 1) {
+    ordersCurrentPage = page;
+    const filter = document.getElementById('searchOrder').value.trim();
+    const tbody = document.getElementById('productionOrdersTableBody');
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center">Cargando...</td></tr>';
+
+    try {
+        const ordersRef = collection(db, 'productionOrders');
+        let q;
+        let countQuery;
+
+        if (filter) {
+            const orderIdAsNumber = parseInt(filter, 10);
+            if (!isNaN(orderIdAsNumber)) {
+                q = query(ordersRef, where('order_id', '==', orderIdAsNumber));
+                countQuery = q;
+            } else {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center">ID de orden inválido.</td></tr>';
+                return;
+            }
+        } else {
+            const baseQuery = query(ordersRef, orderBy('order_id', orderSortDirection));
+            countQuery = query(ordersRef); // Count all documents for non-filtered view
+            if (page > 1 && ordersPageCursors[page]) {
+                q = query(baseQuery, startAfter(ordersPageCursors[page]), limit(ordersItemsPerPage));
+            } else {
+                q = query(baseQuery, limit(ordersItemsPerPage));
+            }
+        }
+
+        const [querySnapshot, countSnapshot] = await Promise.all([
+            getDocs(q),
+            getCountFromServer(countQuery)
+        ]);
+
+        const totalOrders = countSnapshot.data().count;
+        ordersTotalPages = Math.ceil(totalOrders / ordersItemsPerPage);
+        if (ordersCurrentPage > ordersTotalPages) ordersCurrentPage = ordersTotalPages || 1;
+
+        tbody.innerHTML = '';
+        if (querySnapshot.empty) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center">No se encontraron órdenes.</td></tr>';
+        } else {
+            querySnapshot.forEach(doc => {
+                tbody.insertAdjacentHTML('beforeend', renderOrderRow(doc.data()));
+            });
+        }
+
+        if (!querySnapshot.empty) {
+            ordersLastVisible = querySnapshot.docs[querySnapshot.docs.length - 1];
+            ordersPageCursors[page + 1] = ordersLastVisible;
+        }
+
+        renderPaginationControls(
+            'productionOrdersPagination',
+            ordersCurrentPage,
+            ordersTotalPages,
+            ordersItemsPerPage,
+            (newPage) => loadProductionOrders(newPage),
+            (newSize) => {
+                ordersItemsPerPage = newSize;
+                ordersPageCursors = { 1: null };
+                loadProductionOrders(1);
+            }
+        );
+
+    } catch (error) {
+        console.error("Error loading production orders:", error);
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">Error al cargar órdenes.</td></tr>';
+        Toastify({ text: 'Error al cargar las órdenes de producción.', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
 }
 
 async function deleteOrderAndReverseStock(oid) {
-    const orderToDelete = productionOrders.find(o => o.order_id === oid);
-    if (!orderToDelete) {
+    if (!confirm(`¿Está seguro de que desea eliminar la orden ${oid}? Esta acción es irreversible y ajustará el inventario de TODOS los almacenes involucrados.`)) {
+        return;
+    }
+
+    const orderRef = doc(db, "productionOrders", oid.toString());
+    const orderSnap = await getDoc(orderRef);
+
+    if (!orderSnap.exists()) {
         Toastify({ text: `Error: Orden ${oid} no encontrada.`, backgroundColor: 'var(--danger-color)' }).showToast();
         return;
     }
-
-    if (!confirm(`¿Está seguro de que desea eliminar la orden ${oid}? Esta acción es irreversible y ajustará el inventario.`)) {
-        return;
-    }
-
-    const orderVales = vales.filter(v => v.order_id === oid);
-    const materialsToUpdate = new Map();
-
-    // 1. Revert stock from the main order if it was completed
-    if (orderToDelete.status === 'Completada' && orderToDelete.quantity_produced > 0) {
-        const recipe = recipes[orderToDelete.product_code] || [];
-        const baseMaterials = getBaseMaterials(orderToDelete.product_code, orderToDelete.quantity_produced);
-
-        baseMaterials.forEach(bm => {
-            const material = materials.find(m => m.codigo === bm.code);
-            if (material) {
-                const current = materialsToUpdate.get(bm.code) || { ...material };
-                current.existencia += bm.quantity;
-                materialsToUpdate.set(bm.code, current);
-            }
-        });
-    }
-
-    // 2. Revert stock from all associated vales
-    orderVales.forEach(vale => {
-        vale.materials.forEach(valeMat => {
-            const material = materials.find(m => m.codigo === valeMat.material_code);
-            if (material) {
-                const current = materialsToUpdate.get(valeMat.material_code) || { ...material };
-                // If it was a 'salida', add stock back. If it was 'devolucion', remove it.
-                const adjustment = vale.type === 'salida' ? valeMat.quantity : -valeMat.quantity;
-                current.existencia += adjustment;
-                materialsToUpdate.set(valeMat.material_code, current);
-            }
-        });
-    });
+    const orderToDelete = orderSnap.data();
 
     try {
-        // 3. Create all Firestore update/delete promises
         const promises = [];
+        const valesQuery = query(collection(db, "vales"), where("order_id", "==", oid));
+        const valesSnapshot = await getDocs(valesQuery);
+        const orderVales = valesSnapshot.docs.map(d => d.data());
 
-        // Promises to update material stocks
-        materialsToUpdate.forEach((material, code) => {
-            const docRef = doc(db, "materials", code);
-            promises.push(updateDoc(docRef, { existencia: material.existencia }));
-        });
+        // 1. Revert stock from the main order completion if it was completed
+        if (orderToDelete.status === 'Completada' && orderToDelete.quantity_produced > 0) {
+            const almacenId = orderToDelete.almacen_produccion_id;
+            const baseMaterials = await getBaseMaterials(orderToDelete.product_code, orderToDelete.quantity_produced);
 
-        // Promises to delete vales
+            // Add back raw materials
+            baseMaterials.forEach(bm => {
+                const matRef = doc(db, "materials", bm.code);
+                promises.push(updateDoc(matRef, { [`inventario.${almacenId}`]: increment(bm.quantity) }));
+            });
+
+            // Remove finished product
+            const finishedProductRef = doc(db, "materials", orderToDelete.product_code);
+            promises.push(updateDoc(finishedProductRef, { [`inventario.${almacenId}`]: increment(-orderToDelete.quantity_produced) }));
+        }
+
+        // 2. Revert stock from all associated vales
         orderVales.forEach(vale => {
-            const docRef = doc(db, "vales", vale.vale_id);
-            promises.push(deleteDoc(docRef));
+            vale.materials.forEach(valeMat => {
+                const matRef = doc(db, "materials", valeMat.material_code);
+                const almacenId = vale.almacenId;
+                // If it was a 'salida', add stock back. If it was 'devolucion', remove it.
+                const adjustment = vale.type === 'salida' ? valeMat.quantity : -valeMat.quantity;
+                promises.push(updateDoc(matRef, { [`inventario.${almacenId}`]: increment(adjustment) }));
+            });
+            // Add vale deletion to promises
+            promises.push(deleteDoc(doc(db, "vales", vale.vale_id)));
         });
 
-        // Promise to delete the production order itself
-        promises.push(deleteDoc(doc(db, "productionOrders", oid.toString())));
+        // 3. Delete the production order itself
+        promises.push(deleteDoc(orderRef));
 
         // 4. Execute all promises
         await Promise.all(promises);
 
-        // 5. Update local state
-        materials = await loadCollection('materials', 'codigo');
-        vales = vales.filter(v => v.order_id !== oid);
-        productionOrders = productionOrders.filter(o => o.order_id !== oid);
-
-        // 6. Refresh UI
-        loadProductionOrders();
-        loadMaterials();
-        updateDashboard();
-
+        // 5. Refresh UI
+        loadProductionOrders(ordersCurrentPage);
         Toastify({ text: `Orden ${oid} y sus vales han sido eliminados. El inventario ha sido ajustado.`, backgroundColor: 'var(--success-color)' }).showToast();
 
     } catch (error) {
@@ -1670,44 +1963,83 @@ async function deleteOrderAndReverseStock(oid) {
     }
 }
 
-
 document.getElementById('productionOrdersTableBody').addEventListener('click', async e => {
     const btn = e.target.closest('button'); if (!btn) return;
     const oid = parseInt(btn.dataset.orderId);
 
     if (btn.classList.contains('view-details-btn')) {
-      showOrderDetails(oid);
+      await showOrderDetails(oid);
     } else if (btn.classList.contains('pdf-btn')) {
       await generateOrderPDF(oid);
     } else if (btn.classList.contains('delete-order-btn')) {
       await deleteOrderAndReverseStock(oid);
     } else if (btn.classList.contains('complete-order-btn')) {
-      const ord = productionOrders.find(o => o.order_id === oid);
-      document.getElementById('closeHiddenOrderId').value = oid;
-      document.getElementById('realQuantityInput').value = ord.quantity;
-      const almacenSelect = document.getElementById('completionAlmacenSelect');
-      almacenSelect.innerHTML = '<option value="" selected disabled>Seleccione almacén...</option>';
-      const defaultAlmacen = almacenes.find(a => a.isDefault);
-      almacenes.forEach(a => {
-          const option = new Option(a.name, a.id);
-          if (defaultAlmacen && a.id === defaultAlmacen.id) {
-              option.selected = true;
-          }
-          almacenSelect.add(option);
-      });
-      confirmCloseOrderModal.show();
+      const orderDoc = await getDoc(doc(db, "productionOrders", oid.toString()));
+      if (orderDoc.exists()) {
+          const ord = orderDoc.data();
+          document.getElementById('closeHiddenOrderId').value = oid;
+          document.getElementById('realQuantityInput').value = ord.quantity;
+          const almacenSelect = document.getElementById('completionAlmacenSelect');
+          almacenSelect.innerHTML = '<option value="" selected disabled>Seleccione almacén...</option>';
+          const defaultAlmacen = almacenes.find(a => a.isDefault);
+          almacenes.forEach(a => {
+              const option = new Option(a.name, a.id);
+              if ((ord.almacen_produccion_id && ord.almacen_produccion_id === a.id) || (!ord.almacen_produccion_id && defaultAlmacen && a.id === defaultAlmacen.id)) {
+                  option.selected = true;
+              }
+              almacenSelect.add(option);
+          });
+          confirmCloseOrderModal.show();
+      } else {
+          Toastify({ text: 'Error: Orden no encontrada.', backgroundColor: 'var(--danger-color)' }).showToast();
+      }
     } else if (btn.classList.contains('reopen-order-btn')) {
-      reopenOrder(oid);
+      await reopenOrder(oid);
     } else if (btn.classList.contains('create-vale-btn')) {
-      generateValePrompt(oid);
+      await generateValePrompt(oid);
     }
 });
 
-function showOrderDetails(oid) {
-    const ord = productionOrders.find(o => o.order_id === oid);
-    if (!ord) {
+async function showOrderDetails(oid) {
+    const orderDoc = await getDoc(doc(db, "productionOrders", oid.toString()));
+    if (!orderDoc.exists()) {
         Toastify({ text: 'Orden no encontrada', backgroundColor: 'var(--danger-color)' }).showToast();
         return;
+    }
+    const ord = orderDoc.data();
+
+    // --- Batch Fetch all necessary data ---
+    const productIds = new Set();
+    const materialIds = new Set();
+    const recipeIds = new Set();
+
+    const mainRecipeDoc = await getDoc(doc(db, "recipes", ord.product_code));
+    const recipeItems = mainRecipeDoc.exists() ? mainRecipeDoc.data().items : [];
+    recipeItems.forEach(item => {
+        if (item.type === 'product') {
+            productIds.add(item.code);
+            recipeIds.add(item.code);
+        } else {
+            materialIds.add(item.code);
+        }
+    });
+
+    const valesQuery = query(collection(db, "vales"), where("order_id", "==", oid));
+    const valesSnapshot = await getDocs(valesQuery);
+    const orderVales = valesSnapshot.docs.map(doc => doc.data());
+    orderVales.forEach(vale => vale.materials.forEach(item => materialIds.add(item.material_code)));
+
+    const [productDocs, materialDocs, recipeDocs] = await Promise.all([
+        Promise.all([...productIds].map(id => getDoc(doc(db, "products", id)))),
+        Promise.all([...materialIds].map(id => getDoc(doc(db, "materials", id)))),
+        Promise.all([...recipeIds].map(id => getDoc(doc(db, "recipes", id)))),
+    ]);
+
+    const productsMap = new Map(productDocs.filter(d => d.exists()).map(d => [d.id, d.data()]));
+    const materialsMap = new Map(materialDocs.filter(d => d.exists()).map(d => [d.id, d.data()]));
+    const recipesMap = new Map(recipeDocs.filter(d => d.exists()).map(d => [d.id, d.data().items]));
+    if (mainRecipeDoc.exists()) {
+        recipesMap.set(ord.product_code, recipeItems);
     }
 
     // --- Basic Order Info ---
@@ -1724,36 +2056,28 @@ function showOrderDetails(oid) {
     document.getElementById('detailQuantityProduced').textContent = ord.quantity_produced ?? 'N/A';
     document.getElementById('detailCreatedDate').textContent = formatDate(ord.created_at);
     document.getElementById('detailCompletedDate').textContent = formatDate(ord.completed_at);
-
-    // --- Vales Info ---
-    const orderVales = vales.filter(v => v.order_id === oid);
     document.getElementById('detailValeCount').textContent = orderVales.length;
 
     // --- Cost Info ---
     const realQty = ord.quantity_produced || 0;
-    // "Standard Cost" here refers to the cost that *should have been* for the actual quantity produced.
     const standardCostForRealQty = (ord.cost_standard_unit || 0) * realQty;
-
     document.getElementById('detailStandardCost').textContent = formatCurrency(standardCostForRealQty);
     document.getElementById('detailExtraCost').textContent = formatCurrency(ord.cost_extra);
-    // Display the true Real Cost and Overcost as calculated and stored on the order object
     document.getElementById('detailRealCost').textContent = formatCurrency(ord.cost_real);
     const overcostEl = document.getElementById('detailOvercost');
     overcostEl.textContent = formatCurrency(ord.overcost);
-    const ocValue = ord.overcost || 0;
-    overcostEl.className = 'h5 ' + (ocValue > 0 ? 'text-danger' : ocValue < 0 ? 'text-success' : '');
+    overcostEl.className = 'h5 ' + ((ord.overcost || 0) > 0 ? 'text-danger' : (ord.overcost || 0) < 0 ? 'text-success' : '');
 
     // --- Consolidated Materials Table ---
     const materialsSummary = {};
-    const recipeItems = recipes[ord.product_code] || [];
-    recipeItems.forEach(recipeMat => {
+    for (const recipeMat of recipeItems) {
         let itemInfo = { descripcion: 'N/A', costo_unit: 0 };
         if (recipeMat.type === 'product') {
-            const p = products.find(prod => prod.codigo === recipeMat.code);
+            const p = productsMap.get(recipeMat.code);
             if (p) itemInfo.descripcion = p.descripcion;
-            itemInfo.costo_unit = calculateRecipeCost(recipes[recipeMat.code] || []);
+            itemInfo.costo_unit = await calculateRecipeCost(recipesMap.get(recipeMat.code) || [], recipesMap, materialsMap);
         } else {
-            const m = materials.find(mat => mat.codigo === recipeMat.code);
+            const m = materialsMap.get(recipeMat.code);
             if (m) { itemInfo.descripcion = m.descripcion; itemInfo.costo_unit = m.costo; }
         }
         const plannedQty = recipeMat.quantity * ord.quantity;
@@ -1764,7 +2088,7 @@ function showOrderDetails(oid) {
             qty_real: ord.status === 'Completada' ? (recipeMat.quantity * (ord.quantity_produced || 0)) : 0,
             cost_plan: plannedQty * itemInfo.costo_unit,
         };
-    });
+    }
 
     if (ord.status === 'Completada') {
         orderVales.forEach(vale => {
@@ -1773,7 +2097,7 @@ function showOrderDetails(oid) {
                 if (materialsSummary[valeMat.material_code]) {
                     materialsSummary[valeMat.material_code].qty_real += adjust;
                 } else {
-                    const m = materials.find(m => m.codigo === valeMat.material_code);
+                    const m = materialsMap.get(valeMat.material_code);
                     if (m) {
                         materialsSummary[valeMat.material_code] = {
                             descripcion: m.descripcion,
@@ -1792,107 +2116,66 @@ function showOrderDetails(oid) {
     materialsTbody.innerHTML = '';
     let totalPlanCost = 0;
     let totalRealCostConsolidated = 0;
-
     for (const [code, mat] of Object.entries(materialsSummary)) {
         const cost_real = mat.qty_real * mat.costo_unit;
         totalPlanCost += mat.cost_plan;
         totalRealCostConsolidated += cost_real;
-        materialsTbody.insertAdjacentHTML('beforeend', `
-            <tr>
-                <td>${code}</td>
-                <td>${mat.descripcion}</td>
-                <td>${mat.qty_plan.toFixed(2)} / <strong class="ms-1">${mat.qty_real.toFixed(2)}</strong></td>
-                <td>${formatCurrency(mat.cost_plan)} / <strong class="ms-1">${formatCurrency(cost_real)}</strong></td>
-            </tr>
-        `);
+        materialsTbody.insertAdjacentHTML('beforeend', `<tr><td>${code}</td><td>${mat.descripcion}</td><td>${mat.qty_plan.toFixed(2)} / <strong class="ms-1">${mat.qty_real.toFixed(2)}</strong></td><td>${formatCurrency(mat.cost_plan)} / <strong class="ms-1">${formatCurrency(cost_real)}</strong></td></tr>`);
     }
-
-    // Add total row to consolidated table
-    materialsTbody.insertAdjacentHTML('beforeend', `
-        <tr class="table-group-divider fw-bold">
-            <td colspan="3" class="text-end">TOTALES:</td>
-            <td>${formatCurrency(totalPlanCost)} / <strong class="ms-1">${formatCurrency(totalRealCostConsolidated)}</strong></td>
-        </tr>
-    `);
+    materialsTbody.insertAdjacentHTML('beforeend', `<tr class="table-group-divider fw-bold"><td colspan="3" class="text-end">TOTALES:</td><td>${formatCurrency(totalPlanCost)} / <strong class="ms-1">${formatCurrency(totalRealCostConsolidated)}</strong></td></tr>`);
 
     // --- Individual Vales Details ---
     const valesContainer = document.getElementById('detailValesContainer');
     valesContainer.innerHTML = '';
     if (orderVales.length > 0) {
         valesContainer.innerHTML += '<h6 class="mt-4">Desglose de Vales</h6>';
-        orderVales.forEach(vale => {
-            let valeHTML = `
-                <div class="card mt-3">
-                    <div class="card-header">
-                        <strong>Vale #${vale.vale_id}</strong> - Tipo: ${vale.type === 'salida' ? 'Salida' : 'Devolución'} - Fecha: ${formatDate(vale.created_at)}
-                    </div>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-bordered mb-0">
-                            <thead>
-                                <tr>
-                                    <th>Código</th>
-                                    <th>Descripción</th>
-                                    <th>Cantidad</th>
-                                    <th>Costo</th>
-                                </tr>
-                            </thead>
-                            <tbody>`;
+        for (const vale of orderVales) {
+            let valeHTML = `<div class="card mt-3"><div class="card-header"><strong>Vale #${vale.vale_id}</strong> - Tipo: ${vale.type === 'salida' ? 'Salida' : 'Devolución'} - Fecha: ${formatDate(vale.created_at)}</div><div class="table-responsive"><table class="table table-sm table-bordered mb-0"><thead><tr><th>Código</th><th>Descripción</th><th>Cantidad</th><th>Costo</th></tr></thead><tbody>`;
             let valeTotalCost = 0;
-            vale.materials.forEach(item => {
-                const material = materials.find(m => m.codigo === item.material_code);
-                // Use the stored historical cost (item.cost_at_time) if it exists.
-                // Fallback to live cost for older vales that don't have the field.
-                const costPerUnit = item.cost_at_time ?? (material ? material.costo : 0);
+            for (const item of vale.materials) {
+                const m = materialsMap.get(item.material_code);
+                const costPerUnit = item.cost_at_time ?? (m ? m.costo : 0);
                 const cost = costPerUnit * item.quantity;
                 valeTotalCost += cost;
-                valeHTML += `
-                    <tr>
-                        <td>${item.material_code}</td>
-                        <td>${material ? material.descripcion : 'N/A'}</td>
-                        <td>${item.quantity.toFixed(2)}</td>
-                        <td>${formatCurrency(cost)}</td>
-                    </tr>`;
-            });
-            valeHTML += `
-                            </tbody>
-                            <tfoot>
-                                <tr class="fw-bold">
-                                    <td colspan="3" class="text-end">Costo Total del Vale:</td>
-                                    <td>${formatCurrency(valeTotalCost)}</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                </div>`;
+                valeHTML += `<tr><td>${item.material_code}</td><td>${m ? m.descripcion : 'N/A'}</td><td>${item.quantity.toFixed(2)}</td><td>${formatCurrency(cost)}</td></tr>`;
+            }
+            valeHTML += `</tbody><tfoot><tr class="fw-bold"><td colspan="3" class="text-end">Costo Total del Vale:</td><td>${formatCurrency(valeTotalCost)}</td></tr></tfoot></table></div></div>`;
             valesContainer.innerHTML += valeHTML;
-        });
+        }
     }
-
     orderDetailsModal.show();
 }
 
 async function createProductionOrder(pCode, qty, opId, eqId, almacenId) {
-    const prod = products.find(p => p.codigo === pCode);
-    if (!prod) {
+    const productDoc = await getDoc(doc(db, "products", pCode));
+    if (!productDoc.exists()) {
         Toastify({ text: `Error: Producto con código ${pCode} no encontrado.` }).showToast();
         return false;
     }
-    if (!recipes[pCode]) {
+    const prod = productDoc.data();
+    prod.codigo = productDoc.id;
+
+    const recipeDoc = await getDoc(doc(db, "recipes", pCode));
+    if (!recipeDoc.exists()) {
         Toastify({ text: `Sin receta para ${prod.descripcion}` }).showToast();
         return false;
     }
+    const recipeItems = recipeDoc.data().items;
 
-    const stdCost = calculateRecipeCost(recipes[pCode]) * qty;
+    const costPerUnit = await calculateRecipeCost(recipeItems);
+    const stdCost = costPerUnit * qty;
+    const newOrderId = await generateSequentialOrderId();
+
     const newOrder = {
-        order_id: generateSequentialOrderId(),
+        order_id: newOrderId,
         product_code: pCode,
         product_name: prod.descripcion,
         quantity: qty,
         quantity_produced: null,
         operator_id: opId,
         equipo_id: eqId,
-        almacen_produccion_id: almacenId, // <-- Store the warehouse ID
-        cost_standard_unit: calculateRecipeCost(recipes[pCode]),
+        almacen_produccion_id: almacenId,
+        cost_standard_unit: costPerUnit,
         cost_standard: stdCost,
         cost_extra: 0,
         cost_real: null,
@@ -1900,12 +2183,11 @@ async function createProductionOrder(pCode, qty, opId, eqId, almacenId) {
         created_at: new Date().toISOString().slice(0, 10),
         completed_at: null,
         status: 'Pendiente',
-        materials_used: recipes[pCode].map(i => ({ material_code: i.code, quantity: i.quantity * qty, type: i.type }))
+        materials_used: recipeItems.map(i => ({ material_code: i.code, quantity: i.quantity * qty, type: i.type }))
     };
 
     try {
         await setDoc(doc(db, "productionOrders", newOrder.order_id.toString()), newOrder);
-        productionOrders.push(newOrder);
         return true; // Indicate success
     } catch (error) {
         console.error("Error creating order: ", error);
@@ -1915,94 +2197,74 @@ async function createProductionOrder(pCode, qty, opId, eqId, almacenId) {
 }
 
 document.getElementById('productionOrderForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const pCode = document.getElementById('orderProductSelect').value;
-  const qty = parseInt(document.getElementById('orderQuantity').value);
-  const opId = document.getElementById('orderOperatorSelect').value;
-  const eqId = document.getElementById('orderEquipoSelect').value;
-  const almacenId = document.getElementById('orderAlmacenSelect').value;
-  if (!pCode || !opId || !eqId || !almacenId) { Toastify({ text: 'Complete todos los campos requeridos.' }).showToast(); return; }
+    e.preventDefault();
+    const pCode = document.getElementById('orderProductSelect').value;
+    const qty = parseInt(document.getElementById('orderQuantity').value);
+    const opId = document.getElementById('orderOperatorSelect').value;
+    const eqId = document.getElementById('orderEquipoSelect').value;
+    const almacenId = document.getElementById('orderAlmacenSelect').value;
+    if (!pCode || !opId || !eqId || !almacenId) { Toastify({ text: 'Complete todos los campos requeridos.' }).showToast(); return; }
 
-  const success = await createProductionOrder(pCode, qty, opId, eqId, almacenId);
+    const success = await createProductionOrder(pCode, qty, opId, eqId, almacenId);
 
-  if (success) {
-    loadProductionOrders();
-    productionOrderModal.hide();
-    Toastify({ text: 'Orden de producción creada', backgroundColor: 'var(--success-color)' }).showToast();
-  }
+    if (success) {
+        loadProductionOrders(); // This will now reload from Firestore
+        productionOrderModal.hide();
+        document.getElementById('productionOrderForm').reset();
+        Toastify({ text: 'Orden de producción creada', backgroundColor: 'var(--success-color)' }).showToast();
+    }
 });
-document.getElementById('confirmCloseOrderForm').addEventListener('submit', e => {
-  e.preventDefault();
-  const oid = parseInt(document.getElementById('closeHiddenOrderId').value);
-  const realQty = parseFloat(document.getElementById('realQuantityInput').value);
-  const almacenId = document.getElementById('completionAlmacenSelect').value;
-  if (!almacenId) {
-      Toastify({ text: 'Por favor, seleccione un almacén de producción.', backgroundColor: 'var(--warning-color)' }).showToast();
-      return;
-  }
-  completeOrder(oid, realQty, almacenId);
-  bootstrap.Modal.getInstance(document.getElementById('confirmCloseOrderModal')).hide();
+document.getElementById('confirmCloseOrderForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const oid = parseInt(document.getElementById('closeHiddenOrderId').value);
+    const realQty = parseFloat(document.getElementById('realQuantityInput').value);
+    const almacenId = document.getElementById('completionAlmacenSelect').value;
+    if (!almacenId) {
+        Toastify({ text: 'Por favor, seleccione un almacén de producción.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+    await completeOrder(oid, realQty, almacenId);
+    bootstrap.Modal.getInstance(document.getElementById('confirmCloseOrderModal')).hide();
 });
+
 async function completeOrder(oid, realQty, almacenId) {
-    const idx = productionOrders.findIndex(o => o.order_id === oid);
-    if (idx === -1) {
+    const orderRef = doc(db, "productionOrders", oid.toString());
+    const orderSnap = await getDoc(orderRef);
+
+    if (!orderSnap.exists()) {
         Toastify({ text: 'Error: Orden no encontrada para completar.', backgroundColor: 'var(--danger-color)' }).showToast();
         return;
     }
 
-    const orderToUpdate = { ...productionOrders[idx] };
-    const materialsToUpdate = new Map();
+    const orderToUpdate = orderSnap.data();
+    const promises = [];
 
-    const baseMaterialsConsumed = getBaseMaterials(orderToUpdate.product_code, realQty);
+    const baseMaterialsConsumed = await getBaseMaterials(orderToUpdate.product_code, realQty);
 
+    // Decrease stock of raw materials
     for (const mat of baseMaterialsConsumed) {
-        const mIdx = materials.findIndex(m => m.codigo === mat.code);
-        if (mIdx !== -1) {
-            const updatedMaterial = materialsToUpdate.get(mat.code) || { ...materials[mIdx] };
-            if (!updatedMaterial.inventario) updatedMaterial.inventario = {};
-            updatedMaterial.inventario[almacenId] = (updatedMaterial.inventario[almacenId] || 0) - mat.quantity;
-            materialsToUpdate.set(mat.code, updatedMaterial);
-        }
+        const matRef = doc(db, "materials", mat.code);
+        promises.push(updateDoc(matRef, { [`inventario.${almacenId}`]: increment(-mat.quantity) }));
     }
 
-    const finishedProductIdx = materials.findIndex(m => m.codigo === orderToUpdate.product_code);
-    if (finishedProductIdx !== -1) {
-        const updatedMaterial = materialsToUpdate.get(orderToUpdate.product_code) || { ...materials[finishedProductIdx] };
-        if (!updatedMaterial.inventario) updatedMaterial.inventario = {};
-        updatedMaterial.inventario[almacenId] = (updatedMaterial.inventario[almacenId] || 0) + realQty;
-        materialsToUpdate.set(orderToUpdate.product_code, updatedMaterial);
-    }
+    // Increase stock of finished product
+    const finishedProductRef = doc(db, "materials", orderToUpdate.product_code);
+    promises.push(updateDoc(finishedProductRef, { [`inventario.${almacenId}`]: increment(realQty) }));
 
+    // Update order status and details
     orderToUpdate.quantity_produced = realQty;
     orderToUpdate.status = 'Completada';
     orderToUpdate.completed_at = new Date().toISOString().slice(0, 10);
     orderToUpdate.almacen_produccion_id = almacenId;
-
     const standardCostForRealQty = (orderToUpdate.cost_standard_unit || 0) * realQty;
     orderToUpdate.cost_real = standardCostForRealQty + (orderToUpdate.cost_extra || 0);
     orderToUpdate.overcost = orderToUpdate.cost_extra || 0;
 
+    promises.push(setDoc(orderRef, orderToUpdate));
 
     try {
-        const promises = [];
-        promises.push(setDoc(doc(db, "productionOrders", orderToUpdate.order_id.toString()), orderToUpdate));
-
-        materialsToUpdate.forEach((material, code) => {
-            promises.push(updateDoc(doc(db, "materials", code), { inventario: material.inventario }));
-        });
-
         await Promise.all(promises);
-
-        [productionOrders, materials] = await Promise.all([
-            loadCollection('productionOrders', 'order_id'),
-            loadCollection('materials', 'codigo')
-        ]);
-        productionOrders.forEach(o => o.order_id = parseInt(o.order_id));
-
-        loadProductionOrders();
-        loadMaterials();
-        updateDashboard();
-
+        loadProductionOrders(ordersCurrentPage); // Refresh view
         Toastify({ text: `Orden ${oid} completada con éxito.`, backgroundColor: 'var(--success-color)' }).showToast();
     } catch (error) {
         console.error("Error completing order: ", error);
@@ -2010,43 +2272,38 @@ async function completeOrder(oid, realQty, almacenId) {
     }
 }
 async function reopenOrder(oid) {
-    const idx = productionOrders.findIndex(o => o.order_id === oid);
-    if (idx === -1) {
+    const orderRef = doc(db, "productionOrders", oid.toString());
+    const orderSnap = await getDoc(orderRef);
+
+    if (!orderSnap.exists()) {
         Toastify({ text: 'Error: Orden no encontrada para reabrir.', backgroundColor: 'var(--danger-color)' }).showToast();
         return;
     }
 
-    const orderToUpdate = { ...productionOrders[idx] };
+    const orderToUpdate = orderSnap.data();
     const almacenId = orderToUpdate.almacen_produccion_id;
     if (!almacenId) {
         Toastify({ text: 'Error: No se puede reabrir la orden porque no se registró un almacén de producción.', backgroundColor: 'var(--danger-color)', duration: 6000 }).showToast();
         return;
     }
 
-    const materialsToUpdate = new Map();
+    const promises = [];
     const quantityToReverse = orderToUpdate.quantity_produced || 0;
 
     if (quantityToReverse > 0) {
-        const baseMaterialsToRestore = getBaseMaterials(orderToUpdate.product_code, quantityToReverse);
+        const baseMaterialsToRestore = await getBaseMaterials(orderToUpdate.product_code, quantityToReverse);
+        // Add back raw materials
         baseMaterialsToRestore.forEach(mat => {
-            const mIdx = materials.findIndex(m => m.codigo === mat.code);
-            if (mIdx !== -1) {
-                const updatedMaterial = materialsToUpdate.get(mat.code) || { ...materials[mIdx] };
-                if (!updatedMaterial.inventario) updatedMaterial.inventario = {};
-                updatedMaterial.inventario[almacenId] = (updatedMaterial.inventario[almacenId] || 0) + mat.quantity;
-                materialsToUpdate.set(mat.code, updatedMaterial);
-            }
+            const matRef = doc(db, "materials", mat.code);
+            promises.push(updateDoc(matRef, { [`inventario.${almacenId}`]: increment(mat.quantity) }));
         });
 
-        const finishedProductIdx = materials.findIndex(m => m.codigo === orderToUpdate.product_code);
-        if (finishedProductIdx !== -1) {
-            const updatedMaterial = materialsToUpdate.get(orderToUpdate.product_code) || { ...materials[finishedProductIdx] };
-             if (!updatedMaterial.inventario) updatedMaterial.inventario = {};
-            updatedMaterial.inventario[almacenId] = (updatedMaterial.inventario[almacenId] || 0) - quantityToReverse;
-            materialsToUpdate.set(orderToUpdate.product_code, updatedMaterial);
-        }
+        // Remove finished product
+        const finishedProductRef = doc(db, "materials", orderToUpdate.product_code);
+        promises.push(updateDoc(finishedProductRef, { [`inventario.${almacenId}`]: increment(-quantityToReverse) }));
     }
 
+    // Reset order status
     orderToUpdate.status = 'Pendiente';
     orderToUpdate.completed_at = null;
     orderToUpdate.quantity_produced = null;
@@ -2054,25 +2311,11 @@ async function reopenOrder(oid) {
     orderToUpdate.overcost = null;
     delete orderToUpdate.almacen_produccion_id;
 
+    promises.push(setDoc(orderRef, orderToUpdate));
+
     try {
-        const promises = [];
-        promises.push(setDoc(doc(db, "productionOrders", orderToUpdate.order_id.toString()), orderToUpdate));
-        materialsToUpdate.forEach((material, code) => {
-            promises.push(updateDoc(doc(db, "materials", code), { inventario: material.inventario }));
-        });
-
         await Promise.all(promises);
-
-        [productionOrders, materials] = await Promise.all([
-            loadCollection('productionOrders', 'order_id'),
-            loadCollection('materials', 'codigo')
-        ]);
-        productionOrders.forEach(o => o.order_id = parseInt(o.order_id));
-
-        loadProductionOrders();
-        loadMaterials();
-        updateDashboard();
-
+        loadProductionOrders(ordersCurrentPage); // Refresh view
         Toastify({ text: `Orden ${oid} reabierta.`, backgroundColor: 'var(--success-color)' }).showToast();
     } catch (error) {
         console.error("Error reopening order: ", error);
@@ -2080,13 +2323,121 @@ async function reopenOrder(oid) {
     }
 }
 async function generateOrderPDF(oid) {
-  try {
-    const { jsPDF } = window.jspdf;
-    const ord = productionOrders.find(o => o.order_id === oid);
-    if (!ord) {
-      Toastify({ text: 'Error: Orden no encontrada para PDF.', backgroundColor: 'var(--danger-color)' }).showToast();
-      return;
+    try {
+        const { jsPDF } = window.jspdf;
+        const orderDoc = await getDoc(doc(db, "productionOrders", oid.toString()));
+        if (!orderDoc.exists()) {
+            Toastify({ text: 'Error: Orden no encontrada para PDF.', backgroundColor: 'var(--danger-color)' }).showToast();
+            return;
+        }
+        const ord = orderDoc.data();
+
+        // --- Batch Fetch all necessary data ---
+        const productIds = new Set();
+        const materialIds = new Set();
+        const recipeIds = new Set();
+        (ord.materials_used || []).forEach(item => {
+            if (item.type === 'product') {
+                productIds.add(item.code);
+                recipeIds.add(item.code);
+            } else {
+                materialIds.add(item.code);
+            }
+        });
+
+        const [productDocs, materialDocs, recipeDocs, valesSnapshot, logoData] = await Promise.all([
+            Promise.all([...productIds].map(id => getDoc(doc(db, "products", id)))),
+            Promise.all([...materialIds].map(id => getDoc(doc(db, "materials", id)))),
+            Promise.all([...recipeIds].map(id => getDoc(doc(db, "recipes", id)))),
+            getDocs(query(collection(db, "vales"), where("order_id", "==", oid))),
+            getLogoUrl()
+        ]);
+
+        const productsMap = new Map(productDocs.filter(d => d.exists()).map(d => [d.id, d.data()]));
+        const materialsMap = new Map(materialDocs.filter(d => d.exists()).map(d => [d.id, d.data()]));
+        const recipesMap = new Map(recipeDocs.filter(d => d.exists()).map(d => [d.id, d.data().items]));
+
+        const doc = new jsPDF();
+
+        // --- PDF Header ---
+        let logoHeight = 0;
+        if (logoData) {
+            const getImageDimensions = (dataUrl) => new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+                img.src = dataUrl;
+            });
+            const dims = await getImageDimensions(logoData);
+            const w = dims.width * (20 / dims.height);
+            const h = 20;
+            doc.addImage(logoData, 'PNG', 15, 10, w, h);
+            logoHeight = h;
+        }
+        doc.setFontSize(20);
+        doc.text('Orden de Producción', 105, logoHeight > 0 ? 15 + logoHeight : 25, null, null, 'center');
+
+        // --- Order Info ---
+        let startY = (logoHeight > 0 ? 15 + logoHeight : 25) + 15;
+        const lineHeight = 7;
+        const rightColX = 140;
+        doc.setFontSize(10);
+        doc.text(`Fecha Creación: ${formatDate(ord.created_at)}`, rightColX, startY);
+        doc.text(`Fecha Fin: ${formatDate(ord.completed_at)}`, rightColX, startY + lineHeight);
+        doc.text(`Nº Vales: ${valesSnapshot.size}`, rightColX, startY + (lineHeight * 2));
+        doc.setFontSize(12);
+        doc.text(`ID de Orden: ${ord.order_id}`, 15, startY);
+        startY += lineHeight;
+        doc.text(`Producto: ${ord.product_name}`, 15, startY);
+        startY += lineHeight;
+        doc.text(`Operador: ${operators.find(op => op.id === ord.operator_id)?.name || 'N/A'}`, 15, startY);
+        startY += lineHeight;
+        doc.text(`Equipo: ${equipos.find(eq => eq.id === ord.equipo_id)?.name || 'N/A'}`, 15, startY);
+        startY += lineHeight;
+        doc.text(`Cantidad Planificada: ${ord.quantity}`, 15, startY);
+        startY += lineHeight;
+        doc.text(`Cantidad Real Producida: ${ord.quantity_produced || 'N/A'}`, 15, startY);
+        startY += lineHeight;
+        doc.text(`Costo Estándar: ${formatCurrency(ord.cost_standard)}`, 15, startY);
+        startY += lineHeight;
+        doc.text(`Costo Extra: ${formatCurrency(ord.cost_extra)}`, 15, startY);
+        startY += lineHeight;
+        doc.text(`Costo Real Total: ${formatCurrency(ord.cost_real)}`, 15, startY);
+        startY += lineHeight;
+        doc.text(`Sobrecosto: ${formatCurrency(ord.overcost)}`, 15, startY);
+
+        // --- Materials Table ---
+        const bodyRows = [];
+        for (const u of ord.materials_used) {
+            let desc = u.material_code;
+            let cost = 0;
+            if (u.type === 'product') {
+                const p = productsMap.get(u.material_code);
+                if (p) desc = p.descripcion;
+                cost = await calculateRecipeCost(recipesMap.get(u.material_code) || [], recipesMap, materialsMap);
+            } else {
+                const m = materialsMap.get(u.material_code);
+                if (m) { desc = m.descripcion; cost = m.costo; }
+            }
+            bodyRows.push([desc, u.quantity.toFixed(2), formatCurrency(u.quantity * cost)]);
+        }
+        doc.autoTable({ head: [['Material', 'Cantidad Plan.', 'Costo Plan.']], body: bodyRows, startY: startY + 5 });
+
+        // --- PDF Footer ---
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const bottomMargin = 20;
+        doc.setLineWidth(0.2);
+        doc.line(60, pageHeight - bottomMargin, 150, pageHeight - bottomMargin);
+        doc.setFontSize(10);
+        doc.text('Autorizado por:', 105, pageHeight - bottomMargin + 5, null, null, 'center');
+
+        doc.save(`orden_${ord.order_id}.pdf`);
+    } catch (error) {
+        console.error(`Error al generar PDF para orden ${oid}:`, error);
+        Toastify({ text: 'No se pudo generar el PDF.', backgroundColor: 'var(--danger-color)' }).showToast();
     }
+}
+async function generateValePDF(vale) {
+    const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
     let logoHeight = 0;
@@ -2098,66 +2449,37 @@ async function generateOrderPDF(oid) {
             img.src = dataUrl;
         });
         const dims = await getImageDimensions(logoData);
-        const maxWidth = 40;
-        const maxHeight = 20;
+        const maxWidth = 40, maxHeight = 20;
         const ratio = Math.min(maxWidth / dims.width, maxHeight / dims.height);
-        const w = dims.width * ratio;
-        const h = dims.height * ratio;
+        const w = dims.width * ratio, h = dims.height * ratio;
         doc.addImage(logoData, 'PNG', 15, 10, w, h);
         logoHeight = h;
     }
 
-    doc.setFontSize(20);
-    doc.text('Orden de Producción', 105, logoHeight > 0 ? 15 + logoHeight : 25, null, null, 'center');
+    doc.setFontSize(18);
+    doc.text('Vale de Almacén', 105, logoHeight > 0 ? 15 + logoHeight : 25, null, null, 'center');
 
     let startY = (logoHeight > 0 ? 15 + logoHeight : 25) + 15;
     const lineHeight = 7;
+    doc.setFontSize(11);
 
-    const rightColX = 140;
-    const valeCount = vales.filter(v => v.order_id === oid).length;
-    doc.setFontSize(10);
-    doc.text(`Fecha Creación: ${formatDate(ord.created_at)}`, rightColX, startY);
-    doc.text(`Fecha Fin: ${formatDate(ord.completed_at)}`, rightColX, startY + lineHeight);
-    doc.text(`Nº Vales: ${valeCount}`, rightColX, startY + (lineHeight * 2));
+    doc.text(`Vale ID: ${vale.vale_id}`, 15, startY); startY += lineHeight;
+    doc.text(`Orden: ${vale.order_id}`, 15, startY); startY += lineHeight;
+    doc.text(`Tipo: ${vale.type === 'salida' ? 'Salida' : 'Devolución'}`, 15, startY); startY += lineHeight;
+    doc.text(`Fecha: ${formatDate(vale.created_at)}`, 15, startY);
 
-    doc.setFontSize(12);
-    doc.text(`ID de Orden: ${ord.order_id}`, 15, startY);
-    startY += lineHeight;
-    doc.text(`Producto: ${ord.product_name}`, 15, startY);
-    startY += lineHeight;
-    doc.text(`Operador: ${operators.find(op => op.id === ord.operator_id)?.name || 'N/A'}`, 15, startY);
-    startY += lineHeight;
-    doc.text(`Equipo: ${equipos.find(eq => eq.id === ord.equipo_id)?.name || 'N/A'}`, 15, startY);
-    startY += lineHeight;
-    doc.text(`Cantidad Planificada: ${ord.quantity}`, 15, startY);
-    startY += lineHeight;
-    doc.text(`Cantidad Real Producida: ${ord.quantity_produced || 'N/A'}`, 15, startY);
-    startY += lineHeight;
-    doc.text(`Costo Estándar: $${(ord.cost_standard || 0).toFixed(2)}`, 15, startY);
-    startY += lineHeight;
-    doc.text(`Costo Extra: $${(ord.cost_extra || 0).toFixed(2)}`, 15, startY);
-    startY += lineHeight;
-    doc.text(`Costo Real Total: $${ord.cost_real ? ord.cost_real.toFixed(2) : 'N/A'}`, 15, startY);
-    startY += lineHeight;
-    doc.text(`Sobrecosto: $${(ord.overcost || 0).toFixed(2)}`, 15, startY);
-
-    const bodyRows = ord.materials_used.map(u => {
-      let desc = u.material_code;
-      let cost = 0;
-      if (u.type === 'product') {
-          const p = products.find(prod => prod.codigo === u.material_code);
-          if (p) desc = p.descripcion;
-          cost = calculateRecipeCost(recipes[u.material_code] || []);
-      } else {
-          const m = materials.find(mat => mat.codigo === u.material_code);
-          if (m) {
-              desc = m.descripcion;
-              cost = m.costo;
-          }
-      }
-      return [desc, u.quantity.toFixed(2), (u.quantity * cost).toFixed(2)];
-    });
-    doc.autoTable({ head: [['Material', 'Cantidad Plan.', 'Costo Plan.']], body: bodyRows, startY: startY + 5 });
+    const bodyRows = [];
+    for (const m of vale.materials) {
+        const matDoc = await getDoc(doc(db, "materials", m.material_code));
+        const mat = matDoc.exists() ? matDoc.data() : null;
+        const cost = m.cost_at_time ?? (mat ? mat.costo : 0);
+        bodyRows.push([
+            mat ? mat.descripcion : m.material_code,
+            m.quantity.toFixed(2),
+            formatCurrency(m.quantity * cost)
+        ]);
+    }
+    doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: startY + 5 });
 
     const pageHeight = doc.internal.pageSize.getHeight();
     const bottomMargin = 20;
@@ -2166,65 +2488,9 @@ async function generateOrderPDF(oid) {
     doc.setFontSize(10);
     doc.text('Autorizado por:', 105, pageHeight - bottomMargin + 5, null, null, 'center');
 
-    doc.save(`orden_${ord.order_id}.pdf`);
-  } catch (error) {
-    console.error(`Error al generar PDF para orden ${oid}:`, error);
-    Toastify({ text: 'No se pudo generar el PDF.', backgroundColor: 'var(--danger-color)' }).showToast();
-  }
+    doc.save(`vale_${vale.vale_id}.pdf`);
 }
-async function generateValePDF(vale) {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-
-  let logoHeight = 0;
-  const logoData = await getLogoUrl();
-  if (logoData) {
-      const getImageDimensions = (dataUrl) => new Promise(resolve => {
-          const img = new Image();
-          img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-          img.src = dataUrl;
-      });
-      const dims = await getImageDimensions(logoData);
-      const maxWidth = 40;
-      const maxHeight = 20;
-      const ratio = Math.min(maxWidth / dims.width, maxHeight / dims.height);
-      const w = dims.width * ratio;
-      const h = dims.height * ratio;
-      doc.addImage(logoData, 'PNG', 15, 10, w, h);
-      logoHeight = h;
-  }
-
-  doc.setFontSize(18);
-  doc.text('Vale de Almacén', 105, logoHeight > 0 ? 15 + logoHeight : 25, null, null, 'center');
-
-  let startY = (logoHeight > 0 ? 15 + logoHeight : 25) + 15;
-  const lineHeight = 7;
-  doc.setFontSize(11);
-
-  doc.text(`Vale ID: ${vale.vale_id}`, 15, startY);
-  startY += lineHeight;
-  doc.text(`Orden: ${vale.order_id}`, 15, startY);
-  startY += lineHeight;
-  doc.text(`Tipo: ${vale.type === 'salida' ? 'Salida' : 'Devolución'}`, 15, startY);
-  startY += lineHeight;
-  doc.text(`Fecha: ${formatDate(vale.created_at)}`, 15, startY);
-
-  const bodyRows = vale.materials.map(m => {
-    const mat = materials.find(ma => ma.codigo === m.material_code);
-    return [mat ? mat.descripcion : m.material_code, m.quantity.toFixed(2), (m.quantity * (mat ? mat.costo : 0)).toFixed(2)];
-  });
-  doc.autoTable({ head: [['Material', 'Cantidad', 'Costo']], body: bodyRows, startY: startY + 5 });
-
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const bottomMargin = 20;
-  doc.setLineWidth(0.2);
-  doc.line(60, pageHeight - bottomMargin, 150, pageHeight - bottomMargin);
-  doc.setFontSize(10);
-  doc.text('Autorizado por:', 105, pageHeight - bottomMargin + 5, null, null, 'center');
-
-  doc.save(`vale_${vale.vale_id}.pdf`);
-}
-function addFreeFormValeRow() {
+async function addFreeFormValeRow() {
     const tbody = document.getElementById('valeMaterialsTableBody');
     const tr = document.createElement('tr');
     tr.classList.add('free-form-row');
@@ -2236,10 +2502,7 @@ function addFreeFormValeRow() {
 
     const codeSelect = document.createElement('select');
     codeSelect.className = 'form-select form-select-sm vale-material-code';
-    codeSelect.innerHTML = '<option value="" selected disabled>Selecciona...</option>';
-    materials.forEach(m => {
-        codeSelect.add(new Option(`${m.codigo} - ${m.descripcion}`, m.codigo));
-    });
+    codeSelect.innerHTML = '<option value="" selected disabled>Cargando...</option>';
 
     const descInput = document.createElement('input');
     descInput.type = 'text';
@@ -2256,15 +2519,17 @@ function addFreeFormValeRow() {
     qtyInput.step = "0.01";
     qtyInput.value = "0";
 
-    codeSelect.addEventListener('change', () => {
+    codeSelect.addEventListener('change', async () => {
         const selectedCode = codeSelect.value;
-        const material = materials.find(m => m.codigo === selectedCode);
-        if (material) {
+        if (!selectedCode) return;
+        const materialDoc = await getDoc(doc(db, "materials", selectedCode));
+        if (materialDoc.exists()) {
+            const material = materialDoc.data();
             descInput.value = material.descripcion;
             const almacenId = document.getElementById('valeAlmacen').value;
-            const stock = material.inventario ? (material.inventario[almacenId] || 0) : 0;
+            const stock = material.inventario && almacenId ? (material.inventario[almacenId] || 0) : 0;
             stockSpan.textContent = `${stock.toFixed(2)} ${material.unidad}`;
-            qtyInput.dataset.code = material.codigo;
+            qtyInput.dataset.code = selectedCode;
         } else {
             descInput.value = '';
             stockSpan.textContent = '';
@@ -2279,172 +2544,170 @@ function addFreeFormValeRow() {
 
     tr.append(codeCell, descCell, stockCell, qtyCell);
     tbody.appendChild(tr);
+
+    // Asynchronously populate the select dropdown
+    const materialsSnapshot = await getDocs(query(collection(db, "materials"), orderBy("descripcion")));
+    codeSelect.innerHTML = '<option value="" selected disabled>Selecciona...</option>';
+    materialsSnapshot.forEach(doc => {
+        const m = doc.data();
+        codeSelect.add(new Option(`${m.descripcion} (${doc.id})`, doc.id));
+    });
 }
 
-function generateValePrompt(oid) {
-  const ord = productionOrders.find(o => o.order_id === oid);
-  document.getElementById('valeOrderId').textContent = oid;
-  document.getElementById('valeHiddenOrderId').value = oid;
+async function generateValePrompt(oid) {
+    const orderDoc = await getDoc(doc(db, "productionOrders", oid.toString()));
+    if (!orderDoc.exists()) {
+        Toastify({ text: 'Error: Orden no encontrada.', backgroundColor: 'var(--danger-color)' }).showToast();
+        return;
+    }
+    const ord = orderDoc.data();
+    document.getElementById('valeOrderId').textContent = oid;
+    document.getElementById('valeHiddenOrderId').value = oid;
 
-  const almacenSelect = document.getElementById('valeAlmacen');
-  almacenSelect.innerHTML = '<option value="" selected disabled>Seleccione un almacén...</option>';
-  almacenes.forEach(a => {
-      almacenSelect.add(new Option(a.name, a.id));
-  });
+    const almacenSelect = document.getElementById('valeAlmacen');
+    almacenSelect.innerHTML = '<option value="" selected disabled>Seleccione un almacén...</option>';
+    almacenes.forEach(a => {
+        almacenSelect.add(new Option(a.name, a.id));
+    });
 
-  const updateStockDisplay = () => {
-      const selectedAlmacenId = almacenSelect.value;
-      if (!selectedAlmacenId) return;
+    const updateStockDisplay = async () => {
+        const selectedAlmacenId = almacenSelect.value;
+        if (!selectedAlmacenId) return;
 
-      document.querySelectorAll('#valeMaterialsTableBody tr').forEach(row => {
-          const code = row.querySelector('.vale-material-qty')?.dataset.code || row.querySelector('input[type=text]')?.value;
-          if (code) {
-              const material = materials.find(m => m.codigo === code);
-              if (material) {
-                  const stock = material.inventario ? (material.inventario[selectedAlmacenId] || 0) : 0;
-                  const stockCell = row.cells[2];
-                  if (stockCell) {
-                      stockCell.textContent = `${stock.toFixed(2)} ${material.unidad}`;
-                  }
-              }
-          }
-      });
-  };
+        for (const row of document.querySelectorAll('#valeMaterialsTableBody tr')) {
+            const code = row.querySelector('.vale-material-qty')?.dataset.code || row.querySelector('input[type=text]')?.value;
+            if (code) {
+                const materialDoc = await getDoc(doc(db, "materials", code));
+                if (materialDoc.exists()) {
+                    const material = materialDoc.data();
+                    const stock = material.inventario ? (material.inventario[selectedAlmacenId] || 0) : 0;
+                    const stockCell = row.cells[2];
+                    if (stockCell) {
+                        stockCell.textContent = `${stock.toFixed(2)} ${material.unidad}`;
+                    }
+                }
+            }
+        }
+    };
 
-  almacenSelect.onchange = updateStockDisplay;
+    almacenSelect.onchange = updateStockDisplay;
 
-  const tbody = document.getElementById('valeMaterialsTableBody');
-  tbody.innerHTML = '';
+    const tbody = document.getElementById('valeMaterialsTableBody');
+    tbody.innerHTML = '';
 
-  const recipeMaterials = new Set((ord.materials_used || []).map(m => m.material_code));
-  recipeMaterials.forEach(code => {
-      const m = materials.find(ma => ma.codigo === code);
-      if (!m) return;
-      tbody.insertAdjacentHTML('beforeend', `
-          <tr class="existing-material-row">
-              <td><input type="text" class="form-control-plaintext form-control-sm" value="${m.codigo}" readonly></td>
-              <td><input type="text" class="form-control-plaintext form-control-sm" value="${m.descripcion}" readonly></td>
-              <td>0.00 ${m.unidad}</td>
-              <td><input type="number" class="form-control form-control-sm vale-material-qty" data-code="${code}" min="0" value="0" step="0.01"></td>
-          </tr>
-      `);
-  });
+    const recipeMaterials = new Set((ord.materials_used || []).map(m => m.material_code));
+    for (const code of recipeMaterials) {
+        const mDoc = await getDoc(doc(db, "materials", code));
+        if (!mDoc.exists()) continue;
+        const m = mDoc.data();
+        tbody.insertAdjacentHTML('beforeend', `
+            <tr class="existing-material-row">
+                <td><input type="text" class="form-control-plaintext form-control-sm" value="${m.codigo}" readonly></td>
+                <td><input type="text" class="form-control-plaintext form-control-sm" value="${m.descripcion}" readonly></td>
+                <td>0.00 ${m.unidad || ''}</td>
+                <td><input type="number" class="form-control form-control-sm vale-material-qty" data-code="${code}" min="0" value="0" step="0.01"></td>
+            </tr>
+        `);
+    }
 
-  tbody.insertAdjacentHTML('beforeend', '<tr><td colspan="4"><hr class="my-2"></td></tr>');
-  addFreeFormValeRow();
-  addFreeFormValeRow();
+    tbody.insertAdjacentHTML('beforeend', '<tr><td colspan="4"><hr class="my-2"></td></tr>');
+    await addFreeFormValeRow();
+    await addFreeFormValeRow();
 
-  document.getElementById('valeType').value = 'salida';
-  updateStockDisplay();
-  valeModal.show();
+    document.getElementById('valeType').value = 'salida';
+    await updateStockDisplay();
+    valeModal.show();
 }
 
 document.getElementById('valeForm').addEventListener('submit', async e => {
-  e.preventDefault();
-  const oid = parseInt(document.getElementById('valeHiddenOrderId').value);
-  const type = document.getElementById('valeType').value;
-  const almacenId = document.getElementById('valeAlmacen').value;
+    e.preventDefault();
+    const oid = parseInt(document.getElementById('valeHiddenOrderId').value);
+    const type = document.getElementById('valeType').value;
+    const almacenId = document.getElementById('valeAlmacen').value;
 
-  if (!almacenId) {
-      Toastify({ text: 'Por favor, seleccione un almacén.', backgroundColor: 'var(--warning-color)' }).showToast();
-      return;
-  }
-
-  const qtyInputs = [...document.querySelectorAll('.vale-material-qty')].filter(input => parseFloat(input.value) > 0);
-
-  if (!qtyInputs.length) {
-      Toastify({ text: 'No se ingresaron cantidades.' }).showToast();
-      return;
-  }
-
-  const materialsToUpdate = new Map();
-  let hasError = false;
-
-  const matsForVale = qtyInputs.map(input => {
-    const code = input.dataset.code;
-    const qty = parseFloat(input.value);
-    if (!code) return null;
-
-    const material = materials.find(m => m.codigo === code);
-    if (!material) return null;
-
-    const stockInAlmacen = material.inventario ? (material.inventario[almacenId] || 0) : 0;
-
-    if (type === 'salida' && stockInAlmacen < qty) {
-        const almacen = almacenes.find(a => a.id === almacenId);
-        const almacenName = almacen ? almacen.name : almacenId;
-        Toastify({ text: `No hay suficiente ${material.descripcion} en ${almacenName}. Stock: ${stockInAlmacen.toFixed(2)}, Requerido: ${qty.toFixed(2)}`, backgroundColor: 'var(--danger-color)', duration: 6000 }).showToast();
-        hasError = true;
-        return null;
+    if (!almacenId) {
+        Toastify({ text: 'Por favor, seleccione un almacén.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
     }
 
-    const updatedMaterial = materialsToUpdate.get(code) || { ...material };
-    if (!updatedMaterial.inventario) updatedMaterial.inventario = {};
+    const qtyInputs = [...document.querySelectorAll('.vale-material-qty')].filter(input => parseFloat(input.value) > 0);
+    if (!qtyInputs.length) {
+        Toastify({ text: 'No se ingresaron cantidades.' }).showToast();
+        return;
+    }
 
-    const currentStock = updatedMaterial.inventario[almacenId] || 0;
-    updatedMaterial.inventario[almacenId] = type === 'salida' ? currentStock - qty : currentStock + qty;
-    materialsToUpdate.set(code, updatedMaterial);
-
-    return { material_code: code, quantity: qty, cost_at_time: material.costo };
-  }).filter(Boolean);
-
-  if (hasError || !matsForVale.length) {
-    return;
-  }
-
-  const totalCost = matsForVale.reduce((acc, m) => acc + (m.quantity * m.cost_at_time), 0) * (type === 'salida' ? 1 : -1);
-
-  const orderIdx = productionOrders.findIndex(o => o.order_id === oid);
-  productionOrders[orderIdx].cost_extra += totalCost;
-
-  const lastVale = vales.filter(v => v.order_id === oid).pop();
-  const seq = lastVale ? parseInt(lastVale.vale_id.split('-')[1]) + 1 : 1;
-  const valeId = `${oid}-${seq}`;
-
-  const newVale = {
-      vale_id: valeId,
-      order_id: oid,
-      type,
-      almacenId,
-      created_at: new Date().toISOString().slice(0, 10),
-      materials: matsForVale,
-      cost: totalCost
-  };
-
-  try {
     const promises = [];
+    const matsForVale = [];
+    let hasError = false;
+    let totalCost = 0;
+
+    for (const input of qtyInputs) {
+        const code = input.dataset.code;
+        const qty = parseFloat(input.value);
+        if (!code || isNaN(qty) || qty <= 0) continue;
+
+        const materialRef = doc(db, "materials", code);
+        const materialSnap = await getDoc(materialRef);
+        if (!materialSnap.exists()) continue;
+        const material = materialSnap.data();
+
+        if (type === 'salida') {
+            const stockInAlmacen = material.inventario ? (material.inventario[almacenId] || 0) : 0;
+            if (stockInAlmacen < qty) {
+                Toastify({ text: `No hay suficiente ${material.descripcion} en ${almacenes.find(a=>a.id===almacenId).name}. Stock: ${stockInAlmacen.toFixed(2)}`, duration: 6000, backgroundColor: 'var(--danger-color)' }).showToast();
+                hasError = true;
+                break;
+            }
+        }
+
+        const adjustment = type === 'salida' ? -qty : qty;
+        promises.push(updateDoc(materialRef, { [`inventario.${almacenId}`]: increment(adjustment) }));
+
+        const costAdjustment = qty * material.costo * (type === 'salida' ? 1 : -1);
+        totalCost += costAdjustment;
+
+        matsForVale.push({ material_code: code, quantity: qty, cost_at_time: material.costo });
+    }
+
+    if (hasError) return;
+
+    const orderRef = doc(db, "productionOrders", oid.toString());
+    promises.push(updateDoc(orderRef, { cost_extra: increment(totalCost) }));
+
+    const valesQuery = query(collection(db, "vales"), where("order_id", "==", oid), orderBy("vale_id", "desc"), limit(1));
+    const lastValeSnap = await getDocs(valesQuery);
+    const seq = lastValeSnap.empty ? 1 : parseInt(lastValeSnap.docs[0].data().vale_id.split('-')[1] || 0) + 1;
+    const valeId = `${oid}-${seq}`;
+
+    const newVale = { vale_id: valeId, order_id: oid, type, almacenId, created_at: new Date().toISOString().slice(0, 10), materials: matsForVale, cost: totalCost };
     promises.push(setDoc(doc(db, "vales", valeId), newVale));
-    promises.push(updateDoc(doc(db, "productionOrders", oid.toString()), {
-        cost_extra: productionOrders[orderIdx].cost_extra
-    }));
 
-    materialsToUpdate.forEach((material, code) => {
-        promises.push(updateDoc(doc(db, "materials", code), { inventario: material.inventario }));
-    });
-
-    await Promise.all(promises);
-
-    materials = await loadCollection('materials', 'codigo');
-    vales.push(newVale);
-
-    await generateValePDF(newVale);
-    loadProductionOrders();
-    loadMaterials();
-    bootstrap.Modal.getInstance(document.getElementById('valeModal')).hide();
-    Toastify({ text: 'Vale guardado con éxito.', backgroundColor: 'var(--success-color)' }).showToast();
-  } catch (error) {
-    console.error("Error saving vale: ", error);
-    Toastify({ text: 'Error al guardar el vale.', backgroundColor: 'var(--danger-color)' }).showToast();
-  }
+    try {
+        await Promise.all(promises);
+        await generateValePDF(newVale);
+        loadProductionOrders(ordersCurrentPage);
+        bootstrap.Modal.getInstance(document.getElementById('valeModal')).hide();
+        Toastify({ text: 'Vale guardado con éxito.', backgroundColor: 'var(--success-color)' }).showToast();
+    } catch (error) {
+        console.error("Error saving vale: ", error);
+        Toastify({ text: 'Error al guardar el vale.', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
 });
 
 /* ----------  REPORTES  ---------- */
-function populateReportFilters() {
+async function populateReportFilters() {
     const productFilter = document.getElementById('productFilter');
     productFilter.innerHTML = '<option value="all">Todos</option>';
-    products.forEach(p => {
-        productFilter.add(new Option(p.descripcion, p.codigo));
-    });
+
+    // Asynchronously load products
+    try {
+        const productsSnapshot = await getDocs(query(collection(db, 'products'), orderBy('descripcion')));
+        productsSnapshot.forEach(doc => {
+            productFilter.add(new Option(doc.data().descripcion, doc.id));
+        });
+    } catch (error) {
+        console.error("Error populating product filter:", error);
+    }
 
     const operatorFilter = document.getElementById('operatorFilter');
     operatorFilter.innerHTML = '<option value="all">Todos</option>';
@@ -2465,54 +2728,70 @@ function populateReportFilters() {
     });
 }
 
-function loadReports() {
-  populateReportFilters();
+async function loadReports() {
+  await populateReportFilters();
   document.getElementById('applyReportFilters').addEventListener('click', generateAllReports);
   generateAllReports(); // Initial load
 }
 
-function getIntermediateProductCodes() {
+async function getIntermediateProductCodes() {
     const intermediateProducts = new Set();
-    Object.values(recipes).flat().forEach(ing => {
-        if (ing && ing.type === 'product') {
-            intermediateProducts.add(ing.code);
-        }
-    });
+    try {
+        const recipesSnapshot = await getDocs(collection(db, 'recipes'));
+        recipesSnapshot.forEach(doc => {
+            const items = doc.data().items || [];
+            items.forEach(ing => {
+                if (ing && ing.type === 'product') {
+                    intermediateProducts.add(ing.code);
+                }
+            });
+        });
+    } catch (error) {
+        console.error("Error fetching intermediate product codes:", error);
+    }
     return intermediateProducts;
 }
 
-function generateAllReports() {
-  const start = document.getElementById('startDateFilter').value;
-  const end = document.getElementById('endDateFilter').value;
-  const productId = document.getElementById('productFilter').value;
-  const operatorId = document.getElementById('operatorFilter').value;
-  const equipoId = document.getElementById('equipoFilter').value;
-  const almacenId = document.getElementById('reportAlmacenFilter').value;
+async function generateAllReports() {
+    const reportContent = document.getElementById('reportsPage').querySelectorAll('.card, .row');
+    reportContent.forEach(el => el.style.opacity = '0.5');
 
-  const filteredOrders = productionOrders.filter(o => {
-    if (o.status !== 'Completada') return false;
-    if (start && end) {
-        const d = new Date(o.completed_at);
-        if (d < new Date(start) || d > new Date(end)) return false;
+    try {
+        const start = document.getElementById('startDateFilter').value;
+        const end = document.getElementById('endDateFilter').value;
+        const productId = document.getElementById('productFilter').value;
+        const operatorId = document.getElementById('operatorFilter').value;
+        const equipoId = document.getElementById('equipoFilter').value;
+        const almacenId = document.getElementById('reportAlmacenFilter').value;
+
+        let q = query(collection(db, 'productionOrders'), where('status', '==', 'Completada'));
+        if (start) q = query(q, where('completed_at', '>=', start));
+        if (end) q = query(q, where('completed_at', '<=', end));
+        if (productId !== 'all') q = query(q, where('product_code', '==', productId));
+        if (operatorId !== 'all') q = query(q, where('operator_id', '==', operatorId));
+        if (equipoId !== 'all') q = query(q, where('equipo_id', '==', equipoId));
+        if (almacenId !== 'all') q = query(q, where('almacen_produccion_id', '==', almacenId));
+
+        const ordersSnapshot = await getDocs(q);
+        const filteredOrders = ordersSnapshot.docs.map(d => d.data());
+
+        const intermediateProducts = await getIntermediateProductCodes();
+        const finalOrders = filteredOrders.filter(o => !intermediateProducts.has(o.product_code));
+        const intermediateOrders = filteredOrders.filter(o => intermediateProducts.has(o.product_code));
+
+        generateDetailedOrdersReport(filteredOrders);
+        generateOperatorReport(finalOrders, 'operatorReportTableBodyFinal');
+        generateProductPerformanceReport(finalOrders, 'productReportTableBodyFinal');
+        generateOperatorReport(intermediateOrders, 'operatorReportTableBodyIntermediate');
+        generateProductPerformanceReport(intermediateOrders, 'productReportTableBodyIntermediate');
+        generateEquipoReport(filteredOrders);
+        await generateMaterialConsumptionReport(filteredOrders);
+    } catch (error) {
+        console.error("Error generating reports:", error);
+        Toastify({ text: 'Error al generar reportes.', backgroundColor: 'var(--danger-color)' }).showToast();
+    } finally {
+        reportContent.forEach(el => el.style.opacity = '1');
     }
-    if (productId !== 'all' && o.product_code !== productId) return false;
-    if (operatorId !== 'all' && o.operator_id !== operatorId) return false;
-    if (equipoId !== 'all' && o.equipo_id !== equipoId) return false;
-    if (almacenId !== 'all' && o.almacen_produccion_id !== almacenId) return false;
-    return true;
-  });
-
-  const intermediateProducts = getIntermediateProductCodes();
-  const finalOrders = filteredOrders.filter(o => !intermediateProducts.has(o.product_code));
-  const intermediateOrders = filteredOrders.filter(o => intermediateProducts.has(o.product_code));
-
-  generateDetailedOrdersReport(filteredOrders);
-  generateOperatorReport(finalOrders, 'operatorReportTableBodyFinal');
-  generateProductPerformanceReport(finalOrders, 'productReportTableBodyFinal');
-  generateOperatorReport(intermediateOrders, 'operatorReportTableBodyIntermediate');
-  generateProductPerformanceReport(intermediateOrders, 'productReportTableBodyIntermediate');
-  generateEquipoReport(filteredOrders);
-  generateMaterialConsumptionReport(filteredOrders);
 }
 
 function generateOperatorReport(orders, tableBodyId) {
@@ -2699,23 +2978,31 @@ function generateEquipoReport(orders) {
     }
 }
 
-function getBaseMaterials(productCode, requiredQty) {
+async function getBaseMaterials(productCode, requiredQty, recipeCache = {}) {
     const baseMaterials = {};
-    const recipe = recipes[productCode];
+
+    let recipe = recipeCache[productCode];
+    if (!recipe) {
+        const recipeDoc = await getDoc(doc(db, "recipes", productCode));
+        if (recipeDoc.exists()) {
+            recipe = recipeDoc.data().items;
+            recipeCache[productCode] = recipe;
+        }
+    }
 
     if (!recipe) return [];
 
-    recipe.forEach(ingredient => {
+    for (const ingredient of recipe) {
         const ingredientQty = ingredient.quantity * requiredQty;
         if (ingredient.type === 'product') {
-            const subMaterials = getBaseMaterials(ingredient.code, ingredientQty);
+            const subMaterials = await getBaseMaterials(ingredient.code, ingredientQty, recipeCache); // Await recursive call
             subMaterials.forEach(subMat => {
                 baseMaterials[subMat.code] = (baseMaterials[subMat.code] || 0) + subMat.quantity;
             });
         } else {
             baseMaterials[ingredient.code] = (baseMaterials[ingredient.code] || 0) + ingredientQty;
         }
-    });
+    }
 
     return Object.entries(baseMaterials).map(([code, quantity]) => ({ code, quantity }));
 }
@@ -3134,7 +3421,10 @@ function downloadExcel(filename, sheetName, data) {
   XLSX.writeFile(wb, filename);
 }
 // Productos
-document.getElementById('exportProductsBtn').addEventListener('click', () => downloadExcel('productos.xlsx', 'Productos', products));
+document.getElementById('exportProductsBtn').addEventListener('click', async () => {
+    const products = await loadCollection('products', 'codigo');
+    downloadExcel('productos.xlsx', 'Productos', products);
+});
 document.getElementById('importProductsBtn').addEventListener('click', () => document.getElementById('productFile').click());
 document.getElementById('productFile').addEventListener('change', async (e) => {
   const file = e.target.files[0]; if (!file) return;
@@ -3151,14 +3441,16 @@ document.getElementById('productFile').addEventListener('change', async (e) => {
             unidad: product.unidad
         });
     }
-    products = await loadCollection('products', 'codigo');
-    loadProducts();
+    loadProducts(1);
     Toastify({ text: 'Productos importados y guardados en la nube', backgroundColor: 'var(--success-color)' }).showToast();
   };
   reader.readAsBinaryString(file);
 });
 // Materiales
-document.getElementById('exportMaterialsBtn').addEventListener('click', () => downloadExcel('materiales.xlsx', 'Materiales', materials));
+document.getElementById('exportMaterialsBtn').addEventListener('click', async () => {
+    const materials = await loadCollection('materials', 'codigo');
+    downloadExcel('materiales.xlsx', 'Materiales', materials);
+});
 document.getElementById('importMaterialsBtn').addEventListener('click', () => document.getElementById('materialFile').click());
 document.getElementById('materialFile').addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
@@ -3180,21 +3472,22 @@ document.getElementById('materialFile').addEventListener('change', async (e) => 
 
         for (const material of importedMaterials) {
             if (!material.codigo) continue;
-            // Merge with existing data in case the material already exists
-            // and has stock in other warehouses.
             await setDoc(doc(db, "materials", material.codigo), material, { merge: true });
         }
-        materials = await loadCollection('materials', 'codigo');
-        loadMaterials();
+        loadMaterials(1);
         Toastify({ text: 'Materiales importados y guardados en la nube', backgroundColor: 'var(--success-color)' }).showToast();
     };
     reader.readAsBinaryString(file);
 });
 // Recetas
-document.getElementById('exportRecipesBtn').addEventListener('click', () => {
-  const flat = [];
-  Object.keys(recipes).forEach(prodCode => recipes[prodCode].forEach(ing => flat.push({ producto: prodCode, tipo: ing.type, codigo: ing.code, cantidad: ing.quantity })));
-  downloadExcel('recetas.xlsx', 'Recetas', flat);
+document.getElementById('exportRecipesBtn').addEventListener('click', async () => {
+    const recipesSnapshot = await getDocs(collection(db, 'recipes'));
+    const flat = [];
+    recipesSnapshot.forEach(doc => {
+        const items = doc.data().items || [];
+        items.forEach(ing => flat.push({ producto: doc.id, tipo: ing.type, codigo: ing.code, cantidad: ing.quantity }));
+    });
+    downloadExcel('recetas.xlsx', 'Recetas', flat);
 });
 
 async function generateAllRecipesPDF() {
@@ -3202,24 +3495,29 @@ async function generateAllRecipesPDF() {
     const doc = new jsPDF();
     const now = new Date();
     const formattedDate = now.toLocaleDateString('es-ES');
-    const sortedRecipeIds = Object.keys(recipes).sort();
 
-    if (sortedRecipeIds.length === 0) {
+    const [recipesSnapshot, productsSnapshot, materialsSnapshot] = await Promise.all([
+        getDocs(query(collection(db, 'recipes'), orderBy('__name__'))),
+        getDocs(collection(db, 'products')),
+        getDocs(collection(db, 'materials'))
+    ]);
+
+    if (recipesSnapshot.empty) {
         Toastify({ text: 'No hay recetas para exportar.', backgroundColor: 'var(--warning-color)' }).showToast();
         return;
     }
 
+    const productsData = new Map(productsSnapshot.docs.map(d => [d.id, d.data()]));
+    const materialsData = new Map(materialsSnapshot.docs.map(d => [d.id, d.data()]));
+    const allRecipes = new Map(recipesSnapshot.docs.map(d => [d.id, d.data().items]));
+
     let isFirstPage = true;
-    const logoData = await getLogoUrl(); // Get the logo URL once
+    const logoData = await getLogoUrl();
 
-    for (const productId of sortedRecipeIds) {
-        if (!isFirstPage) {
-            doc.addPage();
-        }
+    for (const [productId, recipeItems] of allRecipes.entries()) {
+        if (!isFirstPage) doc.addPage();
 
-        const product = products.find(p => p.codigo === productId);
-        const recipeItems = recipes[productId];
-
+        const product = productsData.get(productId);
         if (!product || !recipeItems) continue;
 
         let logoHeight = 0;
@@ -3230,23 +3528,20 @@ async function generateAllRecipesPDF() {
                 img.src = dataUrl;
             });
             const dims = await getImageDimensions(logoData);
-            const maxWidth = 40;
-            const maxHeight = 20;
-            const ratio = Math.min(maxWidth / dims.width, maxHeight / dims.height);
-            const w = dims.width * ratio;
-            const h = dims.height * ratio;
+            const w = dims.width * (20 / dims.height);
+            const h = 20;
             doc.addImage(logoData, 'PNG', 15, 10, w, h);
             logoHeight = h;
         }
 
-        const totalRecipeCost = calculateRecipeCost(recipeItems);
+        const totalRecipeCost = await calculateRecipeCost(recipeItems);
 
         let startY = logoHeight > 0 ? 15 + logoHeight : 20;
         doc.setFontSize(18);
         doc.text(`Receta para: ${product.descripcion}`, 15, startY);
         startY += 7;
         doc.setFontSize(10);
-        doc.text(`Código: ${product.codigo}`, 15, startY);
+        doc.text(`Código: ${productId}`, 15, startY);
         doc.text(`Fecha: ${formattedDate}`, 185, startY, null, null, 'right');
         startY += 7;
         doc.setFontSize(11);
@@ -3254,32 +3549,21 @@ async function generateAllRecipesPDF() {
         doc.text(`Costo Total de Receta: ${formatCurrency(totalRecipeCost)}`, 15, startY);
         doc.setFont(undefined, 'normal');
 
-        const bodyRows = recipeItems.map(item => {
-            let desc = 'N/A';
-            let unitCost = 0;
+        const bodyRows = [];
+        for (const item of recipeItems) {
+            let desc = 'N/A', unitCost = 0;
             const itemType = item.type === 'product' ? 'Producto' : 'Material';
 
             if (item.type === 'product') {
-                const p = products.find(prod => prod.codigo === item.code);
+                const p = productsData.get(item.code);
                 if (p) desc = p.descripcion;
-                unitCost = calculateRecipeCost(recipes[item.code] || []);
+                unitCost = await calculateRecipeCost(allRecipes.get(item.code) || []);
             } else {
-                const m = materials.find(mat => mat.codigo === item.code);
-                if (m) {
-                    desc = m.descripcion;
-                    unitCost = m.costo;
-                }
+                const m = materialsData.get(item.code);
+                if (m) { desc = m.descripcion; unitCost = m.costo; }
             }
-            const totalCost = item.quantity * unitCost;
-            return [
-                itemType,
-                item.code,
-                desc,
-                item.quantity.toFixed(4),
-                formatCurrency(unitCost),
-                formatCurrency(totalCost)
-            ];
-        });
+            bodyRows.push([itemType, item.code, desc, item.quantity.toFixed(4), formatCurrency(unitCost), formatCurrency(item.quantity * unitCost)]);
+        }
 
         doc.autoTable({
             head: [['Tipo', 'Código', 'Descripción', 'Cantidad', 'Costo Unit.', 'Costo Total']],
@@ -3287,21 +3571,15 @@ async function generateAllRecipesPDF() {
             startY: startY + 5,
             headStyles: { fillColor: [41, 128, 185] },
             styles: { fontSize: 8 },
-            columnStyles: {
-                3: { halign: 'right' },
-                4: { halign: 'right' },
-                5: { halign: 'right' }
-            }
+            columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } }
         });
 
         const pageHeight = doc.internal.pageSize.getHeight();
         const signatureY = pageHeight - 25;
-
         doc.setLineWidth(0.2);
         doc.line(15, signatureY, 85, signatureY);
         doc.setFontSize(10);
         doc.text('Aprobado por:', 15, signatureY + 5);
-
         isFirstPage = false;
     }
 
@@ -3351,9 +3629,19 @@ async function checkAndTriggerOnboarding() {
         return;
     }
 
-    // Check if essential data is missing.
-    if (almacenes.length === 0 && operators.length === 0 && materials.length === 0) {
-        onboardingModal.show();
+    try {
+        // Check if essential data is missing by trying to get one document from each collection.
+        const [almacenesSnap, operatorsSnap, materialsSnap] = await Promise.all([
+            getDocs(query(collection(db, 'almacenes'), limit(1))),
+            getDocs(query(collection(db, 'operators'), limit(1))),
+            getDocs(query(collection(db, 'materials'), limit(1)))
+        ]);
+
+        if (almacenesSnap.empty && operatorsSnap.empty && materialsSnap.empty) {
+            onboardingModal.show();
+        }
+    } catch (error) {
+        console.error("Error checking for onboarding:", error);
     }
 }
 
@@ -3486,12 +3774,41 @@ document.getElementById('onboardingLogoUpload').addEventListener('change', async
 
 
 /* ----------  BACKUP / RESTORE  ---------- */
-document.getElementById('backupBtn').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify({ products, materials, recipes, productionOrders, operators, equipos, vales, traspasos }, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = `operis_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
-  URL.revokeObjectURL(url);
+document.getElementById('backupBtn').addEventListener('click', async () => {
+    try {
+        Toastify({ text: 'Generando copia de seguridad completa...', backgroundColor: 'var(--info-color)', duration: -1 }).showToast();
+        const backupData = {};
+        const collectionsToBackup = [
+            { name: 'products', idField: 'codigo' },
+            { name: 'materials', idField: 'codigo' },
+            { name: 'productionOrders', idField: 'order_id' },
+            { name: 'operators', idField: 'id' },
+            { name: 'equipos', idField: 'id' },
+            { name: 'vales', idField: 'vale_id' },
+            { name: 'traspasos', idField: 'traspaso_id' },
+            { name: 'almacenes', idField: 'id' },
+            { name: 'users', idField: 'uid' }
+        ];
+
+        for (const { name, idField } of collectionsToBackup) {
+            backupData[name] = await loadCollection(name, idField);
+        }
+        backupData['recipes'] = await loadRecipesCollection();
+
+        const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `operis_backup_${new Date().toISOString().slice(0,10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        Toastify({ text: 'Copia de seguridad descargada.', backgroundColor: 'var(--success-color)' }).showToast();
+    } catch (error) {
+        console.error("Error generating backup:", error);
+        Toastify({ text: 'Error al generar la copia de seguridad.', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
 });
 document.getElementById('restoreBtn').addEventListener('click', () => document.getElementById('importBackupFile').click());
 
@@ -3739,21 +4056,32 @@ function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
 }
 
 /* ---------- PLANIFICADOR DE DEMANDA ---------- */
-function populatePlannerProductSelects(selectElement) {
-    selectElement.innerHTML = '<option value="" disabled selected>Seleccione un producto...</option>';
+async function populatePlannerProductSelects(selectElement) {
+    selectElement.innerHTML = '<option value="" disabled selected>Cargando...</option>';
 
-    const intermediateProducts = getIntermediateProductCodes();
+    try {
+        const [productsSnapshot, recipesSnapshot, intermediateProducts] = await Promise.all([
+            getDocs(query(collection(db, 'products'), orderBy('descripcion'))),
+            getDocs(collection(db, 'recipes')),
+            getIntermediateProductCodes()
+        ]);
 
-    const finalProductsWithRecipe = products.filter(p => {
-        const hasRecipe = recipes[p.codigo] && recipes[p.codigo].length > 0;
-        const isFinalProduct = !intermediateProducts.has(p.codigo);
-        return hasRecipe && isFinalProduct;
-    });
+        const productsWithRecipe = new Set(recipesSnapshot.docs.map(doc => doc.id));
 
-    finalProductsWithRecipe.forEach(p => {
-        const option = new Option(`${p.codigo} - ${p.descripcion}`, p.codigo);
-        selectElement.add(option);
-    });
+        selectElement.innerHTML = '<option value="" disabled selected>Seleccione un producto...</option>';
+        productsSnapshot.forEach(doc => {
+            const isFinalProduct = !intermediateProducts.has(doc.id);
+            const hasRecipe = productsWithRecipe.has(doc.id);
+            if (isFinalProduct && hasRecipe) {
+                const p = doc.data();
+                const option = new Option(`${doc.id} - ${p.descripcion}`, doc.id);
+                selectElement.add(option);
+            }
+        });
+    } catch (error) {
+        console.error("Error populating planner product selects:", error);
+        selectElement.innerHTML = '<option>Error al cargar</option>';
+    }
 }
 
 function addForecastEntryRow() {
@@ -3785,27 +4113,35 @@ document.getElementById('forecast-entries')?.addEventListener('click', (e) => {
     }
 });
 
-function getGrossRequirements(initialForecast) {
+async function getGrossRequirements(initialForecast, recipeCache = {}) {
     const grossRequirements = new Map();
 
-    function explodeBOM(productCode, requiredQty) {
+    async function explodeBOM(productCode, requiredQty) {
         const currentQty = grossRequirements.get(productCode) || 0;
         grossRequirements.set(productCode, currentQty + requiredQty);
 
-        const recipe = recipes[productCode];
+        let recipe = recipeCache[productCode];
+        if (!recipe) {
+            const recipeDoc = await getDoc(doc(db, "recipes", productCode));
+            if (recipeDoc.exists()) {
+                recipe = recipeDoc.data().items;
+                recipeCache[productCode] = recipe;
+            }
+        }
+
         if (!recipe) return;
 
-        recipe.forEach(ingredient => {
+        for (const ingredient of recipe) {
             if (ingredient.type === 'product') {
                 const subProductQty = ingredient.quantity * requiredQty;
-                explodeBOM(ingredient.code, subProductQty);
+                await explodeBOM(ingredient.code, subProductQty);
             }
-        });
+        }
     }
 
-    initialForecast.forEach(item => {
-        explodeBOM(item.productCode, item.quantity);
-    });
+    for (const item of initialForecast) {
+        await explodeBOM(item.productCode, item.quantity);
+    }
 
     return grossRequirements;
 }
@@ -3813,16 +4149,19 @@ function getGrossRequirements(initialForecast) {
 
 const materialCheckModal = new bootstrap.Modal(document.getElementById('materialCheckModal'));
 
-function displaySuggestedOrders(grossRequirements, selectedAlmacenId) {
+async function displaySuggestedOrders(grossRequirements, selectedAlmacenId) {
     const suggestedOrdersTbody = document.getElementById('suggestedOrdersTableBody');
     suggestedOrdersTbody.innerHTML = '';
     let suggestionsMade = false;
 
-    grossRequirements.forEach((grossQty, productCode) => {
-        const product = products.find(p => p.codigo === productCode);
-        if (!product) return;
+    for (const [productCode, grossQty] of grossRequirements.entries()) {
+        const productDoc = await getDoc(doc(db, "products", productCode));
+        if (!productDoc.exists()) continue;
+        const product = productDoc.data();
 
-        const materialInfo = materials.find(m => m.codigo === productCode);
+        const materialDoc = await getDoc(doc(db, "materials", productCode));
+        const materialInfo = materialDoc.exists() ? materialDoc.data() : null;
+
         let currentStock = 0;
         if (materialInfo && materialInfo.inventario) {
             if (selectedAlmacenId === 'all') {
@@ -3876,7 +4215,7 @@ function displaySuggestedOrders(grossRequirements, selectedAlmacenId) {
 
             suggestedOrdersTbody.appendChild(row);
         }
-    });
+    }
 
     const suggestedOrdersCard = document.getElementById('suggestedOrdersCard');
     if (suggestionsMade) {
@@ -3887,7 +4226,7 @@ function displaySuggestedOrders(grossRequirements, selectedAlmacenId) {
     }
 }
 
-document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
+document.getElementById('calculatePlanBtn')?.addEventListener('click', async () => {
     const selectedAlmacenId = document.getElementById('plannerAlmacenSelect').value;
     const entries = document.querySelectorAll('.forecast-entry');
     const forecast = [];
@@ -3919,27 +4258,29 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
         return;
     }
 
-    const grossRequirements = getGrossRequirements(forecast);
+    const grossRequirements = await getGrossRequirements(forecast);
 
     const totalRawMaterials = new Map();
-    forecast.forEach(f => {
-        const baseMats = getBaseMaterials(f.productCode, f.quantity);
+    for (const f of forecast) {
+        const baseMats = await getBaseMaterials(f.productCode, f.quantity);
         baseMats.forEach(mat => {
             const currentQty = totalRawMaterials.get(mat.code) || 0;
             totalRawMaterials.set(mat.code, currentQty + mat.quantity);
         });
-    });
+    }
 
     if (totalRawMaterials.size === 0) {
-        displaySuggestedOrders(grossRequirements, selectedAlmacenId);
+        await displaySuggestedOrders(grossRequirements, selectedAlmacenId);
         return;
     }
 
     const materialCheckResults = [];
     let hasShortage = false;
 
-    totalRawMaterials.forEach((requiredQty, code) => {
-        const material = materials.find(m => m.codigo === code);
+    for (const [code, requiredQty] of totalRawMaterials.entries()) {
+        const materialDoc = await getDoc(doc(db, "materials", code));
+        const material = materialDoc.exists() ? materialDoc.data() : null;
+
         let stock = 0;
         if (material && material.inventario) {
             if (selectedAlmacenId === 'all') {
@@ -3959,7 +4300,7 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
             stock,
             balance
         });
-    });
+    }
 
     const fullBody = document.getElementById('materialFullTableBody');
     const shortageBody = document.getElementById('materialShortageTableBody');
@@ -3995,9 +4336,9 @@ document.getElementById('calculatePlanBtn')?.addEventListener('click', () => {
     document.getElementById('materialShortageTableBody').closest('.card').style.display = hasShortage ? 'block' : 'none';
     document.querySelector('#materialCheckModal .alert').style.display = hasShortage ? 'block' : 'none';
 
-    document.getElementById('continuePlanBtn').onclick = () => {
+    document.getElementById('continuePlanBtn').onclick = async () => {
         materialCheckModal.hide();
-        displaySuggestedOrders(grossRequirements, selectedAlmacenId);
+        await displaySuggestedOrders(grossRequirements, selectedAlmacenId);
     };
 
     materialCheckModal.show();
@@ -4037,7 +4378,6 @@ document.getElementById('createSelectedOrdersBtn')?.addEventListener('click', as
             continue;
         }
 
-        // Pass the selected production warehouse to the creation function
         const success = await createProductionOrder(productCode, quantityToCreate, operatorId, equipoId, plannerAlmacenId);
         if (success) {
             createdCount++;
