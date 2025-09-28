@@ -3,6 +3,7 @@ import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/9.6
 import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
 import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
 import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-functions.js";
 import Chart from 'https://esm.sh/chart.js/auto';
 import ChartDataLabels from 'https://esm.sh/chartjs-plugin-datalabels';
 
@@ -1944,55 +1945,17 @@ document.getElementById('confirmCloseOrderForm').addEventListener('submit', e =>
   bootstrap.Modal.getInstance(document.getElementById('confirmCloseOrderModal')).hide();
 });
 async function completeOrder(oid, realQty, almacenId) {
-    const idx = productionOrders.findIndex(o => o.order_id === oid);
-    if (idx === -1) {
-        Toastify({ text: 'Error: Orden no encontrada para completar.', backgroundColor: 'var(--danger-color)' }).showToast();
-        return;
-    }
+    const functions = getFunctions(app);
+    const completeOrderFunction = httpsCallable(functions, 'completeOrder');
 
-    const orderToUpdate = { ...productionOrders[idx] };
-    const materialsToUpdate = new Map();
-
-    const baseMaterialsConsumed = getBaseMaterials(orderToUpdate.product_code, realQty);
-
-    for (const mat of baseMaterialsConsumed) {
-        const mIdx = materials.findIndex(m => m.codigo === mat.code);
-        if (mIdx !== -1) {
-            const updatedMaterial = materialsToUpdate.get(mat.code) || { ...materials[mIdx] };
-            if (!updatedMaterial.inventario) updatedMaterial.inventario = {};
-            updatedMaterial.inventario[almacenId] = (updatedMaterial.inventario[almacenId] || 0) - mat.quantity;
-            materialsToUpdate.set(mat.code, updatedMaterial);
-        }
-    }
-
-    const finishedProductIdx = materials.findIndex(m => m.codigo === orderToUpdate.product_code);
-    if (finishedProductIdx !== -1) {
-        const updatedMaterial = materialsToUpdate.get(orderToUpdate.product_code) || { ...materials[finishedProductIdx] };
-        if (!updatedMaterial.inventario) updatedMaterial.inventario = {};
-        updatedMaterial.inventario[almacenId] = (updatedMaterial.inventario[almacenId] || 0) + realQty;
-        materialsToUpdate.set(orderToUpdate.product_code, updatedMaterial);
-    }
-
-    orderToUpdate.quantity_produced = realQty;
-    orderToUpdate.status = 'Completada';
-    orderToUpdate.completed_at = new Date().toISOString().slice(0, 10);
-    orderToUpdate.almacen_produccion_id = almacenId;
-
-    const standardCostForRealQty = (orderToUpdate.cost_standard_unit || 0) * realQty;
-    orderToUpdate.cost_real = standardCostForRealQty + (orderToUpdate.cost_extra || 0);
-    orderToUpdate.overcost = orderToUpdate.cost_extra || 0;
-
+    document.body.insertAdjacentHTML('beforeend', '<div id="loader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center;"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>');
 
     try {
-        const promises = [];
-        promises.push(setDoc(doc(db, "productionOrders", orderToUpdate.order_id.toString()), orderToUpdate));
+        await completeOrderFunction({ orderId: oid, realQty, almacenId });
 
-        materialsToUpdate.forEach((material, code) => {
-            promises.push(updateDoc(doc(db, "materials", code), { inventario: material.inventario }));
-        });
+        Toastify({ text: `Orden ${oid} completada con éxito. Actualizando datos...`, backgroundColor: 'var(--success-color)' }).showToast();
 
-        await Promise.all(promises);
-
+        // Reload data to reflect changes made by the function
         [productionOrders, materials] = await Promise.all([
             loadCollection('productionOrders', 'order_id'),
             loadCollection('materials', 'codigo')
@@ -2003,10 +1966,19 @@ async function completeOrder(oid, realQty, almacenId) {
         loadMaterials();
         updateDashboard();
 
-        Toastify({ text: `Orden ${oid} completada con éxito.`, backgroundColor: 'var(--success-color)' }).showToast();
     } catch (error) {
-        console.error("Error completing order: ", error);
-        Toastify({ text: 'Error al completar la orden.', backgroundColor: 'var(--danger-color)' }).showToast();
+        console.error("Error calling completeOrder function:", error);
+        const errorMessage = error.details?.message || error.message || "Un error desconocido ocurrió.";
+        Toastify({
+            text: `Error al completar la orden: ${errorMessage}`,
+            backgroundColor: 'var(--danger-color)',
+            duration: 8000
+        }).showToast();
+    } finally {
+        const loader = document.getElementById('loader');
+        if (loader) {
+            loader.remove();
+        }
     }
 }
 async function reopenOrder(oid) {
