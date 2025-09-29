@@ -56,6 +56,12 @@ const getBaseMaterials = (productCode, requiredQty, recipesCache) => {
     }
 
     recipe.forEach((ingredient) => {
+        // Add validation for malformed ingredients within a recipe
+        if (!ingredient || typeof ingredient.quantity !== "number" || !ingredient.code || !ingredient.type) {
+            console.warn(`Skipping malformed ingredient in recipe for ${productCode}:`, JSON.stringify(ingredient));
+            return; // Skips this iteration of the loop
+        }
+
         const ingredientQty = ingredient.quantity * requiredQty;
         if (ingredient.type === "product") {
             const subMaterials = getBaseMaterials(
@@ -114,6 +120,9 @@ exports.completeOrder = functions.https.onCall(async (data, context) => {
             }
 
             const orderData = orderDoc.data();
+            if (!orderData.product_code) {
+                throw new functions.https.HttpsError("failed-precondition", `Order ${orderId} does not have a product code.`);
+            }
             if (orderData.status === "Completada") {
                 throw new functions.https.HttpsError("failed-precondition", `Order ${orderId} is already completed.`);
             }
