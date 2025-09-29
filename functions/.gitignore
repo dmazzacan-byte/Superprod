@@ -1,0 +1,16 @@
+# Dependency directories
+node_modules/
+
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+
+# Mac
+.DS_Store
+
+# Editor-specific files
+.vscode/
+.idea/
+*.swp
+*.swo
