@@ -120,8 +120,8 @@ exports.completeOrder = functions.https.onCall(async (data, context) => {
             }
 
             const orderData = orderDoc.data();
-            if (!orderData.product_code) {
-                throw new functions.https.HttpsError("failed-precondition", `Order ${orderId} does not have a product code.`);
+            if (!orderData.product_code || typeof orderData.product_code !== "string" || orderData.product_code.trim() === "") {
+                throw new functions.https.HttpsError("failed-precondition", `Order ${orderId} has an invalid or missing product code.`);
             }
             if (orderData.status === "Completada") {
                 throw new functions.https.HttpsError("failed-precondition", `Order ${orderId} is already completed.`);
