@@ -337,6 +337,34 @@ async function loadInitialData() {
 }
 
 /* ----------  UTILS  ---------- */
+
+/**
+ * Initializes a Tom Select instance on a given element, destroying any existing instance first.
+ * @param {string|HTMLElement} elementOrSelector - The selector string or the HTML element for the select input.
+ * @param {object} config - The configuration options for Tom Select.
+ * @returns {TomSelect} The new Tom Select instance.
+ */
+function initTomSelect(elementOrSelector, config) {
+    const el = typeof elementOrSelector === 'string' ? document.querySelector(elementOrSelector) : elementOrSelector;
+
+    if (!el) {
+        console.error("Tom Select initializer: Element not found for selector:", elementOrSelector);
+        return;
+    }
+
+    if (el.tomselect) {
+        el.tomselect.destroy();
+    }
+
+    // Add a default placeholder if not provided
+    const defaultConfig = {
+        placeholder: 'Seleccione una opción...',
+        ...config,
+    };
+
+    return new TomSelect(el, defaultConfig);
+}
+
 function generateSequentialOrderId() {
   const nums = productionOrders.map(o => Number(o.order_id)).filter(n => !isNaN(n));
   return nums.length ? Math.max(...nums) + 1 : 1;
@@ -1133,9 +1161,16 @@ function updateTraspasoStock() {
 
 function populateTraspasoForm() {
     const materialSelect = document.getElementById('traspasoMaterialSelect');
-    materialSelect.innerHTML = '<option value="" selected disabled>Seleccione un material...</option>';
-    materials.sort((a, b) => a.descripcion.localeCompare(b.descripcion)).forEach(m => {
-        materialSelect.add(new Option(`${m.descripcion} (${m.codigo})`, m.codigo));
+    initTomSelect(materialSelect, {
+        options: materials.sort((a, b) => a.descripcion.localeCompare(b.descripcion)).map(m => ({
+            value: m.codigo,
+            text: `${m.descripcion} (${m.codigo})`
+        })),
+        valueField: 'value',
+        labelField: 'text',
+        searchField: ['text'],
+        create: false,
+        placeholder: 'Busque un material para traspasar...'
     });
 
     const origenSelect = document.getElementById('traspasoOrigenSelect');
@@ -1263,8 +1298,19 @@ function calculateRecipeCost(items) {
 }
 function populateRecipeProductSelect() {
   const sel = document.getElementById('recipeProductSelect');
-  sel.innerHTML = '<option disabled selected>Selecciona...</option>';
-  products.forEach(p => { if (!recipes[p.codigo]) sel.add(new Option(p.descripcion, p.codigo)); });
+  const availableProducts = products
+      .filter(p => !recipes[p.codigo])
+      .sort((a, b) => a.descripcion.localeCompare(b.descripcion));
+
+  initTomSelect(sel, {
+      options: availableProducts.map(p => ({ value: p.codigo, text: `${p.codigo} - ${p.descripcion}` })),
+      valueField: 'value',
+      labelField: 'text',
+      searchField: ['text'],
+      create: false,
+      placeholder: 'Busque el producto para la receta...'
+  });
+
   document.getElementById('recipeMaterials').innerHTML = '';
   document.getElementById('addMaterialToRecipeBtn').onclick = () => addRecipeMaterialField('recipeMaterials');
 }
@@ -1319,20 +1365,31 @@ function addRecipeMaterialField(containerId, mCode = '', qty = '', type = 'mater
         typeSelect.value = 'material';
     }
     const list = allItems[currentType];
-    codeSelect.innerHTML = '<option value="" selected disabled>Selecciona...</option>';
-
     const recipeProductCode = document.getElementById('editRecipeProductSelect')?.value || document.getElementById('recipeProductSelect')?.value;
 
-    list.forEach(item => {
-      if (currentType === 'product' && item.codigo === recipeProductCode) return;
+    const options = list
+        .filter(item => !(currentType === 'product' && item.codigo === recipeProductCode))
+        .sort((a,b) => a.descripcion.localeCompare(b.descripcion))
+        .map(item => ({
+            value: item.codigo,
+            text: `${item.codigo} - ${item.descripcion}`
+        }));
 
-      const isSelected = item.codigo === mCode;
-      const o = new Option(`${item.codigo} – ${item.descripcion}`, item.codigo, false, isSelected);
-      codeSelect.add(o);
+    const tomSelectInstance = initTomSelect(codeSelect, {
+        options: options,
+        valueField: 'value',
+        labelField: 'text',
+        searchField: ['text'],
+        create: false,
+        placeholder: 'Busque un ingrediente...'
     });
 
-    if (mCode) updateDescription();
-    else descInput.value = '';
+    if (mCode) {
+        tomSelectInstance.setValue(mCode, true);
+        updateDescription();
+    } else {
+        descInput.value = '';
+    }
   };
 
   typeSelect.addEventListener('change', () => {
@@ -1530,19 +1587,38 @@ let orderSortDirection = 'desc'; // 'asc' or 'desc'
 
 function populateOrderFormSelects() {
     const psel = document.getElementById('orderProductSelect');
-    psel.innerHTML = '<option disabled selected>Selecciona...</option>';
-    products.forEach(p => psel.add(new Option(`${p.codigo} - ${p.descripcion}`, p.codigo)));
+    initTomSelect(psel, {
+        options: products.sort((a,b) => a.codigo.localeCompare(b.codigo)).map(p => ({ value: p.codigo, text: `${p.codigo} - ${p.descripcion}` })),
+        valueField: 'value',
+        labelField: 'text',
+        searchField: ['text'],
+        create: false,
+        placeholder: 'Busque por código o descripción...'
+    });
 
     const osel = document.getElementById('orderOperatorSelect');
-    osel.innerHTML = '<option disabled selected>Selecciona...</option>';
-    operators.forEach(o => osel.add(new Option(o.name, o.id)));
+    initTomSelect(osel, {
+        options: operators.sort((a,b) => a.name.localeCompare(b.name)).map(o => ({ value: o.id, text: o.name })),
+        valueField: 'value',
+        labelField: 'text',
+        searchField: ['text'],
+        create: false,
+        placeholder: 'Seleccione un operador...'
+    });
 
     const esel = document.getElementById('orderEquipoSelect');
-    esel.innerHTML = '<option disabled selected>Selecciona...</option>';
-    equipos.forEach(e => esel.add(new Option(e.name, e.id)));
+    initTomSelect(esel, {
+        options: equipos.sort((a,b) => a.name.localeCompare(b.name)).map(e => ({ value: e.id, text: e.name })),
+        valueField: 'value',
+        labelField: 'text',
+        searchField: ['text'],
+        create: false,
+        placeholder: 'Seleccione un equipo...'
+    });
 
     const asel = document.getElementById('orderAlmacenSelect');
-    asel.innerHTML = '<option disabled selected>Selecciona...</option>';
+    // For this one, Tom-select is not needed as it's a short list.
+    asel.innerHTML = '<option value="" disabled>Selecciona...</option>';
     const defaultAlmacen = almacenes.find(a => a.isDefault);
     almacenes.forEach(a => {
         const option = new Option(a.name, a.id);
@@ -2234,12 +2310,7 @@ function addFreeFormValeRow() {
     const stockCell = document.createElement('td');
     const qtyCell = document.createElement('td');
 
-    const codeSelect = document.createElement('select');
-    codeSelect.className = 'form-select form-select-sm vale-material-code';
-    codeSelect.innerHTML = '<option value="" selected disabled>Selecciona...</option>';
-    materials.forEach(m => {
-        codeSelect.add(new Option(`${m.codigo} - ${m.descripcion}`, m.codigo));
-    });
+    const codeSelect = document.createElement('select'); // This will be the target for Tom Select
 
     const descInput = document.createElement('input');
     descInput.type = 'text';
@@ -2256,22 +2327,6 @@ function addFreeFormValeRow() {
     qtyInput.step = "0.01";
     qtyInput.value = "0";
 
-    codeSelect.addEventListener('change', () => {
-        const selectedCode = codeSelect.value;
-        const material = materials.find(m => m.codigo === selectedCode);
-        if (material) {
-            descInput.value = material.descripcion;
-            const almacenId = document.getElementById('valeAlmacen').value;
-            const stock = material.inventario ? (material.inventario[almacenId] || 0) : 0;
-            stockSpan.textContent = `${stock.toFixed(2)} ${material.unidad}`;
-            qtyInput.dataset.code = material.codigo;
-        } else {
-            descInput.value = '';
-            stockSpan.textContent = '';
-            delete qtyInput.dataset.code;
-        }
-    });
-
     codeCell.appendChild(codeSelect);
     descCell.appendChild(descInput);
     stockCell.appendChild(stockSpan);
@@ -2279,6 +2334,35 @@ function addFreeFormValeRow() {
 
     tr.append(codeCell, descCell, stockCell, qtyCell);
     tbody.appendChild(tr);
+
+    const tomSelectInstance = initTomSelect(codeSelect, {
+        options: materials.sort((a,b) => a.descripcion.localeCompare(b.descripcion)).map(m => ({
+            value: m.codigo,
+            text: `${m.codigo} - ${m.descripcion}`
+        })),
+        valueField: 'value',
+        labelField: 'text',
+        searchField: ['text'],
+        create: false,
+        placeholder: 'Busque un material...'
+    });
+
+    if (tomSelectInstance) {
+        tomSelectInstance.on('change', (selectedCode) => {
+            const material = materials.find(m => m.codigo === selectedCode);
+            if (material) {
+                descInput.value = material.descripcion;
+                const almacenId = document.getElementById('valeAlmacen').value;
+                const stock = material.inventario ? (material.inventario[almacenId] || 0) : 0;
+                stockSpan.textContent = `${stock.toFixed(2)} ${material.unidad}`;
+                qtyInput.dataset.code = material.codigo;
+            } else {
+                descInput.value = '';
+                stockSpan.textContent = '';
+                delete qtyInput.dataset.code;
+            }
+        });
+    }
 }
 
 function generateValePrompt(oid) {
@@ -2441,22 +2525,40 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
 /* ----------  REPORTES  ---------- */
 function populateReportFilters() {
     const productFilter = document.getElementById('productFilter');
-    productFilter.innerHTML = '<option value="all">Todos</option>';
-    products.forEach(p => {
-        productFilter.add(new Option(p.descripcion, p.codigo));
-    });
+    initTomSelect(productFilter, {
+        options: [
+            { value: 'all', text: 'Todos los Productos' },
+            ...products.sort((a,b) => a.descripcion.localeCompare(b.descripcion)).map(p => ({ value: p.codigo, text: p.descripcion }))
+        ],
+        valueField: 'value',
+        labelField: 'text',
+        searchField: ['text'],
+        placeholder: 'Filtrar por producto...'
+    }).setValue('all');
 
     const operatorFilter = document.getElementById('operatorFilter');
-    operatorFilter.innerHTML = '<option value="all">Todos</option>';
-    operators.forEach(o => {
-        operatorFilter.add(new Option(o.name, o.id));
-    });
+    initTomSelect(operatorFilter, {
+        options: [
+            { value: 'all', text: 'Todos los Operadores' },
+            ...operators.sort((a,b) => a.name.localeCompare(b.name)).map(o => ({ value: o.id, text: o.name }))
+        ],
+        valueField: 'value',
+        labelField: 'text',
+        searchField: ['text'],
+        placeholder: 'Filtrar por operador...'
+    }).setValue('all');
 
     const equipoFilter = document.getElementById('equipoFilter');
-    equipoFilter.innerHTML = '<option value="all">Todos</option>';
-    equipos.forEach(e => {
-        equipoFilter.add(new Option(e.name, e.id));
-    });
+    initTomSelect(equipoFilter, {
+        options: [
+            { value: 'all', text: 'Todos los Equipos' },
+            ...equipos.sort((a,b) => a.name.localeCompare(b.name)).map(e => ({ value: e.id, text: e.name }))
+        ],
+        valueField: 'value',
+        labelField: 'text',
+        searchField: ['text'],
+        placeholder: 'Filtrar por equipo...'
+    }).setValue('all');
 
     const almacenFilter = document.getElementById('reportAlmacenFilter');
     almacenFilter.innerHTML = '<option value="all">Todos</option>';
@@ -3740,8 +3842,6 @@ function initCharts(completedThisMonth, finalProductOrdersThisMonth) {
 
 /* ---------- PLANIFICADOR DE DEMANDA ---------- */
 function populatePlannerProductSelects(selectElement) {
-    selectElement.innerHTML = '<option value="" disabled selected>Seleccione un producto...</option>';
-
     const intermediateProducts = getIntermediateProductCodes();
 
     const finalProductsWithRecipe = products.filter(p => {
@@ -3750,9 +3850,13 @@ function populatePlannerProductSelects(selectElement) {
         return hasRecipe && isFinalProduct;
     });
 
-    finalProductsWithRecipe.forEach(p => {
-        const option = new Option(`${p.codigo} - ${p.descripcion}`, p.codigo);
-        selectElement.add(option);
+    initTomSelect(selectElement, {
+        options: finalProductsWithRecipe.sort((a,b) => a.codigo.localeCompare(b.codigo)).map(p => ({ value: p.codigo, text: `${p.codigo} - ${p.descripcion}` })),
+        valueField: 'value',
+        labelField: 'text',
+        searchField: ['text'],
+        create: false,
+        placeholder: 'Busque un producto final...'
     });
 }
 
