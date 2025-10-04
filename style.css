@@ -73,6 +73,9 @@ body {
     font-weight: 700;
 }
 
+.sidebar .nav.flex-column {
+    /* No special styles needed now */
+}
 
 .nav-link {
     color: #c1c7d0; /* Lighter text for better readability on dark background */
