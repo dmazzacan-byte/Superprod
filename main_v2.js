@@ -3260,7 +3260,36 @@ document.getElementById('productFile').addEventListener('change', async (e) => {
   reader.readAsBinaryString(file);
 });
 // Materiales
-document.getElementById('exportMaterialsBtn').addEventListener('click', () => downloadExcel('materiales.xlsx', 'Materiales', materials));
+document.getElementById('exportMaterialsBtn').addEventListener('click', () => {
+    // 1. Get all unique warehouse IDs from the materials data.
+    const allAlmacenIds = new Set();
+    materials.forEach(m => {
+        if (m.inventario) {
+            Object.keys(m.inventario).forEach(id => allAlmacenIds.add(id));
+        }
+    });
+    const sortedAlmacenIds = [...allAlmacenIds].sort();
+
+    // 2. Transform the data for export.
+    const exportData = materials.map(m => {
+        const row = {
+            codigo: m.codigo,
+            descripcion: m.descripcion,
+            unidad: m.unidad,
+            costo: m.costo,
+        };
+
+        // Add a column for each warehouse's stock.
+        sortedAlmacenIds.forEach(almacenId => {
+            const stock = m.inventario?.[almacenId] || 0;
+            row[`Stock_${almacenId}`] = stock.toFixed(2);
+        });
+
+        return row;
+    });
+
+    downloadExcel('materiales.xlsx', 'Materiales', exportData);
+});
 document.getElementById('importMaterialsBtn').addEventListener('click', () => document.getElementById('materialFile').click());
 document.getElementById('materialFile').addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
@@ -3269,26 +3298,46 @@ document.getElementById('materialFile').addEventListener('change', async (e) => 
         const wb = XLSX.read(ev.target.result, { type: 'binary' });
         const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
 
-        const importedMaterials = json.map(r => {
-            const existencia = parseFloat(r.existencia || r.Existencia || 0);
-            return {
-                codigo: (r.codigo || r.Código)?.toString().toUpperCase(),
-                descripcion: r.descripcion || r.Descripción,
-                unidad: r.unidad || r.Unidad,
-                inventario: { 'GENERAL': existencia }, // Use new data structure
-                costo: parseFloat(r.costo || r.Costo || 0)
-            };
-        });
+        const updatePromises = [];
 
-        for (const material of importedMaterials) {
-            if (!material.codigo) continue;
-            // Merge with existing data in case the material already exists
-            // and has stock in other warehouses.
-            await setDoc(doc(db, "materials", material.codigo), material, { merge: true });
+        for (const row of json) {
+            const codigo = (row.codigo || row.Código)?.toString().toUpperCase();
+            if (!codigo) continue;
+
+            const newInventario = {};
+            // Dynamically read stock from columns like "Stock_ALMACEN1", "Stock_ALMACEN2"
+            for (const key in row) {
+                if (key.toLowerCase().startsWith('stock_')) {
+                    const almacenId = key.substring(6).toUpperCase();
+                    const stockValue = parseFloat(row[key]);
+                    if (!isNaN(stockValue)) {
+                        newInventario[almacenId] = stockValue;
+                    }
+                }
+            }
+
+            const materialData = {
+                descripcion: row.descripcion || row.Descripción,
+                unidad: row.unidad || row.Unidad,
+                costo: parseFloat(row.costo || row.Costo || 0),
+                inventario: newInventario
+            };
+
+            // We use setDoc with merge:true to update existing materials without
+            // wiping out warehouses that might exist in the DB but not in the Excel file.
+            const docRef = doc(db, "materials", codigo);
+            updatePromises.push(setDoc(docRef, materialData, { merge: true }));
         }
-        materials = await loadCollection('materials', 'codigo');
-        loadMaterials();
-        Toastify({ text: 'Materiales importados y guardados en la nube', backgroundColor: 'var(--success-color)' }).showToast();
+
+        try {
+            await Promise.all(updatePromises);
+            materials = await loadCollection('materials', 'codigo');
+            loadMaterials();
+            Toastify({ text: `${updatePromises.length} materiales importados y actualizados en la nube.`, backgroundColor: 'var(--success-color)' }).showToast();
+        } catch (error) {
+            console.error("Error importing materials:", error);
+            Toastify({ text: 'Error al importar los materiales.', backgroundColor: 'var(--danger-color)' }).showToast();
+        }
     };
     reader.readAsBinaryString(file);
 });
