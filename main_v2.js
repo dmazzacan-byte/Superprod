@@ -3323,6 +3323,16 @@ document.getElementById('materialFile').addEventListener('change', async (e) => 
                 inventario: newInventario
             };
 
+            // Update local state directly for immediate UI refresh
+            const localIndex = materials.findIndex(m => m.codigo === codigo);
+            if (localIndex !== -1) {
+                // Merge new data into the existing local material object
+                materials[localIndex] = { ...materials[localIndex], ...materialData };
+            } else {
+                // Add the new material to the local state if it doesn't exist
+                materials.push({ codigo, ...materialData });
+            }
+
             // We use setDoc with merge:true to update existing materials without
             // wiping out warehouses that might exist in the DB but not in the Excel file.
             const docRef = doc(db, "materials", codigo);
@@ -3330,9 +3340,12 @@ document.getElementById('materialFile').addEventListener('change', async (e) => 
         }
 
         try {
+            // Wait for all database operations to complete
             await Promise.all(updatePromises);
-            materials = await loadCollection('materials', 'codigo');
+
+            // Now, just re-render the table with the already updated local data
             loadMaterials();
+
             Toastify({ text: `${updatePromises.length} materiales importados y actualizados en la nube.`, backgroundColor: 'var(--success-color)' }).showToast();
         } catch (error) {
             console.error("Error importing materials:", error);
