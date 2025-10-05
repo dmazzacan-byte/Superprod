@@ -562,6 +562,7 @@ async function initializeAppContent() {
 
         if (pageId === 'dashboardPage') {
             console.log('Loading dashboard content...');
+            populateDashboardFilters();
             updateDashboard();
             updateTimestamps();
         } else if (pageId === 'productsPage') {
@@ -653,6 +654,8 @@ async function initializeAppContent() {
 
   document.getElementById('lowStockThreshold').addEventListener('input', dashboardUpdateHandler);
   document.getElementById('dashboardAlmacenFilter').addEventListener('change', dashboardUpdateHandler);
+  document.getElementById('dashboardMonthFilter').addEventListener('change', dashboardUpdateHandler);
+  document.getElementById('dashboardYearFilter').addEventListener('change', dashboardUpdateHandler);
 
   // Hide splash screen after a delay
   const splashScreen = document.getElementById('splashScreen');
@@ -664,6 +667,45 @@ async function initializeAppContent() {
 }
 
 /* ----------  DASHBOARD  ---------- */
+function populateDashboardFilters() {
+    const monthFilter = document.getElementById('dashboardMonthFilter');
+    const yearFilter = document.getElementById('dashboardYearFilter');
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    // Populate months
+    const months = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    ];
+    monthFilter.innerHTML = '';
+    months.forEach((month, index) => {
+        const option = new Option(month, index);
+        if (index === currentMonth) {
+            option.selected = true;
+        }
+        monthFilter.add(option);
+    });
+
+    // Populate years from existing data + current year to be robust
+    const years = new Set([currentYear]);
+    productionOrders.forEach(o => {
+        if (o.completed_at) {
+            years.add(new Date(o.completed_at).getFullYear());
+        }
+    });
+
+    yearFilter.innerHTML = '';
+    Array.from(years).sort((a,b) => b-a).forEach(year => { // Sort descending
+        const option = new Option(year, year);
+        if (year === currentYear) {
+            option.selected = true;
+        }
+        yearFilter.add(option);
+    });
+}
+
 function updateDashboard() {
   // Populate filter if it's empty
   const almacenFilter = document.getElementById('dashboardAlmacenFilter');
@@ -672,14 +714,13 @@ function updateDashboard() {
       almacenes.forEach(a => almacenFilter.add(new Option(a.name, a.id)));
   }
 
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
+  const selectedMonth = parseInt(document.getElementById('dashboardMonthFilter').value, 10);
+  const selectedYear = parseInt(document.getElementById('dashboardYearFilter').value, 10);
 
   const completedThisMonth = productionOrders.filter(o => {
     if (o.status !== 'Completada' || !o.completed_at) return false;
     const orderDate = new Date(o.completed_at);
-    return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
+    return orderDate.getMonth() === selectedMonth && orderDate.getFullYear() === selectedYear;
   });
 
   const pending = productionOrders.filter(o => o.status === 'Pendiente');
