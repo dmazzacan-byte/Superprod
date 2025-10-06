@@ -2549,14 +2549,23 @@ document.getElementById('valeForm').addEventListener('submit', async e => {
 
     await Promise.all(promises);
 
-    materials = await loadCollection('materials', 'codigo');
+    // 1. Update local data from DB
+    [materials, productionOrders] = await Promise.all([
+        loadCollection('materials', 'codigo'),
+        loadCollection('productionOrders', 'order_id')
+    ]);
+    productionOrders.forEach(o => o.order_id = parseInt(o.order_id));
     vales.push(newVale);
 
-    await generateValePDF(newVale);
+    // 2. Update the UI immediately
     loadProductionOrders();
     loadMaterials();
     bootstrap.Modal.getInstance(document.getElementById('valeModal')).hide();
-    Toastify({ text: 'Vale guardado con éxito.', backgroundColor: 'var(--success-color)' }).showToast();
+    Toastify({ text: 'Vale guardado con éxito. Generando PDF...', backgroundColor: 'var(--success-color)' }).showToast();
+
+    // 3. Generate PDF as the final step
+    await generateValePDF(newVale);
+
   } catch (error) {
     console.error("Error saving vale: ", error);
     Toastify({ text: 'Error al guardar el vale.', backgroundColor: 'var(--danger-color)' }).showToast();
