@@ -146,15 +146,16 @@ exports.completeOrder = functions.https.onCall(async (data, context) => {
         }
       });
 
-      // 4. Perform the updates only on existing documents.
+      // 4. Perform "read-modify-write" updates for robust inventory control.
       // a. Decrement stock for consumed materials
       for (const mat of baseMaterialsConsumed) {
         if (existingMaterials.has(mat.code)) {
           const materialRef = db.collection("materials").doc(mat.code);
-          const stockUpdatePath = `inventario.${almacenId}`;
-          transaction.update(materialRef, {
-            [stockUpdatePath]: admin.firestore.FieldValue.increment(-mat.quantity),
-          });
+          const materialData = existingMaterials.get(mat.code);
+          const inventario = materialData.inventario || {};
+          const currentStock = inventario[almacenId] || 0;
+          inventario[almacenId] = currentStock - mat.quantity;
+          transaction.update(materialRef, { inventario });
         }
       }
 
@@ -162,10 +163,11 @@ exports.completeOrder = functions.https.onCall(async (data, context) => {
       if (existingMaterials.has(orderData.product_code)) {
         const finishedProductRef = db.collection("materials")
             .doc(orderData.product_code);
-        const stockUpdatePath = `inventario.${almacenId}`;
-        transaction.update(finishedProductRef, {
-          [stockUpdatePath]: admin.firestore.FieldValue.increment(realQty),
-        });
+        const productData = existingMaterials.get(orderData.product_code);
+        const inventario = productData.inventario || {};
+        const currentStock = inventario[almacenId] || 0;
+        inventario[almacenId] = currentStock + realQty;
+        transaction.update(finishedProductRef, { inventario });
       }
 
       // --- Calculate Costs ---
