@@ -125,25 +125,48 @@ exports.completeOrder = functions.https.onCall(async (data, context) => {
           allRecipes,
       );
 
-      // --- Update Material Stock ---
-      const materialUpdatePromises = [];
+      // --- Update Material Stock (Safely) ---
 
+      // 1. Get all unique material codes that need updating.
+      const materialCodesToUpdate = new Set(
+          baseMaterialsConsumed.map((m) => m.code),
+      );
+      materialCodesToUpdate.add(orderData.product_code);
+
+      // 2. Fetch all these documents at once.
+      const materialRefs = Array.from(materialCodesToUpdate)
+          .map((code) => db.collection("materials").doc(code));
+      const materialDocs = await transaction.getAll(...materialRefs);
+
+      // 3. Create a map of existing materials for easy lookup.
+      const existingMaterials = new Map();
+      materialDocs.forEach((doc) => {
+        if (doc.exists) {
+          existingMaterials.set(doc.id, doc.data());
+        }
+      });
+
+      // 4. Perform the updates only on existing documents.
       // a. Decrement stock for consumed materials
       for (const mat of baseMaterialsConsumed) {
-        const materialRef = db.collection("materials").doc(mat.code);
-        const stockUpdatePath = `inventario.${almacenId}`;
-        materialUpdatePromises.push(transaction.update(materialRef, {
-          [stockUpdatePath]: admin.firestore.FieldValue.increment(-mat.quantity),
-        }));
+        if (existingMaterials.has(mat.code)) {
+          const materialRef = db.collection("materials").doc(mat.code);
+          const stockUpdatePath = `inventario.${almacenId}`;
+          transaction.update(materialRef, {
+            [stockUpdatePath]: admin.firestore.FieldValue.increment(-mat.quantity),
+          });
+        }
       }
 
       // b. Increment stock for the finished product
-      const finishedProductRef = db.collection("materials")
-          .doc(orderData.product_code);
-      const stockUpdatePath = `inventario.${almacenId}`;
-      materialUpdatePromises.push(transaction.update(finishedProductRef, {
-        [stockUpdatePath]: admin.firestore.FieldValue.increment(realQty),
-      }));
+      if (existingMaterials.has(orderData.product_code)) {
+        const finishedProductRef = db.collection("materials")
+            .doc(orderData.product_code);
+        const stockUpdatePath = `inventario.${almacenId}`;
+        transaction.update(finishedProductRef, {
+          [stockUpdatePath]: admin.firestore.FieldValue.increment(realQty),
+        });
+      }
 
       // --- Calculate Costs ---
       const standardCostForRealQty =
