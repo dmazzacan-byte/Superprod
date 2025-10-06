@@ -1,7 +1,7 @@
 import { clientConfigs } from './config.js';
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
-import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField, onSnapshot, query } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
 import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
 import Chart from 'https://esm.sh/chart.js/auto';
 import ChartDataLabels from 'https://esm.sh/chartjs-plugin-datalabels';
@@ -27,6 +27,7 @@ const logoutBtn = document.getElementById('logoutBtn');
 const userDataDiv = document.getElementById('userData');
 
 let currentUserRole = null;
+let unsubscribeProductionOrders = null;
 
 async function getUserRole(uid) {
     const userDoc = await getDoc(doc(db, "users", uid));
@@ -62,6 +63,10 @@ async function handleSuccessfulLogin(user) {
         loginView.classList.add('d-none');
         appView.classList.remove('d-none');
         userDataDiv.textContent = user.email;
+
+        // Setup real-time listeners before loading the rest of the content
+        setupProductionOrdersListener();
+
         await initializeAppContent();
 
     } catch (error) {
@@ -73,6 +78,11 @@ async function handleSuccessfulLogin(user) {
 }
 
 async function handleLogout() {
+    if (unsubscribeProductionOrders) {
+        unsubscribeProductionOrders();
+        unsubscribeProductionOrders = null;
+        console.log('Production orders listener detached.');
+    }
     if (auth) {
         await signOut(auth);
     }
@@ -93,6 +103,28 @@ async function handleLogout() {
     // Re-enable the client selector
     const clientSelector = document.getElementById('clientSelector');
     if(clientSelector) clientSelector.disabled = false;
+}
+
+function setupProductionOrdersListener() {
+    const q = query(collection(db, "productionOrders"));
+    unsubscribeProductionOrders = onSnapshot(q, (querySnapshot) => {
+        console.log("Received real-time update for production orders.");
+        const newOrders = [];
+        querySnapshot.forEach((doc) => {
+            const orderData = doc.data();
+            // The document ID is the order_id, ensure it's parsed correctly
+            orderData.order_id = parseInt(doc.id, 10);
+            newOrders.push(orderData);
+        });
+        productionOrders = newOrders;
+
+        // Refresh relevant UI parts that depend on production orders
+        // This is safer than checking the current page, as data will be fresh
+        // when the user navigates to a different page.
+        loadProductionOrders();
+        updateDashboard();
+    });
+    console.log("Production orders listener attached.");
 }
 
 const loginBtn = document.getElementById('loginBtn');
@@ -281,10 +313,11 @@ async function loadInitialData() {
     document.body.insertAdjacentHTML('beforeend', '<div id="loader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center;"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>');
 
     try {
+        // Production orders are now loaded via a real-time listener,
+        // so they are removed from the initial batch load.
         const promises = [
             loadCollection('products', 'codigo'),
             loadCollection('materials', 'codigo'),
-            loadCollection('productionOrders', 'order_id'),
             loadCollection('operators', 'id'),
             loadCollection('equipos', 'id'),
             loadCollection('vales', 'vale_id'),
@@ -300,7 +333,6 @@ async function loadInitialData() {
         const [
             productsData,
             materialsData,
-            productionOrdersData,
             operatorsData,
             equiposData,
             valesData,
@@ -312,7 +344,7 @@ async function loadInitialData() {
 
         products = productsData;
         materials = materialsData;
-        productionOrders = productionOrdersData;
+        // productionOrders is now populated by its onSnapshot listener
         operators = operatorsData;
         equipos = equiposData;
         vales = valesData;
@@ -320,8 +352,6 @@ async function loadInitialData() {
         traspasos = traspasosData;
         recipes = recipesData;
         if (usersData) users = usersData;
-
-        productionOrders.forEach(o => o.order_id = parseInt(o.order_id));
 
         await migrateDataToMultiAlmacen();
 
@@ -2022,7 +2052,7 @@ async function createProductionOrder(pCode, qty, opId, eqId, almacenId) {
 
     try {
         await setDoc(doc(db, "productionOrders", newOrder.order_id.toString()), newOrder);
-        productionOrders.push(newOrder);
+        // productionOrders.push(newOrder); // <-- This is removed. The onSnapshot listener is now the single source of truth.
         return true; // Indicate success
     } catch (error) {
         console.error("Error creating order: ", error);
