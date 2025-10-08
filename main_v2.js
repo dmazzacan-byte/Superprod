@@ -566,6 +566,7 @@ async function initializeAppContent() {
 
   await loadInitialData();
   await checkAndTriggerOnboarding();
+  setupGlobalEventListeners(); // Set up listeners for modals that can be opened from anywhere
   applyRoleRestrictions();
   const navLinks = document.querySelectorAll('.nav-link');
   const pages    = document.querySelectorAll('.page-content');
@@ -2964,8 +2965,31 @@ let availabilityChart = null;
 let downtimeByEquipmentChart = null;
 let isEditingMaintenance = false;
 
+function setupGlobalEventListeners() {
+    // Maintenance Modal Listeners
+    document.getElementById('maintenanceEventType').addEventListener('change', (e) => {
+        toggleMaintenanceFormFields(e.target.value);
+    });
+
+    document.getElementById('maintenanceModal').addEventListener('show.bs.modal', () => {
+        // Ensure the form shows the correct fields for the default "Correctivo" state
+        if (!isEditingMaintenance) {
+             toggleMaintenanceFormFields('Correctivo');
+        }
+    });
+
+    document.getElementById('maintenanceModal').addEventListener('hidden.bs.modal', () => {
+        isEditingMaintenance = false;
+        document.getElementById('maintenanceForm').reset();
+        document.getElementById('maintenanceEventId').value = '';
+        toggleMaintenanceFormFields('Correctivo'); // Reset to default view
+    });
+
+    document.getElementById('maintenanceForm').addEventListener('submit', saveMaintenanceEvent);
+}
+
 function setupMaintenanceEventListeners() {
-    // Main filters
+    // Page-specific filters and elements
     document.getElementById('maintenanceEquipoFilter').addEventListener('change', updateMaintenanceView);
     document.getElementById('maintenanceMonthFilter').addEventListener('change', updateMaintenanceView);
     document.getElementById('maintenanceYearFilter').addEventListener('change', updateMaintenanceView);
@@ -2978,21 +3002,7 @@ function setupMaintenanceEventListeners() {
     // Chart toggle
     document.getElementById('toggleAllEquipmentChart').addEventListener('change', updateMaintenanceView);
 
-    // Modal logic
-    document.getElementById('maintenanceEventType').addEventListener('change', (e) => {
-        toggleMaintenanceFormFields(e.target.value);
-    });
-
-    document.getElementById('maintenanceModal').addEventListener('hidden.bs.modal', () => {
-        isEditingMaintenance = false;
-        document.getElementById('maintenanceForm').reset();
-        document.getElementById('maintenanceEventId').value = '';
-        toggleMaintenanceFormFields('Correctivo'); // Reset to default view
-    });
-
-    document.getElementById('maintenanceForm').addEventListener('submit', saveMaintenanceEvent);
-
-    // Event delegation for history and schedule tables
+    // Event delegation for history and schedule tables, which are specific to the page
     document.getElementById('maintenanceHistoryBody').addEventListener('click', handleMaintenanceTableClick);
     document.getElementById('preventiveMaintenanceScheduleBody').addEventListener('click', handleMaintenanceTableClick);
 }
