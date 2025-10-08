@@ -219,6 +219,7 @@ let vales      = [];
 let users      = [];
 let almacenes = [];
 let traspasos = [];
+let maintenanceEvents = [];
 
 let costChartInstance = null, productionChartInstance = null, dailyProductionChartInstance = null, dailyOvercostChartInstance = null;
 
@@ -323,6 +324,7 @@ async function loadInitialData() {
             loadCollection('vales', 'vale_id'),
             loadCollection('almacenes', 'id'),
             loadCollection('traspasos', 'traspaso_id'),
+            loadCollection('maintenance_events', 'id'),
             loadRecipesCollection()
         ];
 
@@ -338,6 +340,7 @@ async function loadInitialData() {
             valesData,
             almacenesData,
             traspasosData,
+            maintenanceEventsData,
             recipesData,
             usersData
         ] = await Promise.all(promises);
@@ -350,6 +353,7 @@ async function loadInitialData() {
         vales = valesData;
         almacenes = almacenesData.sort((a, b) => a.id.localeCompare(b.id));
         traspasos = traspasosData;
+        maintenanceEvents = maintenanceEventsData;
         recipes = recipesData;
         if (usersData) users = usersData;
 
@@ -390,6 +394,7 @@ function initTomSelect(elementOrSelector, config) {
     const defaultConfig = {
         placeholder: 'Seleccione una opción...',
         ...config,
+        maxOptions: null,
     };
 
     return new TomSelect(el, defaultConfig);
@@ -627,6 +632,9 @@ async function initializeAppContent() {
             console.log('Loading reports content...');
             loadReports();
             updateTimestamps();
+        } else if (pageId === 'maintenancePage') {
+            console.log('Loading maintenance content...');
+            loadMaintenancePage();
         } else if (pageId === 'settingsPage') {
             console.log('Loading settings content...');
             loadOperators();
@@ -2950,6 +2958,264 @@ function generateMaterialConsumptionReport(orders) {
   }
 }
 
+/* ----------  MANTENIMIENTO  ---------- */
+const maintenanceModal = new bootstrap.Modal(document.getElementById('maintenanceModal'));
+let availabilityChart = null;
+
+function updateMaintenanceView() {
+    const equipoFilter = document.getElementById('maintenanceEquipoFilter').value;
+    const startDateFilter = document.getElementById('maintenanceStartDateFilter').value;
+    const endDateFilter = document.getElementById('maintenanceEndDateFilter').value;
+
+    let filteredEvents = [...maintenanceEvents];
+
+    if (equipoFilter !== 'all') {
+        filteredEvents = filteredEvents.filter(event => event.equipmentId === equipoFilter);
+    }
+    if (startDateFilter) {
+        const start = new Date(startDateFilter);
+        start.setHours(0, 0, 0, 0); // Start of the day
+        filteredEvents = filteredEvents.filter(event => new Date(event.startTime) >= start);
+    }
+    if (endDateFilter) {
+        const end = new Date(endDateFilter);
+        end.setHours(23, 59, 59, 999); // End of the day
+        filteredEvents = filteredEvents.filter(event => new Date(event.startTime) <= end);
+    }
+
+    renderMaintenanceHistory(filteredEvents);
+    calculateAndDisplayMaintenanceKPIs(filteredEvents);
+    renderAvailabilityChart(filteredEvents);
+}
+
+function loadMaintenancePage() {
+    const equipoFilterSelect = document.getElementById('maintenanceEquipoFilter');
+    equipoFilterSelect.innerHTML = '<option value="all">Todos los Equipos</option>';
+    equipos.sort((a,b) => a.name.localeCompare(b.name)).forEach(e => {
+        equipoFilterSelect.add(new Option(e.name, e.id));
+    });
+
+    const modalEquipoSelect = document.getElementById('maintenanceEquipoSelect');
+    modalEquipoSelect.innerHTML = '<option value="" disabled selected>Seleccione un equipo...</option>';
+    equipos.forEach(e => {
+        modalEquipoSelect.add(new Option(e.name, e.id));
+    });
+
+    document.getElementById('maintenanceEquipoFilter').addEventListener('change', updateMaintenanceView);
+    document.getElementById('maintenanceStartDateFilter').addEventListener('change', updateMaintenanceView);
+    document.getElementById('maintenanceEndDateFilter').addEventListener('change', updateMaintenanceView);
+    document.getElementById('clearMaintenanceFiltersBtn').addEventListener('click', () => {
+        document.getElementById('maintenanceEquipoFilter').value = 'all';
+        document.getElementById('maintenanceStartDateFilter').value = '';
+        document.getElementById('maintenanceEndDateFilter').value = '';
+        updateMaintenanceView();
+    });
+
+    updateMaintenanceView(); // Initial render
+}
+
+function renderMaintenanceHistory(events) {
+    const historyBody = document.getElementById('maintenanceHistoryBody');
+    historyBody.innerHTML = '';
+    events.sort((a, b) => new Date(b.startTime) - new Date(a.startTime)).forEach(event => {
+        const equipo = equipos.find(e => e.id === event.equipmentId);
+        historyBody.innerHTML += `
+            <tr>
+                <td>${equipo ? equipo.name : event.equipmentId}</td>
+                <td>${event.reason}</td>
+                <td>${new Date(event.startTime).toLocaleString()}</td>
+                <td>${new Date(event.endTime).toLocaleString()}</td>
+                <td>${event.durationMinutes}</td>
+                <td title="${event.notes || ''}">${(event.notes || '').substring(0, 50)}${(event.notes || '').length > 50 ? '...' : ''}</td>
+            </tr>
+        `;
+    });
+}
+
+function calculateAndDisplayMaintenanceKPIs(events) {
+    const mtbfCard = document.getElementById('mtbfCard');
+    const mttrCard = document.getElementById('mttrCard');
+
+    const failureEvents = events
+        .filter(e => e.reason !== 'Mantenimiento Programado')
+        .sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+
+    if (failureEvents.length < 1) {
+        mttrCard.textContent = 'N/A';
+    } else {
+        const totalRepairTime = failureEvents.reduce((acc, event) => acc + event.durationMinutes, 0);
+        const mttr = totalRepairTime / failureEvents.length;
+        mttrCard.textContent = `${mttr.toFixed(2)} minutos`;
+    }
+
+    if (failureEvents.length < 2) {
+        mtbfCard.textContent = 'N/A';
+        return;
+    }
+
+    let totalUptime = 0;
+    for (let i = 1; i < failureEvents.length; i++) {
+        const uptime = (new Date(failureEvents[i].startTime) - new Date(failureEvents[i-1].endTime)) / (1000 * 60); // in minutes
+        if (uptime > 0) { // Only count positive uptime
+            totalUptime += uptime;
+        }
+    }
+    const mtbf = totalUptime / (failureEvents.length - 1);
+    mtbfCard.textContent = `${(mtbf / 60).toFixed(2)} horas`;
+}
+
+function renderAvailabilityChart(events) {
+    const canvas = document.getElementById('availabilityChart');
+    if (!canvas) {
+        console.warn("Availability chart canvas not found, skipping render.");
+        return;
+    }
+    const ctx = canvas.getContext('2d');
+    if (availabilityChart) {
+        availabilityChart.destroy();
+    }
+
+    // Determine the time period for the chart
+    const startDateFilter = document.getElementById('maintenanceStartDateFilter').value;
+    const endDateFilter = document.getElementById('maintenanceEndDateFilter').value;
+
+    let start, end;
+    if (startDateFilter && endDateFilter) {
+        start = new Date(startDateFilter);
+        end = new Date(endDateFilter);
+        end.setDate(end.getDate() + 1); // Include the whole end day
+    } else {
+        end = new Date();
+        start = new Date();
+        start.setDate(end.getDate() - 30);
+    }
+    const totalPeriodMs = end - start;
+    const totalMinutesInPeriod = totalPeriodMs / (1000 * 60);
+
+    const totalDowntimeMinutes = events.reduce((acc, event) => {
+        // Ensure the event is within the chart's calculated period
+        const eventStart = new Date(event.startTime);
+        if (eventStart >= start && eventStart <= end) {
+            return acc + event.durationMinutes;
+        }
+        return acc;
+    }, 0);
+
+    const totalUptimeMinutes = Math.max(0, totalMinutesInPeriod - totalDowntimeMinutes);
+
+    const uptimePercentage = totalMinutesInPeriod > 0 ? (totalUptimeMinutes / totalMinutesInPeriod) * 100 : 0;
+    const downtimePercentage = totalMinutesInPeriod > 0 ? (totalDowntimeMinutes / totalMinutesInPeriod) * 100 : 0;
+
+    availabilityChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: [
+                `Disponibilidad (${uptimePercentage.toFixed(1)}%)`,
+                `Inactividad (${downtimePercentage.toFixed(1)}%)`
+            ],
+            datasets: [{
+                data: [totalUptimeMinutes, totalDowntimeMinutes],
+                backgroundColor: [
+                    '#27ae60', // green
+                    '#c0392b'  // red
+                ],
+                borderColor: [
+                    '#2ecc71',
+                    '#e74c3c'
+                ],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            const value = context.raw;
+                            const days = Math.floor(value / (60 * 24));
+                            const hours = Math.floor((value % (60 * 24)) / 60);
+                            const minutes = Math.round(value % 60);
+                            label += `${days}d ${hours}h ${minutes}m`;
+                            return label;
+                        }
+                    }
+                },
+                datalabels: {
+                    formatter: (value, ctx) => {
+                        let sum = 0;
+                        let dataArr = ctx.chart.data.datasets[0].data;
+                        dataArr.map(data => {
+                            sum += data;
+                        });
+                        if (sum === 0) return '0.0%';
+                        let percentage = (value*100 / sum).toFixed(1) + "%";
+                        return percentage;
+                    },
+                    color: '#fff',
+                }
+            }
+        }
+    });
+}
+
+document.getElementById('maintenanceForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const equipmentId = document.getElementById('maintenanceEquipoSelect').value;
+    const startTime = document.getElementById('maintenanceStartTime').value;
+    const endTime = document.getElementById('maintenanceEndTime').value;
+    const reason = document.getElementById('maintenanceReason').value;
+    const notes = document.getElementById('maintenanceNotes').value;
+
+    if (!equipmentId || !startTime || !endTime || !reason) {
+        Toastify({ text: 'Por favor, complete todos los campos requeridos.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+
+    if (end <= start) {
+        Toastify({ text: 'La fecha y hora de fin debe ser posterior a la de inicio.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    const durationMinutes = Math.round((end - start) / 60000);
+
+    const newEvent = {
+        equipmentId,
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        durationMinutes,
+        reason,
+        notes,
+        createdAt: new Date().toISOString()
+    };
+
+    try {
+        const docRef = await addDoc(collection(db, "maintenance_events"), newEvent);
+        newEvent.id = docRef.id;
+        maintenanceEvents.push(newEvent);
+
+        loadMaintenancePage(); // Refresh table
+        maintenanceModal.hide();
+        document.getElementById('maintenanceForm').reset();
+        Toastify({ text: 'Registro de parada guardado con éxito.', backgroundColor: 'var(--success-color)' }).showToast();
+    } catch (error) {
+        console.error("Error saving maintenance event:", error);
+        Toastify({ text: 'Error al guardar el registro.', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
+});
+
 /* ----------  USERS  ---------- */
 const userModal = new bootstrap.Modal(document.getElementById('userModal'));
 let isEditingUser = false;
@@ -3591,7 +3857,19 @@ document.getElementById('onboardingNextBtn').addEventListener('click', async () 
         operators.push({ id, name });
     }
 
-    if (currentOnboardingStep === 5) { // After Material step
+    if (currentOnboardingStep === 5) { // After Equipo step
+        const form = document.getElementById('onboardingEquipoForm');
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+        const id = document.getElementById('onboardingEquipoId').value.trim().toUpperCase();
+        const name = document.getElementById('onboardingEquipoName').value.trim();
+        await setDoc(doc(db, "equipos", id), { name });
+        equipos.push({ id, name });
+    }
+
+    if (currentOnboardingStep === 6) { // After Material step
         const form = document.getElementById('onboardingMaterialForm');
         if (!form.checkValidity()) {
             form.reportValidity();

@@ -1,0 +1,102 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Helper Functions ---
+    // Checks if the requesting user has the 'Administrator' role.
+    function isAdministrator() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Administrator';
+    }
+
+    // Checks if a user is signed in.
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // --- User and Role Management ---
+    match /users/{userId} {
+      // Users can read their own data; Admins can read anyone's data.
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdministrator());
+
+      // Only Admins can create/update/delete users.
+      // Data Validation: Ensures the 'role' field is one of the allowed values.
+      allow write: if isAdministrator()
+                   && request.resource.data.role in ['Administrator', 'Supervisor'];
+    }
+
+    // --- Core Master Data (Admin-only write access) ---
+    match /products/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdministrator();
+    }
+    match /recipes/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdministrator();
+    }
+    match /operators/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdministrator();
+    }
+    match /equipos/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdministrator();
+    }
+    match /almacenes/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdministrator();
+    }
+
+    // --- Granular Rules for Business Logic ---
+
+    // **FIXED**: Materials: Granular update to protect critical fields like 'costo'.
+    match /materials/{docId} {
+      allow read: if isSignedIn();
+      allow create, delete: if isAdministrator();
+
+      // Rule 1: Any signed-in user (e.g., Supervisor) can update ONLY the inventory.
+      // This is necessary for stock adjustments from orders, vales, and transfers.
+      allow update: if isSignedIn()
+                    && request.resource.data.keys().hasOnly(['inventario']);
+
+      // Rule 2: An Administrator can update ANY field (costo, descripcion, etc.).
+      allow update: if isAdministrator();
+    }
+
+    // **FIXED**: Production Orders: Granular update to protect completed orders.
+    match /productionOrders/{orderId} {
+      allow read: if isSignedIn();
+      allow delete: if isAdministrator();
+
+      // Data Validation: Enforce rules when a new order is created.
+      allow create: if isSignedIn()
+                    && request.resource.data.quantity is number
+                    && request.resource.data.quantity > 0
+                    && request.resource.data.status == 'Pendiente'
+                    && request.resource.data.cost_extra == 0;
+
+      // Rule 1: Any signed-in user can update an order ONLY if its current state is 'Pendiente'.
+      allow update: if isSignedIn()
+                    && resource.data.status == 'Pendiente';
+
+      // Rule 2: An Administrator can update an order in ANY state (needed to reopen, etc.).
+      allow update: if isAdministrator();
+    }
+
+    // --- Append-Only Logs for Regular Users ---
+    // Vales and Traspasos can be created by anyone, but not modified or deleted by non-admins.
+    match /vales/{valeId} {
+      allow read, create: if isSignedIn();
+      allow update, delete: if isAdministrator();
+    }
+    match /traspasos/{traspasoId} {
+      allow read, create: if isSignedIn();
+      allow update, delete: if isAdministrator();
+    }
+
+    // **NEW**: Maintenance Events: Allow any signed-in user to create events.
+    match /maintenance_events/{eventId} {
+      allow read, create: if isSignedIn();
+      allow update, delete: if isAdministrator();
+    }
+  }
+}

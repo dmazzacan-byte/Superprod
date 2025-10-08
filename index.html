@@ -116,6 +116,7 @@
                         <li class="nav-item"><a class="nav-link" href="#recipesPage" data-page="recipesPage"><i class="fas fa-book"></i> Recetas</a></li>
                         <li class="nav-item"><a class="nav-link" href="#productionOrdersPage" data-page="productionOrdersPage"><i class="fas fa-clipboard-list"></i> Órdenes</a></li>
                         <li class="nav-item"><a class="nav-link" href="#reportsPage" data-page="reportsPage"><i class="fas fa-chart-pie"></i> Reportes</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#maintenancePage" data-page="maintenancePage"><i class="fas fa-tools"></i> Mantenimiento</a></li>
                         <li class="nav-item"><a class="nav-link" href="#settingsPage" data-page="settingsPage"><i class="fas fa-cog"></i> Configuración</a></li>
                         <li class="nav-item"><a class="nav-link" href="#aboutPage" data-page="aboutPage"><i class="fas fa-info-circle"></i> Acerca de</a></li>
                         <li class="nav-item mt-auto d-md-none"><a class="nav-link" id="mobileLogoutBtn" href="#"><i class="fas fa-power-off"></i> Cerrar Sesión</a></li>
@@ -490,6 +491,93 @@
                     </div>
                 </div>
 
+                <!-- Mantenimiento -->
+                <div class="page-content" id="maintenancePage" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom">
+                        <h1 class="h2">Registro de Mantenimiento</h1>
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#maintenanceModal"><i class="fas fa-plus me-2"></i>Registrar Parada</button>
+                    </div>
+
+                    <!-- Filter Bar -->
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-body">
+                            <div class="row g-3 align-items-end">
+                                <div class="col-md-4">
+                                    <label for="maintenanceEquipoFilter" class="form-label">Filtrar por Equipo</label>
+                                    <select id="maintenanceEquipoFilter" class="form-select"></select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label for="maintenanceStartDateFilter" class="form-label">Fecha de Inicio</label>
+                                    <input type="date" class="form-control" id="maintenanceStartDateFilter">
+                                </div>
+                                <div class="col-md-3">
+                                    <label for="maintenanceEndDateFilter" class="form-label">Fecha de Fin</label>
+                                    <input type="date" class="form-control" id="maintenanceEndDateFilter">
+                                </div>
+                                <div class="col-md-2">
+                                    <button class="btn btn-secondary w-100" id="clearMaintenanceFiltersBtn">Limpiar</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-4 mt-2 justify-content-center">
+                        <div class="col-lg-6 col-md-6">
+                            <div class="kpi-card h-100">
+                                <div class="card-body">
+                                    <h6 class="kpi-title">TIEMPO MEDIO ENTRE FALLAS (MTBF)</h6>
+                                    <p class="kpi-value" id="mtbfCard">-- horas</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-lg-6 col-md-6">
+                            <div class="kpi-card h-100">
+                                <div class="card-body">
+                                    <h6 class="kpi-title">TIEMPO MEDIO DE REPARACIÓN (MTTR)</h6>
+                                    <p class="kpi-value" id="mttrCard">-- minutos</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-4 mt-4">
+                        <div class="col-lg-4">
+                            <div class="card shadow-sm h-100">
+                                <div class="card-header">
+                                    <h5 class="mb-0">Disponibilidad (Últimos 30 Días)</h5>
+                                </div>
+                                <div class="card-body d-flex align-items-center justify-content-center">
+                                    <canvas id="availabilityChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-lg-8">
+                            <div class="card shadow-sm h-100">
+                                <div class="card-header">
+                                    <h5 class="mb-0">Historial de Paradas</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-striped table-hover table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Equipo</th>
+                                                    <th>Razón</th>
+                                                    <th>Inicio</th>
+                                                    <th>Fin</th>
+                                                    <th>Duración (min)</th>
+                                                    <th>Notas</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="maintenanceHistoryBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Configuración -->
                 <div class="page-content" id="settingsPage" style="display: none;">
                     <h1 class="mt-4">Configuración</h1>
@@ -543,6 +631,7 @@
                         <li class="list-group-item"><i class="fas fa-building me-2"></i> El logo de su empresa (opcional).</li>
                         <li class="list-group-item"><i class="fas fa-warehouse me-2"></i> El nombre de su primer almacén (ej: "Almacén Principal").</li>
                         <li class="list-group-item"><i class="fas fa-user-cog me-2"></i> El nombre de un operador (ej: "Juan Pérez").</li>
+                        <li class="list-group-item"><i class="fas fa-tools me-2"></i> El nombre de su primer equipo (ej: "Prensa 1").</li>
                         <li class="list-group-item"><i class="fas fa-box me-2"></i> Los datos de su primer producto o materia prima.</li>
                     </ul>
                 </div>
@@ -600,9 +689,26 @@
                     </form>
                 </div>
 
-                <!-- Step 5: Producto/Material -->
+                <!-- Step 5: Equipo -->
                 <div class="onboarding-step" id="onboardingStep5" style="display: none;">
-                    <h5>Paso 4: Cree su Primer Ítem (Producto o Material)</h5>
+                    <h5>Paso 4: Cree su Primer Equipo</h5>
+                    <p class="text-muted">Los equipos son las máquinas o estaciones de trabajo donde se realizan las órdenes de producción. Necesita al menos uno para empezar.</p>
+                    <form id="onboardingEquipoForm">
+                         <div class="mb-3">
+                            <label for="onboardingEquipoId" class="form-label">ID del Equipo</label>
+                            <input type="text" class="form-control" id="onboardingEquipoId" placeholder="Ej: PRENSA-01" required>
+                             <div class="form-text">Un identificador corto y único para el equipo.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="onboardingEquipoName" class="form-label">Nombre del Equipo</label>
+                            <input type="text" class="form-control" id="onboardingEquipoName" placeholder="Ej: Prensa 1" required>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Step 6: Producto/Material -->
+                <div class="onboarding-step" id="onboardingStep6" style="display: none;">
+                    <h5>Paso 5: Cree su Primer Ítem (Producto o Material)</h5>
                     <p class="text-muted">Añada un producto terminado o una materia prima. Podrá añadir el resto más tarde desde la sección de Materiales.</p>
                     <form id="onboardingMaterialForm">
                         <div class="row">
@@ -633,8 +739,8 @@
                     </form>
                 </div>
 
-                <!-- Step 6: Finish -->
-                <div class="onboarding-step" id="onboardingStep6" style="display: none;">
+                <!-- Step 7: Finish -->
+                <div class="onboarding-step" id="onboardingStep7" style="display: none;">
                     <div class="text-center">
                         <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
                         <h4>¡Configuración Completada!</h4>
@@ -868,6 +974,56 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-primary">Confirmar Traspaso</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Registro de Mantenimiento -->
+<div class="modal fade" id="maintenanceModal" tabindex="-1" aria-labelledby="maintenanceModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="maintenanceModalLabel">Registrar Parada de Equipo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="maintenanceForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="maintenanceEquipoSelect" class="form-label">Equipo Afectado</label>
+                        <select id="maintenanceEquipoSelect" class="form-select" required></select>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="maintenanceStartTime" class="form-label">Fecha y Hora de Inicio</label>
+                            <input type="datetime-local" class="form-control" id="maintenanceStartTime" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="maintenanceEndTime" class="form-label">Fecha y Hora de Fin</label>
+                            <input type="datetime-local" class="form-control" id="maintenanceEndTime" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="maintenanceReason" class="form-label">Razón de la Parada</label>
+                        <select id="maintenanceReason" class="form-select" required>
+                            <option value="" disabled selected>Seleccione una razón...</option>
+                            <option value="Mantenimiento Programado">Mantenimiento Programado</option>
+                            <option value="Falla Mecánica">Falla Mecánica</option>
+                            <option value="Falla Eléctrica">Falla Eléctrica</option>
+                            <option value="Falta de Material">Falta de Material</option>
+                            <option value="Cambio de Herramental">Cambio de Herramental</option>
+                            <option value="Otro">Otro</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="maintenanceNotes" class="form-label">Notas Adicionales</label>
+                        <textarea class="form-control" id="maintenanceNotes" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar Registro</button>
                 </div>
             </form>
         </div>
