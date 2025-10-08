@@ -559,7 +559,13 @@
                         </div>
                         <div class="col-lg-8">
                             <div class="card shadow-sm h-100">
-                                <div class="card-header"><h5 class="mb-0">Top 5 Equipos por Tiempo de Parada (minutos)</h5></div>
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0" id="downtimeChartTitle">Top 5 Equipos por Tiempo de Parada (minutos)</h5>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="toggleAllEquipmentChart">
+                                        <label class="form-check-label" for="toggleAllEquipmentChart">Ver Todos</label>
+                                    </div>
+                                </div>
                                 <div class="card-body"><canvas id="downtimeByEquipmentChart"></canvas></div>
                             </div>
                         </div>

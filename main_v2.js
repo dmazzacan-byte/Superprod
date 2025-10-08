@@ -2990,6 +2990,9 @@ function setupMaintenanceEventListeners() {
         updateMaintenanceView();
     });
 
+    // Chart toggle
+    document.getElementById('toggleAllEquipmentChart').addEventListener('change', updateMaintenanceView);
+
     // Modal logic
     document.getElementById('maintenanceEventType').addEventListener('change', (e) => {
         toggleMaintenanceFormFields(e.target.value);
@@ -3026,15 +3029,12 @@ function updateMaintenanceView() {
     const startDateFilter = document.getElementById('maintenanceStartDateFilter').value;
     const endDateFilter = document.getElementById('maintenanceEndDateFilter').value;
 
-    let filteredEvents = [...maintenanceEvents];
-
-    if (equipoFilter !== 'all') {
-        filteredEvents = filteredEvents.filter(event => event.equipmentId === equipoFilter);
-    }
+    // First, filter by date. This dataset will be used for the downtime chart.
+    let dateFilteredEvents = [...maintenanceEvents];
     if (startDateFilter) {
         const start = new Date(startDateFilter);
         start.setHours(0, 0, 0, 0);
-        filteredEvents = filteredEvents.filter(event => {
+        dateFilteredEvents = dateFilteredEvents.filter(event => {
             const eventDate = event.type === 'Preventivo' ? new Date(event.scheduledDate) : new Date(event.startTime);
             return eventDate >= start;
         });
@@ -3042,20 +3042,29 @@ function updateMaintenanceView() {
     if (endDateFilter) {
         const end = new Date(endDateFilter);
         end.setHours(23, 59, 59, 999);
-        filteredEvents = filteredEvents.filter(event => {
+        dateFilteredEvents = dateFilteredEvents.filter(event => {
             const eventDate = event.type === 'Preventivo' ? new Date(event.scheduledDate) : new Date(event.startTime);
             return eventDate <= end;
         });
     }
 
-    const correctiveEvents = filteredEvents.filter(e => e.type === 'Correctivo');
-    const preventiveEvents = filteredEvents.filter(e => e.type === 'Preventivo');
+    // The downtime chart ALWAYS uses the full date-filtered set to allow for comparison.
+    const correctiveEventsForChart = dateFilteredEvents.filter(e => e.type === 'Correctivo');
+    renderDowntimeByEquipmentChart(correctiveEventsForChart);
 
-    renderMaintenanceHistory(correctiveEvents);
-    renderPreventiveMaintenanceSchedule(preventiveEvents);
-    calculateAndDisplayMaintenanceKPIs(correctiveEvents, filteredEvents);
-    renderAvailabilityChart(correctiveEvents);
-    renderDowntimeByEquipmentChart(correctiveEvents);
+    // Now, apply the equipment filter for all other components on the page.
+    let pageFilteredEvents = [...dateFilteredEvents];
+    if (equipoFilter !== 'all') {
+        pageFilteredEvents = pageFilteredEvents.filter(event => event.equipmentId === equipoFilter);
+    }
+
+    const correctiveEventsForPage = pageFilteredEvents.filter(e => e.type === 'Correctivo');
+    const preventiveEventsForPage = pageFilteredEvents.filter(e => e.type === 'Preventivo');
+
+    renderMaintenanceHistory(correctiveEventsForPage);
+    renderPreventiveMaintenanceSchedule(preventiveEventsForPage);
+    calculateAndDisplayMaintenanceKPIs(correctiveEventsForPage, pageFilteredEvents);
+    renderAvailabilityChart(correctiveEventsForPage);
 }
 
 function loadMaintenancePage() {
@@ -3229,9 +3238,18 @@ function renderDowntimeByEquipmentChart(events) {
         downtimeByEq[eqId] = (downtimeByEq[eqId] || 0) + (event.durationMinutes || 0);
     });
 
-    const sortedDowntime = Object.entries(downtimeByEq)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 5);
+    const showAll = document.getElementById('toggleAllEquipmentChart').checked;
+    const chartTitle = document.getElementById('downtimeChartTitle');
+
+    let sortedDowntime = Object.entries(downtimeByEq)
+        .sort(([, a], [, b]) => b - a);
+
+    if (showAll) {
+        chartTitle.textContent = 'Tiempo de Parada por Equipo (minutos)';
+    } else {
+        chartTitle.textContent = 'Top 5 Equipos por Tiempo de Parada (minutos)';
+        sortedDowntime = sortedDowntime.slice(0, 5);
+    }
 
     const labels = sortedDowntime.map(([eqId,]) => equipos.find(e => e.id === eqId)?.name || eqId);
     const data = sortedDowntime.map(([, mins]) => mins);
