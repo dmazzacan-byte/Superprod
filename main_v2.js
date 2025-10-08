@@ -6,6 +6,9 @@ import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstat
 import Chart from 'https://esm.sh/chart.js/auto';
 import ChartDataLabels from 'https://esm.sh/chartjs-plugin-datalabels';
 
+// Register the plugin globally
+Chart.register(ChartDataLabels);
+
 // Firebase services will be initialized on login, based on client selection
 let app;
 let auth;
@@ -569,14 +572,6 @@ function applyRoleRestrictions() {
 /* ----------  NAVEGACIÓN  ---------- */
 async function initializeAppContent() {
   console.log("Initializing app content...");
-
-  console.log("Registering ChartDataLabels plugin");
-  try {
-      Chart.register(ChartDataLabels);
-      console.log("ChartDataLabels plugin registered successfully.");
-  } catch(e) {
-      console.error("Failed to register ChartDataLabels", e);
-  }
 
   await loadInitialData();
   await checkAndTriggerOnboarding();
@@ -3070,6 +3065,7 @@ function updateMaintenanceView() {
 function loadMaintenancePage() {
     const equipoFilterSelect = document.getElementById('maintenanceEquipoFilter');
     if (equipoFilterSelect.options.length <= 1) { // Populate only once
+        equipoFilterSelect.innerHTML = '<option value="all" selected>Todos los Equipos</option>';
         equipos.sort((a,b) => a.name.localeCompare(b.name)).forEach(e => {
             equipoFilterSelect.add(new Option(e.name, e.id));
         });
