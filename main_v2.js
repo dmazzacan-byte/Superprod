@@ -566,6 +566,7 @@ async function initializeAppContent() {
 
   await loadInitialData();
   await checkAndTriggerOnboarding();
+  setupGlobalEventListeners(); // Set up listeners for modals that can be opened from anywhere
   applyRoleRestrictions();
   const navLinks = document.querySelectorAll('.nav-link');
   const pages    = document.querySelectorAll('.page-content');
@@ -2961,39 +2962,160 @@ function generateMaterialConsumptionReport(orders) {
 /* ----------  MANTENIMIENTO  ---------- */
 const maintenanceModal = new bootstrap.Modal(document.getElementById('maintenanceModal'));
 let availabilityChart = null;
+let downtimeByEquipmentChart = null;
+let isEditingMaintenance = false;
+
+function setupGlobalEventListeners() {
+    // Maintenance Modal Listeners
+    document.getElementById('maintenanceEventType').addEventListener('change', (e) => {
+        toggleMaintenanceFormFields(e.target.value);
+    });
+
+    document.getElementById('maintenanceModal').addEventListener('show.bs.modal', () => {
+        // Ensure the form shows the correct fields for the default "Correctivo" state
+        if (!isEditingMaintenance) {
+             toggleMaintenanceFormFields('Correctivo');
+        }
+    });
+
+    document.getElementById('maintenanceModal').addEventListener('hidden.bs.modal', () => {
+        isEditingMaintenance = false;
+        document.getElementById('maintenanceForm').reset();
+        document.getElementById('maintenanceEventId').value = '';
+        toggleMaintenanceFormFields('Correctivo'); // Reset to default view
+    });
+
+    document.getElementById('maintenanceForm').addEventListener('submit', saveMaintenanceEvent);
+}
+
+function setupMaintenanceEventListeners() {
+    // Page-specific filters and elements
+    document.getElementById('maintenanceEquipoFilter').addEventListener('change', updateMaintenanceView);
+    document.getElementById('maintenanceMonthFilter').addEventListener('change', updateMaintenanceView);
+    document.getElementById('maintenanceYearFilter').addEventListener('change', updateMaintenanceView);
+    document.getElementById('clearMaintenanceFiltersBtn').addEventListener('click', () => {
+        document.getElementById('maintenanceEquipoFilter').value = 'all';
+        populateMaintenanceDateFilters(); // Resets month/year to current
+        updateMaintenanceView();
+    });
+
+    // Chart toggle
+    document.getElementById('toggleAllEquipmentChart').addEventListener('change', updateMaintenanceView);
+
+    // Event delegation for history and schedule tables, which are specific to the page
+    document.getElementById('maintenanceHistoryBody').addEventListener('click', handleMaintenanceTableClick);
+    document.getElementById('preventiveMaintenanceScheduleBody').addEventListener('click', handleMaintenanceTableClick);
+}
+
+function toggleMaintenanceFormFields(type) {
+    const correctiveFields = document.getElementById('corrective-fields');
+    const preventiveFields = document.getElementById('preventive-fields');
+    if (type === 'Preventivo') {
+        correctiveFields.style.display = 'none';
+        preventiveFields.style.display = 'block';
+    } else { // Correctivo
+        correctiveFields.style.display = 'block';
+        preventiveFields.style.display = 'none';
+    }
+}
 
 function updateMaintenanceView() {
     const equipoFilter = document.getElementById('maintenanceEquipoFilter').value;
-    const startDateFilter = document.getElementById('maintenanceStartDateFilter').value;
-    const endDateFilter = document.getElementById('maintenanceEndDateFilter').value;
+    const month = document.getElementById('maintenanceMonthFilter').value;
+    const year = document.getElementById('maintenanceYearFilter').value;
 
-    let filteredEvents = [...maintenanceEvents];
+    let effectiveStartDate = new Date(year, month, 1);
+    let effectiveEndDate = new Date(year, parseInt(month) + 1, 0);
 
+    // First, filter by date. This dataset will be used for the downtime chart.
+    let dateFilteredEvents = [...maintenanceEvents];
+    if (effectiveStartDate) {
+        effectiveStartDate.setHours(0, 0, 0, 0);
+        dateFilteredEvents = dateFilteredEvents.filter(event => {
+            const eventDate = event.type === 'Preventivo' ? new Date(event.scheduledDate) : new Date(event.startTime);
+            if (!eventDate || isNaN(new Date(eventDate).getTime())) return false;
+            return new Date(eventDate) >= effectiveStartDate;
+        });
+    }
+    if (effectiveEndDate) {
+        effectiveEndDate.setHours(23, 59, 59, 999);
+        dateFilteredEvents = dateFilteredEvents.filter(event => {
+            const eventDate = event.type === 'Preventivo' ? new Date(event.scheduledDate) : new Date(event.startTime);
+            if (!eventDate || isNaN(new Date(eventDate).getTime())) return false;
+            return new Date(eventDate) <= effectiveEndDate;
+        });
+    }
+
+    // The downtime chart ALWAYS uses the full date-filtered set to allow for comparison.
+    const correctiveEventsForChart = dateFilteredEvents.filter(e => e.type === 'Correctivo');
+    renderDowntimeByEquipmentChart(correctiveEventsForChart);
+
+    // Now, apply the equipment filter for all other components on the page.
+    let pageFilteredEvents = [...dateFilteredEvents];
     if (equipoFilter !== 'all') {
-        filteredEvents = filteredEvents.filter(event => event.equipmentId === equipoFilter);
-    }
-    if (startDateFilter) {
-        const start = new Date(startDateFilter);
-        start.setHours(0, 0, 0, 0); // Start of the day
-        filteredEvents = filteredEvents.filter(event => new Date(event.startTime) >= start);
-    }
-    if (endDateFilter) {
-        const end = new Date(endDateFilter);
-        end.setHours(23, 59, 59, 999); // End of the day
-        filteredEvents = filteredEvents.filter(event => new Date(event.startTime) <= end);
+        pageFilteredEvents = pageFilteredEvents.filter(event => event.equipmentId === equipoFilter);
     }
 
-    renderMaintenanceHistory(filteredEvents);
-    calculateAndDisplayMaintenanceKPIs(filteredEvents);
-    renderAvailabilityChart(filteredEvents);
+    const correctiveEventsForPage = pageFilteredEvents.filter(e => e.type === 'Correctivo');
+    const preventiveEventsForPage = pageFilteredEvents.filter(e => e.type === 'Preventivo');
+
+    renderMaintenanceHistory(correctiveEventsForPage);
+    renderPreventiveMaintenanceSchedule(preventiveEventsForPage);
+    calculateAndDisplayMaintenanceKPIs(correctiveEventsForPage, pageFilteredEvents);
+    renderAvailabilityChart(correctiveEventsForPage);
 }
+
+function populateMaintenanceDateFilters() {
+    const monthFilter = document.getElementById('maintenanceMonthFilter');
+    const yearFilter = document.getElementById('maintenanceYearFilter');
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    // Populate months
+    const months = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    ];
+    monthFilter.innerHTML = '';
+    months.forEach((month, index) => {
+        const option = new Option(month, index);
+        if (index === currentMonth) {
+            option.selected = true;
+        }
+        monthFilter.add(option);
+    });
+
+    // Populate years from existing data + current year
+    const years = new Set([currentYear]);
+    maintenanceEvents.forEach(e => {
+        const eventDate = e.type === 'Preventivo' ? e.scheduledDate : e.startTime;
+        if (eventDate) {
+            years.add(new Date(eventDate).getFullYear());
+        }
+    });
+
+    yearFilter.innerHTML = '';
+    Array.from(years).sort((a, b) => b - a).forEach(year => {
+        const option = new Option(year, year);
+        if (year === currentYear) {
+            option.selected = true;
+        }
+        yearFilter.add(option);
+    });
+}
+
 
 function loadMaintenancePage() {
     const equipoFilterSelect = document.getElementById('maintenanceEquipoFilter');
-    equipoFilterSelect.innerHTML = '<option value="all">Todos los Equipos</option>';
-    equipos.sort((a,b) => a.name.localeCompare(b.name)).forEach(e => {
-        equipoFilterSelect.add(new Option(e.name, e.id));
-    });
+    if (equipoFilterSelect.options.length <= 1) { // Populate only once
+        equipoFilterSelect.innerHTML = '<option value="all" selected>Todos los Equipos</option>';
+        equipos.sort((a,b) => a.name.localeCompare(b.name)).forEach(e => {
+            equipoFilterSelect.add(new Option(e.name, e.id));
+        });
+    }
+
+    populateMaintenanceDateFilters();
 
     const modalEquipoSelect = document.getElementById('maintenanceEquipoSelect');
     modalEquipoSelect.innerHTML = '<option value="" disabled selected>Seleccione un equipo...</option>';
@@ -3001,16 +3123,7 @@ function loadMaintenancePage() {
         modalEquipoSelect.add(new Option(e.name, e.id));
     });
 
-    document.getElementById('maintenanceEquipoFilter').addEventListener('change', updateMaintenanceView);
-    document.getElementById('maintenanceStartDateFilter').addEventListener('change', updateMaintenanceView);
-    document.getElementById('maintenanceEndDateFilter').addEventListener('change', updateMaintenanceView);
-    document.getElementById('clearMaintenanceFiltersBtn').addEventListener('click', () => {
-        document.getElementById('maintenanceEquipoFilter').value = 'all';
-        document.getElementById('maintenanceStartDateFilter').value = '';
-        document.getElementById('maintenanceEndDateFilter').value = '';
-        updateMaintenanceView();
-    });
-
+    setupMaintenanceEventListeners();
     updateMaintenanceView(); // Initial render
 }
 
@@ -3019,110 +3132,108 @@ function renderMaintenanceHistory(events) {
     historyBody.innerHTML = '';
     events.sort((a, b) => new Date(b.startTime) - new Date(a.startTime)).forEach(event => {
         const equipo = equipos.find(e => e.id === event.equipmentId);
+        const totalCost = (event.costParts || 0) + (event.costLabor || 0) + (event.costExternal || 0);
         historyBody.innerHTML += `
-            <tr>
+            <tr data-event-id="${event.id}">
                 <td>${equipo ? equipo.name : event.equipmentId}</td>
-                <td>${event.reason}</td>
-                <td>${new Date(event.startTime).toLocaleString()}</td>
-                <td>${new Date(event.endTime).toLocaleString()}</td>
-                <td>${event.durationMinutes}</td>
-                <td title="${event.notes || ''}">${(event.notes || '').substring(0, 50)}${(event.notes || '').length > 50 ? '...' : ''}</td>
+                <td><span class="badge bg-danger">${event.type}</span></td>
+                <td>${event.reason || 'N/A'}</td>
+                <td>${event.startTime ? new Date(event.startTime).toLocaleString() : 'N/A'}</td>
+                <td>${event.endTime ? new Date(event.endTime).toLocaleString() : 'N/A'}</td>
+                <td>${event.durationMinutes || 0}</td>
+                <td>${formatCurrency(totalCost)}</td>
+                <td title="${event.notes || ''}">${(event.notes || '').substring(0, 30)}${(event.notes || '').length > 30 ? '...' : ''}</td>
+                <td>
+                    <button class="btn btn-sm btn-warning edit-maintenance-btn" title="Editar"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-sm btn-danger delete-maintenance-btn" title="Eliminar"><i class="fas fa-trash"></i></button>
+                </td>
             </tr>
         `;
     });
 }
 
-function calculateAndDisplayMaintenanceKPIs(events) {
+function renderPreventiveMaintenanceSchedule(events) {
+    const scheduleBody = document.getElementById('preventiveMaintenanceScheduleBody');
+    scheduleBody.innerHTML = '';
+    events.sort((a, b) => new Date(a.scheduledDate) - new Date(b.scheduledDate)).forEach(event => {
+        const equipo = equipos.find(e => e.id === event.equipmentId);
+        scheduleBody.innerHTML += `
+            <tr data-event-id="${event.id}">
+                <td>${equipo ? equipo.name : event.equipmentId}</td>
+                <td>${formatDate(event.scheduledDate)}</td>
+                <td title="${event.notes || ''}">${(event.notes || '').substring(0, 50)}${(event.notes || '').length > 50 ? '...' : ''}</td>
+                <td>
+                    <button class="btn btn-sm btn-success complete-preventive-btn" title="Marcar como Completado"><i class="fas fa-check"></i></button>
+                    <button class="btn btn-sm btn-warning edit-maintenance-btn" title="Editar"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-sm btn-danger delete-maintenance-btn" title="Eliminar"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>
+        `;
+    });
+}
+
+function calculateAndDisplayMaintenanceKPIs(failureEvents, allEvents) {
     const mtbfCard = document.getElementById('mtbfCard');
     const mttrCard = document.getElementById('mttrCard');
+    const costCard = document.getElementById('totalMaintenanceCostCard');
 
-    const failureEvents = events
-        .filter(e => e.reason !== 'Mantenimiento Programado')
-        .sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+    // MTTR
+    const totalRepairTime = failureEvents.reduce((acc, event) => acc + (event.durationMinutes || 0), 0);
+    const mttr = failureEvents.length > 0 ? totalRepairTime / failureEvents.length : 0;
+    mttrCard.textContent = `${mttr.toFixed(2)} minutos`;
 
-    if (failureEvents.length < 1) {
-        mttrCard.textContent = 'N/A';
-    } else {
-        const totalRepairTime = failureEvents.reduce((acc, event) => acc + event.durationMinutes, 0);
-        const mttr = totalRepairTime / failureEvents.length;
-        mttrCard.textContent = `${mttr.toFixed(2)} minutos`;
-    }
-
-    if (failureEvents.length < 2) {
+    // MTBF
+    const sortedFailures = failureEvents.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+    if (sortedFailures.length < 2) {
         mtbfCard.textContent = 'N/A';
-        return;
+    } else {
+        let totalUptime = 0;
+        for (let i = 1; i < sortedFailures.length; i++) {
+            const uptime = (new Date(sortedFailures[i].startTime) - new Date(sortedFailures[i-1].endTime)) / (1000 * 60);
+            if (uptime > 0) totalUptime += uptime;
+        }
+        const mtbf = totalUptime / (sortedFailures.length - 1);
+        mtbfCard.textContent = `${(mtbf / 60).toFixed(2)} horas`;
     }
 
-    let totalUptime = 0;
-    for (let i = 1; i < failureEvents.length; i++) {
-        const uptime = (new Date(failureEvents[i].startTime) - new Date(failureEvents[i-1].endTime)) / (1000 * 60); // in minutes
-        if (uptime > 0) { // Only count positive uptime
-            totalUptime += uptime;
-        }
-    }
-    const mtbf = totalUptime / (failureEvents.length - 1);
-    mtbfCard.textContent = `${(mtbf / 60).toFixed(2)} horas`;
+    // Total Cost
+    const totalCost = allEvents.reduce((acc, event) => acc + (event.costParts || 0) + (event.costLabor || 0) + (event.costExternal || 0), 0);
+    costCard.textContent = formatCurrency(totalCost);
 }
 
 function renderAvailabilityChart(events) {
     const canvas = document.getElementById('availabilityChart');
-    if (!canvas) {
-        console.warn("Availability chart canvas not found, skipping render.");
-        return;
-    }
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    if (availabilityChart) {
-        availabilityChart.destroy();
-    }
+    if (availabilityChart) availabilityChart.destroy();
 
-    // Determine the time period for the chart
-    const startDateFilter = document.getElementById('maintenanceStartDateFilter').value;
-    const endDateFilter = document.getElementById('maintenanceEndDateFilter').value;
+    const month = document.getElementById('maintenanceMonthFilter').value;
+    const year = document.getElementById('maintenanceYearFilter').value;
+    const start = new Date(year, month, 1);
+    const end = new Date(year, parseInt(month) + 1, 0);
 
-    let start, end;
-    if (startDateFilter && endDateFilter) {
-        start = new Date(startDateFilter);
-        end = new Date(endDateFilter);
-        end.setDate(end.getDate() + 1); // Include the whole end day
-    } else {
-        end = new Date();
-        start = new Date();
-        start.setDate(end.getDate() - 30);
-    }
     const totalPeriodMs = end - start;
-    const totalMinutesInPeriod = totalPeriodMs / (1000 * 60);
+    const totalMinutesInPeriod = totalPeriodMs > 0 ? totalPeriodMs / (1000 * 60) : 0;
 
     const totalDowntimeMinutes = events.reduce((acc, event) => {
-        // Ensure the event is within the chart's calculated period
         const eventStart = new Date(event.startTime);
         if (eventStart >= start && eventStart <= end) {
-            return acc + event.durationMinutes;
+            return acc + (event.durationMinutes || 0);
         }
         return acc;
     }, 0);
 
     const totalUptimeMinutes = Math.max(0, totalMinutesInPeriod - totalDowntimeMinutes);
-
     const uptimePercentage = totalMinutesInPeriod > 0 ? (totalUptimeMinutes / totalMinutesInPeriod) * 100 : 0;
-    const downtimePercentage = totalMinutesInPeriod > 0 ? (totalDowntimeMinutes / totalMinutesInPeriod) * 100 : 0;
 
     availabilityChart = new Chart(ctx, {
         type: 'doughnut',
         data: {
-            labels: [
-                `Disponibilidad (${uptimePercentage.toFixed(1)}%)`,
-                `Inactividad (${downtimePercentage.toFixed(1)}%)`
-            ],
+            labels: [`Disponibilidad`, `Inactividad`],
             datasets: [{
-                data: [totalUptimeMinutes, totalDowntimeMinutes],
-                backgroundColor: [
-                    '#27ae60', // green
-                    '#c0392b'  // red
-                ],
-                borderColor: [
-                    '#2ecc71',
-                    '#e74c3c'
-                ],
+                data: [totalUptimeMinutes, totalDowntimeMinutes > 0 ? totalDowntimeMinutes : 0.001], // prevent chart collapse if 0
+                backgroundColor: ['#27ae60', '#c0392b'],
+                borderColor: ['#2ecc71', '#e74c3c'],
                 borderWidth: 1
             }]
         },
@@ -3130,91 +3241,218 @@ function renderAvailabilityChart(events) {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: {
-                    position: 'top',
-                },
+                title: { display: true, text: `${uptimePercentage.toFixed(1)}%`, font: { size: 24 } },
+                legend: { position: 'bottom' },
                 tooltip: {
                     callbacks: {
                         label: function(context) {
-                            let label = context.label || '';
-                            if (label) {
-                                label += ': ';
-                            }
                             const value = context.raw;
                             const days = Math.floor(value / (60 * 24));
                             const hours = Math.floor((value % (60 * 24)) / 60);
                             const minutes = Math.round(value % 60);
-                            label += `${days}d ${hours}h ${minutes}m`;
-                            return label;
+                            return `${context.label}: ${days}d ${hours}h ${minutes}m`;
                         }
                     }
                 },
+                datalabels: { display: false }
+            }
+        }
+    });
+}
+
+function renderDowntimeByEquipmentChart(events) {
+    const canvas = document.getElementById('downtimeByEquipmentChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (downtimeByEquipmentChart) downtimeByEquipmentChart.destroy();
+
+    const downtimeByEq = {};
+    events.forEach(event => {
+        const eqId = event.equipmentId;
+        downtimeByEq[eqId] = (downtimeByEq[eqId] || 0) + (event.durationMinutes || 0);
+    });
+
+    const showAll = document.getElementById('toggleAllEquipmentChart').checked;
+    const chartTitle = document.getElementById('downtimeChartTitle');
+
+    let sortedDowntime = Object.entries(downtimeByEq)
+        .sort(([, a], [, b]) => b - a);
+
+    if (showAll) {
+        chartTitle.textContent = 'Tiempo de Parada por Equipo (minutos)';
+    } else {
+        chartTitle.textContent = 'Top 5 Equipos por Tiempo de Parada (minutos)';
+        sortedDowntime = sortedDowntime.slice(0, 5);
+    }
+
+    const labels = sortedDowntime.map(([eqId,]) => equipos.find(e => e.id === eqId)?.name || eqId);
+    const data = sortedDowntime.map(([, mins]) => mins);
+
+    downtimeByEquipmentChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Minutos de Parada',
+                data: data,
+                backgroundColor: 'rgba(231, 76, 60, 0.6)',
+                borderColor: 'rgba(192, 57, 43, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            plugins: {
+                legend: { display: false },
                 datalabels: {
-                    formatter: (value, ctx) => {
-                        let sum = 0;
-                        let dataArr = ctx.chart.data.datasets[0].data;
-                        dataArr.map(data => {
-                            sum += data;
-                        });
-                        if (sum === 0) return '0.0%';
-                        let percentage = (value*100 / sum).toFixed(1) + "%";
-                        return percentage;
-                    },
-                    color: '#fff',
+                    anchor: 'end',
+                    align: 'end',
+                    color: '#333',
+                    formatter: (value) => Math.round(value) + ' min'
                 }
             }
         }
     });
 }
 
-document.getElementById('maintenanceForm').addEventListener('submit', async (e) => {
+async function saveMaintenanceEvent(e) {
     e.preventDefault();
-
+    const eventId = document.getElementById('maintenanceEventId').value;
+    const type = document.getElementById('maintenanceEventType').value;
     const equipmentId = document.getElementById('maintenanceEquipoSelect').value;
-    const startTime = document.getElementById('maintenanceStartTime').value;
-    const endTime = document.getElementById('maintenanceEndTime').value;
-    const reason = document.getElementById('maintenanceReason').value;
     const notes = document.getElementById('maintenanceNotes').value;
+    const costParts = parseFloat(document.getElementById('maintenanceCostParts').value) || 0;
+    const costLabor = parseFloat(document.getElementById('maintenanceCostLabor').value) || 0;
+    const costExternal = parseFloat(document.getElementById('maintenanceCostExternal').value) || 0;
 
-    if (!equipmentId || !startTime || !endTime || !reason) {
-        Toastify({ text: 'Por favor, complete todos los campos requeridos.', backgroundColor: 'var(--warning-color)' }).showToast();
-        return;
-    }
-
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-
-    if (end <= start) {
-        Toastify({ text: 'La fecha y hora de fin debe ser posterior a la de inicio.', backgroundColor: 'var(--warning-color)' }).showToast();
-        return;
-    }
-
-    const durationMinutes = Math.round((end - start) / 60000);
-
-    const newEvent = {
+    let eventData = {
         equipmentId,
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
-        durationMinutes,
-        reason,
+        type,
         notes,
-        createdAt: new Date().toISOString()
+        costParts,
+        costLabor,
+        costExternal,
+        updatedAt: new Date().toISOString()
     };
 
-    try {
-        const docRef = await addDoc(collection(db, "maintenance_events"), newEvent);
-        newEvent.id = docRef.id;
-        maintenanceEvents.push(newEvent);
+    if (type === 'Preventivo') {
+        const scheduledDate = document.getElementById('maintenanceScheduledDate').value;
+        if (!equipmentId || !scheduledDate) {
+            Toastify({ text: 'Equipo y fecha programada son requeridos.', backgroundColor: 'var(--warning-color)' }).showToast();
+            return;
+        }
+        eventData.scheduledDate = scheduledDate;
+    } else { // Correctivo
+        const startTime = document.getElementById('maintenanceStartTime').value;
+        const endTime = document.getElementById('maintenanceEndTime').value;
+        const reason = document.getElementById('maintenanceReason').value;
+        if (!equipmentId || !startTime || !endTime || !reason) {
+            Toastify({ text: 'Complete todos los campos de parada requeridos.', backgroundColor: 'var(--warning-color)' }).showToast();
+            return;
+        }
+        const start = new Date(startTime);
+        const end = new Date(endTime);
+        if (end <= start) {
+            Toastify({ text: 'La fecha de fin debe ser posterior al inicio.', backgroundColor: 'var(--warning-color)' }).showToast();
+            return;
+        }
+        eventData = {
+            ...eventData,
+            startTime: start.toISOString(),
+            endTime: end.toISOString(),
+            durationMinutes: Math.round((end - start) / 60000),
+            reason,
+        };
+    }
 
-        loadMaintenancePage(); // Refresh table
+    try {
+        if (eventId) { // Editing existing event
+            await setDoc(doc(db, "maintenance_events", eventId), eventData, { merge: true });
+            const index = maintenanceEvents.findIndex(e => e.id === eventId);
+            if (index > -1) {
+                maintenanceEvents[index] = { ...maintenanceEvents[index], ...eventData };
+            }
+        } else { // Creating new event
+            eventData.createdAt = new Date().toISOString();
+            const docRef = await addDoc(collection(db, "maintenance_events"), eventData);
+            eventData.id = docRef.id;
+            maintenanceEvents.push(eventData);
+        }
+        updateMaintenanceView();
         maintenanceModal.hide();
-        document.getElementById('maintenanceForm').reset();
-        Toastify({ text: 'Registro de parada guardado con éxito.', backgroundColor: 'var(--success-color)' }).showToast();
+        Toastify({ text: 'Evento de mantenimiento guardado.', backgroundColor: 'var(--success-color)' }).showToast();
     } catch (error) {
         console.error("Error saving maintenance event:", error);
-        Toastify({ text: 'Error al guardar el registro.', backgroundColor: 'var(--danger-color)' }).showToast();
+        Toastify({ text: 'Error al guardar el evento.', backgroundColor: 'var(--danger-color)' }).showToast();
     }
-});
+}
+
+function handleMaintenanceTableClick(e) {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+
+    const eventId = btn.closest('tr').dataset.eventId;
+    const event = maintenanceEvents.find(ev => ev.id === eventId);
+
+    if (btn.classList.contains('edit-maintenance-btn')) {
+        populateMaintenanceModal(event);
+    } else if (btn.classList.contains('delete-maintenance-btn')) {
+        deleteMaintenanceEvent(eventId);
+    } else if (btn.classList.contains('complete-preventive-btn')) {
+        populateMaintenanceModal(event, true); // Open modal to complete it
+    }
+}
+
+function populateMaintenanceModal(event, isCompleting = false) {
+    if (!event) return;
+
+    isEditingMaintenance = true;
+    document.getElementById('maintenanceEventId').value = event.id;
+    document.getElementById('maintenanceEquipoSelect').value = event.equipmentId;
+    document.getElementById('maintenanceNotes').value = event.notes || '';
+    document.getElementById('maintenanceCostParts').value = event.costParts || '';
+    document.getElementById('maintenanceCostLabor').value = event.costLabor || '';
+    document.getElementById('maintenanceCostExternal').value = event.costExternal || '';
+
+    if (isCompleting) {
+        document.getElementById('maintenanceEventType').value = 'Correctivo';
+        toggleMaintenanceFormFields('Correctivo');
+        document.getElementById('maintenanceModalLabel').textContent = 'Completar Mantenimiento Preventivo';
+        // Suggest a reason based on the preventive note
+        document.getElementById('maintenanceReason').value = 'Mantenimiento Programado';
+
+    } else {
+        const eventType = event.type || 'Correctivo'; // Default to correctivo for old data
+        document.getElementById('maintenanceEventType').value = eventType;
+        toggleMaintenanceFormFields(eventType);
+        document.getElementById('maintenanceModalLabel').textContent = 'Editar Evento de Mantenimiento';
+
+        if (eventType === 'Preventivo') {
+            document.getElementById('maintenanceScheduledDate').value = event.scheduledDate || '';
+        } else {
+            document.getElementById('maintenanceStartTime').value = event.startTime ? event.startTime.slice(0, 16) : '';
+            document.getElementById('maintenanceEndTime').value = event.endTime ? event.endTime.slice(0, 16) : '';
+            document.getElementById('maintenanceReason').value = event.reason || '';
+        }
+    }
+
+    maintenanceModal.show();
+}
+
+async function deleteMaintenanceEvent(eventId) {
+    if (!confirm('¿Está seguro de que desea eliminar este evento de mantenimiento?')) return;
+
+    try {
+        await deleteDoc(doc(db, "maintenance_events", eventId));
+        maintenanceEvents = maintenanceEvents.filter(e => e.id !== eventId);
+        updateMaintenanceView();
+        Toastify({ text: 'Evento eliminado.', backgroundColor: 'var(--success-color)' }).showToast();
+    } catch (error) {
+        console.error("Error deleting maintenance event:", error);
+        Toastify({ text: 'Error al eliminar el evento.', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
+}
 
 /* ----------  USERS  ---------- */
 const userModal = new bootstrap.Modal(document.getElementById('userModal'));
