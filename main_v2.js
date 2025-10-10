@@ -20,14 +20,44 @@ console.log("Awaiting user login to initialize Firebase...");
 /* global bootstrap, XLSX, jsPDF, html2canvas, Toastify, clientConfigs */
 
 /* ----------  AUTH  ---------- */
-const loginView = document.getElementById('loginView');
-const appView = document.getElementById('appView');
-const loginForm = document.getElementById('loginForm');
-const logoutBtn = document.getElementById('logoutBtn');
-const userDataDiv = document.getElementById('userData');
+let loginView, appView, loginForm, logoutBtn, userDataDiv, loginBtn;
 
 let currentUserRole = null;
 let unsubscribeProductionOrders = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Assign DOM elements
+    loginView = document.getElementById('loginView');
+    appView = document.getElementById('appView');
+    loginForm = document.getElementById('loginForm');
+    logoutBtn = document.getElementById('logoutBtn');
+    userDataDiv = document.getElementById('userData');
+    loginBtn = document.getElementById('loginBtn');
+
+    // Pre-fill client ID on page load
+    const savedClientId = localStorage.getItem('operis-last-client-id');
+    if (savedClientId) {
+        const clientSelector = document.getElementById('clientSelector');
+        if (clientSelector) {
+            clientSelector.value = savedClientId;
+        }
+    }
+
+    // Attach event listeners
+    if (loginForm && loginBtn) {
+        loginForm.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                loginBtn.click();
+            }
+        });
+        loginBtn.addEventListener('click', handleLoginAttempt);
+    }
+
+    if(logoutBtn) {
+        logoutBtn.addEventListener('click', handleLogout);
+    }
+});
 
 async function getUserRole(uid) {
     const userDoc = await getDoc(doc(db, "users", uid));
@@ -127,44 +157,19 @@ function setupProductionOrdersListener() {
     console.log("Production orders listener attached.");
 }
 
-const loginBtn = document.getElementById('loginBtn');
-
-// On page load, check for and pre-fill the last used client ID
-document.addEventListener('DOMContentLoaded', () => {
-    const savedClientId = localStorage.getItem('operis-last-client-id');
-    if (savedClientId) {
-        const clientSelector = document.getElementById('clientSelector');
-        if (clientSelector) {
-            clientSelector.value = savedClientId;
-        }
-    }
-});
-
-loginForm.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-        e.preventDefault(); // Prevent form submission
-        loginBtn.click();
-    }
-});
-
-loginBtn.addEventListener('click', async () => {
-    console.log("Login button clicked.");
+async function handleLoginAttempt() {
     const clientKey = document.getElementById('clientSelector').value.trim().toLowerCase();
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
     const spinner = loginBtn.querySelector('.spinner-border');
     const clientSelector = document.getElementById('clientSelector');
 
-    console.log(`Attempting login for client: '${clientKey}' with email: '${email}'`);
-
     if (!clientKey) {
-        console.log("Client key is missing.");
         Toastify({ text: 'Por favor, ingrese el ID de su empresa.', backgroundColor: 'var(--warning-color)' }).showToast();
         return;
     }
 
     if (!clientConfigs[clientKey]) {
-        console.log(`Invalid client key: '${clientKey}'. Config not found.`);
         Toastify({ text: `El ID de empresa "${clientKey}" no es válido.`, backgroundColor: 'var(--danger-color)' }).showToast();
         return;
     }
@@ -175,8 +180,6 @@ loginBtn.addEventListener('click', async () => {
 
     try {
         const config = clientConfigs[clientKey].firebaseConfig;
-        console.log("Found config, initializing Firebase...");
-
         app = initializeApp(config);
         auth = getAuth(app);
         db = getFirestore(app);
@@ -190,15 +193,8 @@ loginBtn.addEventListener('click', async () => {
             connectStorageEmulator(storage, "127.0.0.1", 9199);
         }
 
-        console.log(`Firebase initialized for client: ${clientKey}`);
-
-        console.log("Attempting to sign in with email and password...");
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
-
-        // Save the successful client ID to localStorage
         localStorage.setItem('operis-last-client-id', clientKey);
-
-        console.log("Sign in successful, handling login...");
         await handleSuccessfulLogin(userCredential.user);
 
     } catch (error) {
@@ -210,18 +206,13 @@ loginBtn.addEventListener('click', async () => {
             auth = null;
             db = null;
             storage = null;
-            console.log("Cleaned up failed Firebase app instance.");
         }
-        // Re-enable form on failure
         clientSelector.disabled = false;
     } finally {
         spinner.classList.add('d-none');
         loginBtn.disabled = false;
-        console.log("Login function finished.");
     }
-});
-
-logoutBtn.addEventListener('click', handleLogout);
+}
 
 
 /* ----------  BASE DE DATOS LOCAL  ---------- */
