@@ -1,8 +1,8 @@
 import { clientConfigs } from './config.js';
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, signOut, connectAuthEmulator } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
-import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField, onSnapshot, query, orderBy, limit, startAfter, getCountFromServer, where, connectFirestoreEmulator } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
-import { getStorage, ref, uploadString, getDownloadURL, connectStorageEmulator } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
+import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
+import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField, onSnapshot, query } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
 import Chart from 'https://esm.sh/chart.js/auto';
 import ChartDataLabels from 'https://esm.sh/chartjs-plugin-datalabels';
 
@@ -20,41 +20,14 @@ console.log("Awaiting user login to initialize Firebase...");
 /* global bootstrap, XLSX, jsPDF, html2canvas, Toastify, clientConfigs */
 
 /* ----------  AUTH  ---------- */
-let loginView, appView, loginForm, logoutBtn, userDataDiv, loginBtn;
+const loginView = document.getElementById('loginView');
+const appView = document.getElementById('appView');
+const loginForm = document.getElementById('loginForm');
+const logoutBtn = document.getElementById('logoutBtn');
+const userDataDiv = document.getElementById('userData');
 
 let currentUserRole = null;
 let unsubscribeProductionOrders = null;
-
-document.addEventListener('DOMContentLoaded', () => {
-    // Assign DOM elements
-    loginView = document.getElementById('loginView');
-    appView = document.getElementById('appView');
-    loginForm = document.getElementById('loginForm');
-    logoutBtn = document.getElementById('logoutBtn');
-    userDataDiv = document.getElementById('userData');
-    loginBtn = document.getElementById('loginBtn');
-
-    // Pre-fill client ID on page load
-    const savedClientId = localStorage.getItem('operis-last-client-id');
-    if (savedClientId) {
-        const clientSelector = document.getElementById('clientSelector');
-        if (clientSelector) {
-            clientSelector.value = savedClientId;
-        }
-    }
-
-    // Attach event listeners
-    if (loginForm) {
-        loginForm.addEventListener('submit', (e) => {
-            e.preventDefault(); // Prevent default form submission
-            handleLoginAttempt();
-        });
-    }
-
-    if(logoutBtn) {
-        logoutBtn.addEventListener('click', handleLogout);
-    }
-});
 
 async function getUserRole(uid) {
     const userDoc = await getDoc(doc(db, "users", uid));
@@ -154,7 +127,32 @@ function setupProductionOrdersListener() {
     console.log("Production orders listener attached.");
 }
 
-async function handleLoginAttempt() {
+const loginBtn = document.getElementById('loginBtn');
+
+// On page load, check for and pre-fill the last used client ID
+document.addEventListener('DOMContentLoaded', () => {
+    const savedClientId = localStorage.getItem('operis-last-client-id');
+    if (savedClientId) {
+        const clientSelector = document.getElementById('clientSelector');
+        if (clientSelector) {
+            clientSelector.value = savedClientId;
+        }
+    }
+    const loginBtn = document.getElementById('loginBtn');
+
+    if (loginForm && loginBtn) {
+        loginForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            handleLoginAttempt(loginBtn);
+        });
+    }
+
+    if(logoutBtn) {
+        logoutBtn.addEventListener('click', handleLogout);
+    }
+});
+
+async function handleLoginAttempt(loginBtn) {
     const clientKey = document.getElementById('clientSelector').value.trim().toLowerCase();
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
@@ -182,9 +180,7 @@ async function handleLoginAttempt() {
         db = getFirestore(app);
         storage = getStorage(app);
 
-        // Connect to emulators if running locally
         if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-            console.log("Connecting to local Firebase emulators...");
             connectAuthEmulator(auth, "http://127.0.0.1:9099");
             connectFirestoreEmulator(db, "127.0.0.1", 8080);
             connectStorageEmulator(storage, "127.0.0.1", 9199);
@@ -198,7 +194,7 @@ async function handleLoginAttempt() {
         console.error("Login failed with error:", error);
         Toastify({ text: `Error: ${error.message || error.code || 'Error al iniciar sesión.'}`, backgroundColor: 'var(--danger-color)' }).showToast();
         if (app) {
-            await deleteApp(app); // Clean up failed initialization
+            await deleteApp(app);
             app = null;
             auth = null;
             db = null;
@@ -924,76 +920,38 @@ function renderPaginationControls(containerId, currentPage, totalPages, itemsPer
 let isEditingProduct = false, currentProductCode = null;
 let productsCurrentPage = 1;
 let productsItemsPerPage = 10;
-// Array to store the last document of each page, to use as a cursor
-let productPageMarkers = [null];
 const productModal = new bootstrap.Modal(document.getElementById('productModal'));
-
-async function loadProducts(page = 1) {
+function loadProducts(page = 1) {
     productsCurrentPage = page;
-    const filter = document.getElementById('searchProduct').value.toUpperCase();
-    const productsCollection = collection(db, 'products');
+    const filter = document.getElementById('searchProduct').value.toLowerCase();
+    const filteredProducts = products
+        .sort((a, b) => a.codigo.localeCompare(b.codigo))
+        .filter(p => !filter || p.codigo.toLowerCase().includes(filter) || p.descripcion.toLowerCase().includes(filter));
 
-    let baseQuery;
-    if (filter) {
-        // This creates a range query for "starts with"
-        baseQuery = query(productsCollection, where('codigo', '>=', filter), where('codigo', '<=', filter + '\uf8ff'));
-    } else {
-        baseQuery = query(productsCollection);
-    }
+    const totalPages = Math.ceil(filteredProducts.length / productsItemsPerPage);
+    if (productsCurrentPage > totalPages) productsCurrentPage = totalPages || 1;
 
-    // Get total count for pagination based on the filter
-    const countSnapshot = await getCountFromServer(baseQuery);
-    const totalProducts = countSnapshot.data().count;
-    const totalPages = Math.ceil(totalProducts / productsItemsPerPage) || 1;
+    const startIndex = (productsCurrentPage - 1) * productsItemsPerPage;
+    const endIndex = startIndex + productsItemsPerPage;
+    const paginatedProducts = filteredProducts.slice(startIndex, endIndex);
 
-    if (productsCurrentPage > totalPages) {
-        productsCurrentPage = totalPages;
-    }
+    const tbody = document.getElementById('productsTableBody');
+    tbody.innerHTML = '';
+    paginatedProducts.forEach(p => {
+        tbody.insertAdjacentHTML('beforeend', `<tr><td>${p.codigo}</td><td>${p.descripcion}</td><td>${p.unidad || ''}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${p.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${p.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`);
+    });
 
-    let finalQuery = query(baseQuery, orderBy('codigo'));
-
-    // Use the page marker (cursor) to get the next set of documents
-    const lastDoc = productPageMarkers[productsCurrentPage - 1];
-    if (productsCurrentPage > 1 && lastDoc) {
-        finalQuery = query(finalQuery, startAfter(lastDoc));
-    }
-
-    finalQuery = query(finalQuery, limit(productsItemsPerPage));
-
-    try {
-        const querySnapshot = await getDocs(finalQuery);
-        const productsList = [];
-        querySnapshot.forEach(doc => {
-            productsList.push({ codigo: doc.id, ...doc.data() });
-        });
-
-        // Store the last document of the current page for the *next* page's cursor
-        if (querySnapshot.docs.length > 0) {
-            productPageMarkers[productsCurrentPage] = querySnapshot.docs[querySnapshot.docs.length - 1];
+    renderPaginationControls(
+        'productsPagination',
+        productsCurrentPage,
+        totalPages,
+        productsItemsPerPage,
+        (newPage) => loadProducts(newPage),
+        (newSize) => {
+            productsItemsPerPage = newSize;
+            loadProducts(1);
         }
-
-        const tbody = document.getElementById('productsTableBody');
-        tbody.innerHTML = '';
-        productsList.forEach(p => {
-            tbody.insertAdjacentHTML('beforeend', `<tr><td>${p.codigo}</td><td>${p.descripcion}</td><td>${p.unidad || ''}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${p.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${p.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`);
-        });
-
-        renderPaginationControls(
-            'productsPagination',
-            productsCurrentPage,
-            totalPages,
-            productsItemsPerPage,
-            (newPage) => loadProducts(newPage), // Pass the new page number directly
-            (newSize) => {
-                productsItemsPerPage = newSize;
-                productPageMarkers = [null]; // Reset markers when page size changes
-                loadProducts(1);
-            }
-        );
-    } catch (error) {
-        console.error("Error loading products:", error);
-        Toastify({ text: 'Error al cargar productos.', backgroundColor: 'var(--danger-color)' }).showToast();
-    }
+    );
 }
 document.getElementById('productForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1003,12 +961,11 @@ document.getElementById('productForm').addEventListener('submit', async (e) => {
   if (!code || !desc) return;
 
   if (!isEditingProduct) {
-      const docRef = doc(db, "products", code);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-          Toastify({ text: `Error: El código ${code} ya existe.`, backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
-          return;
-      }
+    const codeExists = products.some(p => p.codigo === code) || materials.some(m => m.codigo === code);
+    if (codeExists) {
+        Toastify({ text: `Error: El código ${code} ya existe como producto o material.`, backgroundColor: 'var(--danger-color)', duration: 5000 }).showToast();
+        return;
+    }
   }
 
   const productData = {
@@ -1018,11 +975,20 @@ document.getElementById('productForm').addEventListener('submit', async (e) => {
 
   try {
     await setDoc(doc(db, "products", code), productData);
+
+    if (isEditingProduct) {
+        const idx = products.findIndex(p => p.codigo === currentProductCode);
+        if (idx !== -1) {
+            products[idx].descripcion = desc;
+            products[idx].unidad = unit;
+        }
+    } else {
+        products.push({ codigo: code, ...productData });
+    }
+
+    loadProducts();
     productModal.hide();
     Toastify({ text: 'Producto guardado', backgroundColor: 'var(--success-color)' }).showToast();
-    // Refresh the current page to show the new/updated item
-    productPageMarkers = [null]; // Reset pagination cursors
-    loadProducts(1);
   } catch (error) {
       console.error("Error saving product: ", error);
       Toastify({ text: 'Error al guardar producto', backgroundColor: 'var(--danger-color)' }).showToast();
@@ -1035,38 +1001,19 @@ document.getElementById('productsTableBody').addEventListener('click', async (e)
     if (confirm(`¿Eliminar producto ${code}?`)) {
         try {
             await deleteDoc(doc(db, "products", code));
+            products = products.filter(p => p.codigo !== code);
+            loadProducts();
             Toastify({ text: 'Producto eliminado', backgroundColor: 'var(--success-color)' }).showToast();
-            productPageMarkers = [null]; // Reset pagination cursors
-            loadProducts(1); // Refresh from the first page to avoid being on a page that no longer exists
         } catch (error) {
             console.error("Error deleting product: ", error);
             Toastify({ text: 'Error al eliminar producto', backgroundColor: 'var(--danger-color)' }).showToast();
         }
     }
   }
-  if (btn.classList.contains('edit-btn')) {
-      isEditingProduct = true;
-      currentProductCode = code;
-      const docRef = doc(db, "products", code);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-          const p = docSnap.data();
-          document.getElementById('productCode').value = code;
-          document.getElementById('productDescription').value = p.descripcion;
-          document.getElementById('productUnit').value = p.unidad || '';
-          document.getElementById('productCode').disabled = true;
-          document.getElementById('productModalLabel').textContent = 'Editar Producto';
-          productModal.show();
-      } else {
-          Toastify({ text: 'Error: No se encontró el producto para editar.', backgroundColor: 'var(--danger-color)' }).showToast();
-      }
-  }
+  if (btn.classList.contains('edit-btn')) { isEditingProduct = true; currentProductCode = code; const p = products.find(p => p.codigo === code); document.getElementById('productCode').value = p.codigo; document.getElementById('productDescription').value = p.descripcion; document.getElementById('productUnit').value = p.unidad || ''; document.getElementById('productCode').disabled = true; document.getElementById('productModalLabel').textContent = 'Editar Producto'; productModal.show(); }
 });
 document.getElementById('productModal').addEventListener('hidden.bs.modal', () => { isEditingProduct = false; document.getElementById('productForm').reset(); document.getElementById('productCode').disabled = false; document.getElementById('productModalLabel').textContent = 'Añadir Producto'; });
-document.getElementById('searchProduct').addEventListener('input', () => {
-    productPageMarkers = [null]; // Reset pagination cursors
-    loadProducts(1);
-});
+document.getElementById('searchProduct').addEventListener('input', () => loadProducts(1));
 
 /* ----------  MATERIALES  ---------- */
 let isEditingMaterial = false, currentMaterialCode = null;
