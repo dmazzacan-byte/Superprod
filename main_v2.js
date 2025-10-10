@@ -44,14 +44,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Attach event listeners
-    if (loginForm && loginBtn) {
-        loginForm.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                loginBtn.click();
-            }
+    if (loginForm) {
+        loginForm.addEventListener('submit', (e) => {
+            e.preventDefault(); // Prevent default form submission
+            handleLoginAttempt();
         });
-        loginBtn.addEventListener('click', handleLoginAttempt);
     }
 
     if(logoutBtn) {
