@@ -1,8 +1,8 @@
 import { clientConfigs } from './config.js';
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
-import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField, onSnapshot, query, orderBy, limit, startAfter, getCountFromServer, where } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
-import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
+import { getAuth, signInWithEmailAndPassword, signOut, connectAuthEmulator } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
+import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField, onSnapshot, query, orderBy, limit, startAfter, getCountFromServer, where, connectFirestoreEmulator } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+import { getStorage, ref, uploadString, getDownloadURL, connectStorageEmulator } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
 import Chart from 'https://esm.sh/chart.js/auto';
 import ChartDataLabels from 'https://esm.sh/chartjs-plugin-datalabels';
 
@@ -181,6 +181,15 @@ loginBtn.addEventListener('click', async () => {
         auth = getAuth(app);
         db = getFirestore(app);
         storage = getStorage(app);
+
+        // Connect to emulators if running locally
+        if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+            console.log("Connecting to local Firebase emulators...");
+            connectAuthEmulator(auth, "http://127.0.0.1:9099");
+            connectFirestoreEmulator(db, "127.0.0.1", 8080);
+            connectStorageEmulator(storage, "127.0.0.1", 9199);
+        }
+
         console.log(`Firebase initialized for client: ${clientKey}`);
 
         console.log("Attempting to sign in with email and password...");
@@ -1024,7 +1033,7 @@ document.getElementById('productForm').addEventListener('submit', async (e) => {
     productModal.hide();
     Toastify({ text: 'Producto guardado', backgroundColor: 'var(--success-color)' }).showToast();
     // Refresh the current page to show the new/updated item
-    productPageMarkers = [null];
+    productPageMarkers = [null]; // Reset pagination cursors
     loadProducts(1);
   } catch (error) {
       console.error("Error saving product: ", error);
@@ -1039,7 +1048,8 @@ document.getElementById('productsTableBody').addEventListener('click', async (e)
         try {
             await deleteDoc(doc(db, "products", code));
             Toastify({ text: 'Producto eliminado', backgroundColor: 'var(--success-color)' }).showToast();
-            loadProducts(productsCurrentPage); // Refresh current page
+            productPageMarkers = [null]; // Reset pagination cursors
+            loadProducts(1); // Refresh from the first page to avoid being on a page that no longer exists
         } catch (error) {
             console.error("Error deleting product: ", error);
             Toastify({ text: 'Error al eliminar producto', backgroundColor: 'var(--danger-color)' }).showToast();
