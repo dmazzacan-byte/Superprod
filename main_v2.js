@@ -1,7 +1,7 @@
 import { clientConfigs } from './config.js';
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
-import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField, onSnapshot, query } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField, onSnapshot, query, orderBy, limit, startAfter, getCountFromServer, where } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
 import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
 import Chart from 'https://esm.sh/chart.js/auto';
 import ChartDataLabels from 'https://esm.sh/chartjs-plugin-datalabels';
@@ -920,38 +920,76 @@ function renderPaginationControls(containerId, currentPage, totalPages, itemsPer
 let isEditingProduct = false, currentProductCode = null;
 let productsCurrentPage = 1;
 let productsItemsPerPage = 10;
+// Array to store the last document of each page, to use as a cursor
+let productPageMarkers = [null];
 const productModal = new bootstrap.Modal(document.getElementById('productModal'));
-function loadProducts(page = 1) {
+
+async function loadProducts(page = 1) {
     productsCurrentPage = page;
-    const filter = document.getElementById('searchProduct').value.toLowerCase();
-    const filteredProducts = products
-        .sort((a, b) => a.codigo.localeCompare(b.codigo))
-        .filter(p => !filter || p.codigo.toLowerCase().includes(filter) || p.descripcion.toLowerCase().includes(filter));
+    const filter = document.getElementById('searchProduct').value.toUpperCase();
+    const productsCollection = collection(db, 'products');
 
-    const totalPages = Math.ceil(filteredProducts.length / productsItemsPerPage);
-    if (productsCurrentPage > totalPages) productsCurrentPage = totalPages || 1;
+    let baseQuery;
+    if (filter) {
+        // This creates a range query for "starts with"
+        baseQuery = query(productsCollection, where('codigo', '>=', filter), where('codigo', '<=', filter + '\uf8ff'));
+    } else {
+        baseQuery = query(productsCollection);
+    }
 
-    const startIndex = (productsCurrentPage - 1) * productsItemsPerPage;
-    const endIndex = startIndex + productsItemsPerPage;
-    const paginatedProducts = filteredProducts.slice(startIndex, endIndex);
+    // Get total count for pagination based on the filter
+    const countSnapshot = await getCountFromServer(baseQuery);
+    const totalProducts = countSnapshot.data().count;
+    const totalPages = Math.ceil(totalProducts / productsItemsPerPage) || 1;
 
-    const tbody = document.getElementById('productsTableBody');
-    tbody.innerHTML = '';
-    paginatedProducts.forEach(p => {
-        tbody.insertAdjacentHTML('beforeend', `<tr><td>${p.codigo}</td><td>${p.descripcion}</td><td>${p.unidad || ''}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${p.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${p.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`);
-    });
+    if (productsCurrentPage > totalPages) {
+        productsCurrentPage = totalPages;
+    }
 
-    renderPaginationControls(
-        'productsPagination',
-        productsCurrentPage,
-        totalPages,
-        productsItemsPerPage,
-        (newPage) => loadProducts(newPage),
-        (newSize) => {
-            productsItemsPerPage = newSize;
-            loadProducts(1);
+    let finalQuery = query(baseQuery, orderBy('codigo'));
+
+    // Use the page marker (cursor) to get the next set of documents
+    const lastDoc = productPageMarkers[productsCurrentPage - 1];
+    if (productsCurrentPage > 1 && lastDoc) {
+        finalQuery = query(finalQuery, startAfter(lastDoc));
+    }
+
+    finalQuery = query(finalQuery, limit(productsItemsPerPage));
+
+    try {
+        const querySnapshot = await getDocs(finalQuery);
+        const productsList = [];
+        querySnapshot.forEach(doc => {
+            productsList.push({ codigo: doc.id, ...doc.data() });
+        });
+
+        // Store the last document of the current page for the *next* page's cursor
+        if (querySnapshot.docs.length > 0) {
+            productPageMarkers[productsCurrentPage] = querySnapshot.docs[querySnapshot.docs.length - 1];
         }
-    );
+
+        const tbody = document.getElementById('productsTableBody');
+        tbody.innerHTML = '';
+        productsList.forEach(p => {
+            tbody.insertAdjacentHTML('beforeend', `<tr><td>${p.codigo}</td><td>${p.descripcion}</td><td>${p.unidad || ''}</td><td><button class="btn btn-sm btn-warning edit-btn me-2" data-code="${p.codigo}" title="Editar"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger delete-btn" data-code="${p.codigo}" title="Eliminar"><i class="fas fa-trash"></i></button></td></tr>`);
+        });
+
+        renderPaginationControls(
+            'productsPagination',
+            productsCurrentPage,
+            totalPages,
+            productsItemsPerPage,
+            (newPage) => loadProducts(newPage), // Pass the new page number directly
+            (newSize) => {
+                productsItemsPerPage = newSize;
+                productPageMarkers = [null]; // Reset markers when page size changes
+                loadProducts(1);
+            }
+        );
+    } catch (error) {
+        console.error("Error loading products:", error);
+        Toastify({ text: 'Error al cargar productos.', backgroundColor: 'var(--danger-color)' }).showToast();
+    }
 }
 document.getElementById('productForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -976,19 +1014,11 @@ document.getElementById('productForm').addEventListener('submit', async (e) => {
   try {
     await setDoc(doc(db, "products", code), productData);
 
-    if (isEditingProduct) {
-        const idx = products.findIndex(p => p.codigo === currentProductCode);
-        if (idx !== -1) {
-            products[idx].descripcion = desc;
-            products[idx].unidad = unit;
-        }
-    } else {
-        products.push({ codigo: code, ...productData });
-    }
-
-    loadProducts();
     productModal.hide();
     Toastify({ text: 'Producto guardado', backgroundColor: 'var(--success-color)' }).showToast();
+    // Refresh the current page to show the new/updated item
+    productPageMarkers = [null]; // Reset pagination cursors
+    loadProducts(1);
   } catch (error) {
       console.error("Error saving product: ", error);
       Toastify({ text: 'Error al guardar producto', backgroundColor: 'var(--danger-color)' }).showToast();
@@ -1001,19 +1031,38 @@ document.getElementById('productsTableBody').addEventListener('click', async (e)
     if (confirm(`¿Eliminar producto ${code}?`)) {
         try {
             await deleteDoc(doc(db, "products", code));
-            products = products.filter(p => p.codigo !== code);
-            loadProducts();
             Toastify({ text: 'Producto eliminado', backgroundColor: 'var(--success-color)' }).showToast();
+            productPageMarkers = [null]; // Reset pagination cursors
+            loadProducts(1); // Refresh from the first page to avoid being on a page that no longer exists
         } catch (error) {
             console.error("Error deleting product: ", error);
             Toastify({ text: 'Error al eliminar producto', backgroundColor: 'var(--danger-color)' }).showToast();
         }
     }
   }
-  if (btn.classList.contains('edit-btn')) { isEditingProduct = true; currentProductCode = code; const p = products.find(p => p.codigo === code); document.getElementById('productCode').value = p.codigo; document.getElementById('productDescription').value = p.descripcion; document.getElementById('productUnit').value = p.unidad || ''; document.getElementById('productCode').disabled = true; document.getElementById('productModalLabel').textContent = 'Editar Producto'; productModal.show(); }
+  if (btn.classList.contains('edit-btn')) {
+      isEditingProduct = true;
+      currentProductCode = code;
+      const docRef = doc(db, "products", code);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+          const p = docSnap.data();
+          document.getElementById('productCode').value = code;
+          document.getElementById('productDescription').value = p.descripcion;
+          document.getElementById('productUnit').value = p.unidad || '';
+          document.getElementById('productCode').disabled = true;
+          document.getElementById('productModalLabel').textContent = 'Editar Producto';
+          productModal.show();
+      } else {
+          Toastify({ text: 'Error: No se encontró el producto para editar.', backgroundColor: 'var(--danger-color)' }).showToast();
+      }
+  }
 });
 document.getElementById('productModal').addEventListener('hidden.bs.modal', () => { isEditingProduct = false; document.getElementById('productForm').reset(); document.getElementById('productCode').disabled = false; document.getElementById('productModalLabel').textContent = 'Añadir Producto'; });
-document.getElementById('searchProduct').addEventListener('input', () => loadProducts(1));
+document.getElementById('searchProduct').addEventListener('input', () => {
+    productPageMarkers = [null]; // Reset pagination cursors
+    loadProducts(1);
+});
 
 /* ----------  MATERIALES  ---------- */
 let isEditingMaterial = false, currentMaterialCode = null;
