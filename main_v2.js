@@ -1,7 +1,7 @@
 import { clientConfigs } from './config.js';
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
-import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField, onSnapshot, query } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, getDoc, updateDoc, deleteField, onSnapshot, query, enablePersistence } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
 import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
 import Chart from 'https://esm.sh/chart.js/auto';
 import ChartDataLabels from 'https://esm.sh/chartjs-plugin-datalabels';
@@ -181,6 +181,20 @@ loginBtn.addEventListener('click', async () => {
         app = initializeApp(config);
         auth = getAuth(app);
         db = getFirestore(app);
+        enablePersistence(db)
+          .catch((err) => {
+            if (err.code == 'failed-precondition') {
+              // Multiple tabs open, persistence can only be enabled
+              // in one tab at a a time.
+              // ...
+              console.warn("Firestore persistence failed: multiple tabs open?");
+            } else if (err.code == 'unimplemented') {
+              // The current browser does not support all of the
+              // features required to enable persistence
+              // ...
+              console.warn("Firestore persistence not available in this browser.");
+            }
+          });
         storage = getStorage(app);
         console.log(`Firebase initialized for client: ${clientKey}`);
 
