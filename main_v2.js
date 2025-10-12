@@ -181,18 +181,10 @@ loginBtn.addEventListener('click', async () => {
         app = initializeApp(config);
         auth = getAuth(app);
         db = getFirestore(app);
-        await enablePersistence(db)
-          .catch((err) => {
-            if (err.code == 'failed-precondition') {
-              console.warn("Firestore persistence failed: multiple tabs open?");
-            } else if (err.code == 'unimplemented') {
-              console.warn("Firestore persistence not available in this browser.");
-            }
-          });
         storage = getStorage(app);
         console.log(`Firebase initialized for client: ${clientKey}`);
 
-        // Connect to emulators if running locally
+        // Connect to emulators if running locally, otherwise enable persistence.
         if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
             console.log("Connecting to local Firebase emulators...");
             const { connectAuthEmulator } = await import("https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js");
@@ -202,7 +194,18 @@ loginBtn.addEventListener('click', async () => {
             connectAuthEmulator(auth, "http://127.0.0.1:9099");
             connectFirestoreEmulator(db, "127.0.0.1", 8080);
             connectStorageEmulator(storage, "127.0.0.1", 9199);
-            console.log("Connected to emulators.");
+            console.log("Connected to emulators. Offline persistence is disabled.");
+        } else {
+            // Enable offline persistence for production environment
+            await enablePersistence(db)
+              .catch((err) => {
+                if (err.code == 'failed-precondition') {
+                  console.warn("Firestore persistence failed: multiple tabs open?");
+                } else if (err.code == 'unimplemented') {
+                  console.warn("Firestore persistence not available in this browser.");
+                }
+              });
+            console.log("Offline persistence enabled for production.");
         }
 
         console.log("Attempting to sign in with email and password...");
