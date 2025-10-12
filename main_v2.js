@@ -13,6 +13,35 @@ let db;
 let storage;
 
 console.log("Awaiting user login to initialize Firebase...");
+// ---------------------- PAGINATION & LIVE SEARCH STATE ----------------------
+// Default page size for products and materials
+const DEFAULT_PAGE_SIZE = 10;
+
+// Products pagination state
+let productsPageSize = DEFAULT_PAGE_SIZE;
+let productsLastVisible = null; // Firestore document snapshot for startAfter
+let productsFirstVisibleStack = []; // stack of firstVisible docs for navigating back
+let productsCurrentPage = 1;
+let productsTotalPages = 1;
+let productsCurrentSearch = '';
+
+// Materials pagination state
+let materialsPageSize = DEFAULT_PAGE_SIZE;
+let materialsLastVisible = null;
+let materialsFirstVisibleStack = [];
+let materialsCurrentPage = 1;
+let materialsTotalPages = 1;
+let materialsCurrentSearch = '';
+
+// debounce helpers for live search
+function debounce(fn, wait) {
+    let t = null;
+    return (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn(...args), wait);
+    };
+}
+
 
 // -----------------------------------------------------------------------------
 //  Superproducción – Gestión de Producción
@@ -184,7 +213,7 @@ loginBtn.addEventListener('click', async () => {
         storage = getStorage(app);
         console.log(`Firebase initialized for client: ${clientKey}`);
 
-        // Connect to emulators if running locally, otherwise enable persistence.
+        // Connect to emulators if running locally
         if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
             console.log("Connecting to local Firebase emulators...");
             const { connectAuthEmulator } = await import("https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js");
@@ -194,20 +223,7 @@ loginBtn.addEventListener('click', async () => {
             connectAuthEmulator(auth, "http://127.0.0.1:9099");
             connectFirestoreEmulator(db, "127.0.0.1", 8080);
             connectStorageEmulator(storage, "127.0.0.1", 9199);
-            console.log("Connected to emulators. Offline persistence is disabled.");
-        } else {
-            // Dynamically import and enable offline persistence for production environment
-            try {
-                const { enablePersistence } = await import("https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js");
-                await enablePersistence(db);
-                console.log("Offline persistence enabled for production.");
-            } catch (err) {
-                if (err.code == 'failed-precondition') {
-                  console.warn("Firestore persistence failed: multiple tabs open?");
-                } else if (err.code == 'unimplemented') {
-                  console.warn("Firestore persistence not available in this browser.");
-                }
-            }
+            console.log("Connected to emulators.");
         }
 
         console.log("Attempting to sign in with email and password...");
@@ -361,8 +377,6 @@ async function loadInitialData() {
         // Production orders are now loaded via a real-time listener,
         // so they are removed from the initial batch load.
         const promises = [
-            loadCollection('products', 'codigo'),
-            loadCollection('materials', 'codigo'),
             loadCollection('operators', 'id'),
             loadCollection('equipos', 'id'),
             loadCollection('vales', 'vale_id'),
@@ -372,7 +386,8 @@ async function loadInitialData() {
             loadRecipesCollection()
         ];
 
-        if (currentUserRole?.toLowerCase() === 'administrator') {
+        // products and materials will be loaded via paginated queries when their pages are shown (to avoid loading entire collections)
+        ?.toLowerCase() === 'administrator') {
             promises.push(loadCollection('users', 'uid'));
         }
 
