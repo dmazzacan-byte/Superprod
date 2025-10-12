@@ -67,7 +67,15 @@ async function handleSuccessfulLogin(user) {
         // Setup real-time listeners before loading the rest of the content
         setupProductionOrdersListener();
 
-        await initializeAppContent();
+        try {
+            await initializeAppContent();
+        } catch (error) {
+            console.error("A critical error occurred during app content initialization:", error);
+            Toastify({ text: 'Ocurrió un error al cargar los datos de la aplicación. Por favor, intente de nuevo.', backgroundColor: 'var(--danger-color)', duration: 8000 }).showToast();
+            await handleLogout();
+        } finally {
+            if(splashScreen) splashScreen.classList.remove('splash-visible');
+        }
 
     } catch (error) {
         console.error("A critical error occurred during the login process:", error);
@@ -176,6 +184,19 @@ loginBtn.addEventListener('click', async () => {
         storage = getStorage(app);
         console.log(`Firebase initialized for client: ${clientKey}`);
 
+        // Connect to emulators if running locally
+        if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
+            console.log("Connecting to local Firebase emulators...");
+            const { connectAuthEmulator } = await import("https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js");
+            const { connectFirestoreEmulator } = await import("https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js");
+            const { connectStorageEmulator } = await import("https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js");
+
+            connectAuthEmulator(auth, "http://127.0.0.1:9099");
+            connectFirestoreEmulator(db, "127.0.0.1", 8080);
+            connectStorageEmulator(storage, "127.0.0.1", 9199);
+            console.log("Connected to emulators.");
+        }
+
         console.log("Attempting to sign in with email and password...");
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
 
@@ -205,6 +226,13 @@ loginBtn.addEventListener('click', async () => {
     }
 });
 
+loginForm.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        loginBtn.click();
+    }
+});
+
 logoutBtn.addEventListener('click', handleLogout);
 
 
@@ -226,6 +254,9 @@ let costChartInstance = null, productionChartInstance = null, dailyProductionCha
 async function loadCollection(collectionName, idField) {
     try {
         const querySnapshot = await getDocs(collection(db, collectionName));
+        if (querySnapshot.empty) {
+            return [];
+        }
         const data = [];
         querySnapshot.forEach((doc) => {
             const docData = doc.data();
