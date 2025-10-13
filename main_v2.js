@@ -262,6 +262,76 @@ loginForm.addEventListener('keydown', (e) => {
     }
 });
 
+/* ------------------- FIX LOGIN BEHAVIOR ------------------- */
+const loginBtn = document.getElementById('loginBtn');
+const loginForm = document.getElementById('loginForm');
+const clientSelector = document.getElementById('clientSelector');
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Pre-fill last used company ID
+    const savedClientId = localStorage.getItem('operis-last-client-id');
+    if (savedClientId && clientSelector) {
+        clientSelector.value = savedClientId;
+    }
+});
+
+async function performLogin() {
+    const clientKey = clientSelector.value.trim().toLowerCase();
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value.trim();
+    const spinner = loginBtn.querySelector('.spinner-border');
+
+    if (!clientKey) {
+        Toastify({ text: 'Por favor, ingrese el ID de su empresa.', backgroundColor: 'var(--warning-color)' }).showToast();
+        return;
+    }
+
+    if (!clientConfigs[clientKey]) {
+        Toastify({ text: `El ID de empresa "${clientKey}" no es válido.`, backgroundColor: 'var(--danger-color)' }).showToast();
+        return;
+    }
+
+    spinner.classList.remove('d-none');
+    loginBtn.disabled = true;
+    clientSelector.disabled = true;
+
+    try {
+        const config = clientConfigs[clientKey].firebaseConfig;
+        app = initializeApp(config);
+        auth = getAuth(app);
+        db = getFirestore(app);
+        storage = getStorage(app);
+
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        localStorage.setItem('operis-last-client-id', clientKey);
+        await handleSuccessfulLogin(userCredential.user);
+    } catch (error) {
+        console.error("Login failed:", error);
+        Toastify({ text: `Error: ${error.message || 'Error al iniciar sesión'}`, backgroundColor: 'var(--danger-color)' }).showToast();
+        if (app) {
+            await deleteApp(app);
+            app = null;
+            auth = null;
+            db = null;
+            storage = null;
+        }
+        clientSelector.disabled = false;
+    } finally {
+        spinner.classList.add('d-none');
+        loginBtn.disabled = false;
+    }
+}
+
+loginBtn.addEventListener('click', performLogin);
+
+loginForm.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        performLogin();
+    }
+});
+
+
 logoutBtn.addEventListener('click', handleLogout);
 
 
