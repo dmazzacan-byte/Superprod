@@ -13,35 +13,6 @@ let db;
 let storage;
 
 console.log("Awaiting user login to initialize Firebase...");
-// ---------------------- PAGINATION & LIVE SEARCH STATE ----------------------
-// Default page size for products and materials
-const DEFAULT_PAGE_SIZE = 10;
-
-// Products pagination state
-let productsPageSize = DEFAULT_PAGE_SIZE;
-let productsLastVisible = null; // Firestore document snapshot for startAfter
-let productsFirstVisibleStack = []; // stack of firstVisible docs for navigating back
-let productsCurrentPage = 1;
-let productsTotalPages = 1;
-let productsCurrentSearch = '';
-
-// Materials pagination state
-let materialsPageSize = DEFAULT_PAGE_SIZE;
-let materialsLastVisible = null;
-let materialsFirstVisibleStack = [];
-let materialsCurrentPage = 1;
-let materialsTotalPages = 1;
-let materialsCurrentSearch = '';
-
-// debounce helpers for live search
-function debounce(fn, wait) {
-    let t = null;
-    return (...args) => {
-        clearTimeout(t);
-        t = setTimeout(() => fn(...args), wait);
-    };
-}
-
 
 // -----------------------------------------------------------------------------
 //  Superproducción – Gestión de Producción
@@ -262,74 +233,101 @@ loginForm.addEventListener('keydown', (e) => {
     }
 });
 
-/* ------------------- FIX LOGIN BEHAVIOR ------------------- */
-const loginBtn = document.getElementById('loginBtn');
-const loginForm = document.getElementById('loginForm');
-const clientSelector = document.getElementById('clientSelector');
+
+/* ------------------- DIAGNOSTIC LOGIN SEQUENCE ------------------- */
+console.log("[DIAG] Diagnostic mode active: initializing login diagnostics");
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Pre-fill last used company ID
+    console.log("[DIAG] DOMContentLoaded triggered");
+    const loginBtn = document.getElementById('loginBtn');
+    const loginForm = document.getElementById('loginForm');
+    const clientSelector = document.getElementById('clientSelector');
+    const loginEmail = document.getElementById('loginEmail');
+    const loginPassword = document.getElementById('loginPassword');
+
+    if (!loginBtn || !loginForm || !clientSelector) {
+        console.error("[DIAG] Login elements missing:", { loginBtn, loginForm, clientSelector });
+    } else {
+        console.log("[DIAG] Login elements found");
+    }
+
     const savedClientId = localStorage.getItem('operis-last-client-id');
     if (savedClientId && clientSelector) {
         clientSelector.value = savedClientId;
-    }
-});
-
-async function performLogin() {
-    console.log(">>> performLogin() called");
-    const clientKey = clientSelector.value.trim().toLowerCase();
-    console.log("Client key:", clientKey);
-    const email = document.getElementById('loginEmail').value.trim();
-    const password = document.getElementById('loginPassword').value.trim();
-
-
-    if (!clientKey) {
-        Toastify({ text: 'Por favor, ingrese el ID de su empresa.', backgroundColor: 'var(--warning-color)' }).showToast();
-        return;
+        console.log("[DIAG] Restored last client ID:", savedClientId);
+    } else {
+        console.log("[DIAG] No saved client ID found in localStorage");
     }
 
-    if (!clientConfigs[clientKey]) {
-        Toastify({ text: `El ID de empresa "${clientKey}" no es válido.`, backgroundColor: 'var(--danger-color)' }).showToast();
-        return;
-    }
+    async function performLoginDiagnostic() {
+        console.log("[DIAG] performLoginDiagnostic() called");
+        try {
+            const clientKey = clientSelector.value.trim().toLowerCase();
+            const email = loginEmail.value.trim();
+            const password = loginPassword.value.trim();
+            console.log("[DIAG] Values:", { clientKey, email, password });
 
-    spinner.classList.remove('d-none');
-    loginBtn.disabled = true;
-    clientSelector.disabled = true;
+            if (!clientKey) {
+                console.warn("[DIAG] Missing clientKey");
+                Toastify({ text: 'Por favor, ingrese el ID de su empresa.', backgroundColor: 'var(--warning-color)' }).showToast();
+                return;
+            }
+            if (typeof clientConfigs === 'undefined') {
+                console.error("[DIAG] clientConfigs is undefined!");
+                Toastify({ text: 'Error interno: Configuración no encontrada.', backgroundColor: 'var(--danger-color)' }).showToast();
+                return;
+            }
+            if (!clientConfigs[clientKey]) {
+                console.warn("[DIAG] Invalid clientKey:", clientKey, "Available keys:", Object.keys(clientConfigs));
+                Toastify({ text: `El ID de empresa \"${clientKey}\" no es válido.`, backgroundColor: 'var(--danger-color)' }).showToast();
+                return;
+            }
 
-    try {
-        const config = clientConfigs[clientKey].firebaseConfig;
-        app = initializeApp(config);
-        auth = getAuth(app);
-        db = getFirestore(app);
-        storage = getStorage(app);
+            const spinner = loginBtn.querySelector('.spinner-border');
+            spinner.classList.remove('d-none');
+            loginBtn.disabled = true;
+            clientSelector.disabled = true;
 
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        localStorage.setItem('operis-last-client-id', clientKey);
-        await handleSuccessfulLogin(userCredential.user);
-    } catch (error) {
-        console.error("Login failed:", error);
-        Toastify({ text: `Error: ${error.message || 'Error al iniciar sesión'}`, backgroundColor: 'var(--danger-color)' }).showToast();
-        if (app) {
-            await deleteApp(app);
-            app = null;
-            auth = null;
-            db = null;
-            storage = null;
+            console.log("[DIAG] Initializing Firebase for client:", clientKey);
+            const config = clientConfigs[clientKey].firebaseConfig;
+            console.log("[DIAG] Firebase config keys:", Object.keys(config));
+
+            app = initializeApp(config);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            storage = getStorage(app);
+
+            console.log("[DIAG] Firebase initialized, attempting sign-in...");
+            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            console.log("[DIAG] Sign-in successful:", userCredential.user.email);
+            localStorage.setItem('operis-last-client-id', clientKey);
+            await handleSuccessfulLogin(userCredential.user);
+        } catch (error) {
+            console.error("[DIAG] Login error:", error);
+            Toastify({ text: `Error: ${error.message || 'Error al iniciar sesión'}`, backgroundColor: 'var(--danger-color)' }).showToast();
+        } finally {
+            const spinner = loginBtn.querySelector('.spinner-border');
+            spinner.classList.add('d-none');
+            loginBtn.disabled = false;
+            clientSelector.disabled = false;
         }
-        clientSelector.disabled = false;
-    } finally {
-        spinner.classList.add('d-none');
-        loginBtn.disabled = false;
     }
-}
 
-loginBtn.addEventListener('click', performLogin);
+    if (loginBtn) {
+        loginBtn.addEventListener('click', () => {
+            console.log("[DIAG] Login button clicked");
+            performLoginDiagnostic();
+        });
+    }
 
-loginForm.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        performLogin();
+    if (loginForm) {
+        loginForm.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                console.log("[DIAG] Enter key pressed in login form");
+                performLoginDiagnostic();
+            }
+        });
     }
 });
 
@@ -449,6 +447,8 @@ async function loadInitialData() {
         // Production orders are now loaded via a real-time listener,
         // so they are removed from the initial batch load.
         const promises = [
+            loadCollection('products', 'codigo'),
+            loadCollection('materials', 'codigo'),
             loadCollection('operators', 'id'),
             loadCollection('equipos', 'id'),
             loadCollection('vales', 'vale_id'),
@@ -458,8 +458,7 @@ async function loadInitialData() {
             loadRecipesCollection()
         ];
 
-        // products and materials will be loaded via paginated queries when their pages are shown (to avoid loading entire collections)
-        ?.toLowerCase() === 'administrator') {
+        if (currentUserRole?.toLowerCase() === 'administrator') {
             promises.push(loadCollection('users', 'uid'));
         }
 
