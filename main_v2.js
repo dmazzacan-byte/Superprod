@@ -276,10 +276,12 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function performLogin() {
+    console.log(">>> performLogin() called");
     const clientKey = clientSelector.value.trim().toLowerCase();
+    console.log("Client key:", clientKey);
     const email = document.getElementById('loginEmail').value.trim();
     const password = document.getElementById('loginPassword').value.trim();
-    const spinner = loginBtn.querySelector('.spinner-border');
+
 
     if (!clientKey) {
         Toastify({ text: 'Por favor, ingrese el ID de su empresa.', backgroundColor: 'var(--warning-color)' }).showToast();
